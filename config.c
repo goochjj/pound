@@ -80,6 +80,8 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 
+static regex_t  AccessLog, LogFile;
+
 static regmatch_t   matches[5];
 
 static char *xhttp[] = {
@@ -947,6 +949,18 @@ parse_file(FILE *const f_conf)
                     }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogFile, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((log_file = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "LogFile config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&AccessLog, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((accesslog_file = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "AccessLog config: out of memory - aborted");
+                exit(1);
+            }
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
@@ -1052,6 +1066,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-5])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AccessLog, "^[ \t]*AccessLog[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogFile, "^[ \t]*LogFile[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1172,6 +1188,8 @@ config_parse(const int argc, char **const argv)
     regfree(&Daemon);
     regfree(&LogFacility);
     regfree(&LogLevel);
+    regfree(&LogFile);
+    regfree(&AccessLog);
     regfree(&Alive);
     regfree(&SSLEngine);
     regfree(&Control);

@@ -234,6 +234,10 @@ extern char *user,              /* user to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name;          /* file to record pid in */
 
+extern char *log_file;          /* File to log stuff to */
+extern char *accesslog_file;    /* File to log access stuff to */
+extern FILE *accesslog_fd, *logfile_fd;
+
 extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
