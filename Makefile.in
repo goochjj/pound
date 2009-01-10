@@ -40,7 +40,7 @@ LIBS+= -lcap
 # Configuration file default; if none, look at config.c for default!
 F_CONF=@sysconfdir@/pound.cfg
 
-OBJS=pound.o http.o config.o svc.o
+OBJS=pound.o http.o config.o svc.o base64.o
 
 all:	pound poundctl pound.8
 

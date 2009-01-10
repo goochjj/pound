@@ -282,6 +282,7 @@ typedef struct _matcher {
 /* back-end types */
 typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
 typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
+typedef enum    { USER_NONE, USER_CFAUTH, USER_BASIC, USER_FORM, USER_AUTHTOKEN } USER_TYPE;
 
 /* BE 0x4245 */
 #define BACKEND_MAGIC htons(0x4245)
@@ -311,6 +312,8 @@ typedef struct _backend {
 
 /* session key max size */
 #define KEY_SIZE    127
+#define SESSIONURL_MAX 500
+#define SESSIONUSER_MAX 100
 
 /* SE 0x5345 */
 #define SESS_MAGIC htons(0x5345)
@@ -321,6 +324,10 @@ typedef struct _sess {
     char                key[KEY_SIZE + 1];  /* session key */
     BACKEND             *to_host;           /* backend pointer */
     time_t              last_acc;           /* time of last access */
+    struct in_addr      last_ip;            /* Last IP Address */
+    char                last_url[SESSIONURL_MAX + 1];          /* Last requested URL */
+    char                last_user[SESSIONUSER_MAX + 1];         /* Last username seen */
+    int                 n_requests;         /* number of requests seen */
     int                 children;           /* number of children */
     struct _sess        *left, *right;
 }   SESS;
@@ -338,8 +345,11 @@ typedef struct _service {
                         *deny_head; /* forbidden headers */
     BACKEND             *backends;
     BACKEND             *emergency;
+    char                *name;      /* Name of this service for logging */
     int                 tot_pri;    /* total priority for all back-ends */
     pthread_mutex_t     mut;        /* mutex for this service */
+    USER_TYPE           user_type;  /* Type of authentication */
+    regex_t             user_pat;   /* User pattern to match */
     SESS_TYPE           sess_type;
     int                 sess_ttl;   /* session time-to-live */
     regex_t             sess_pat;   /* pattern to match the session data */
@@ -482,7 +492,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *const, char **const, BACKEND *const);
+extern void upd_session(SERVICE *const, char **const, BACKEND *const, struct in_addr *const, char *const, char *const);
 
 /*
  * Parse a header

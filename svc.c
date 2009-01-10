@@ -251,6 +251,10 @@ sess_add(SESS *root, const char *key, BACKEND *const to_host)
         strncpy(res->key, key, KEY_SIZE);
         res->to_host = to_host;
         res->last_acc = time(NULL);
+        res->last_user[0] = '\0';
+        res->last_url[0] = '\0';
+        res->n_requests = 0;
+        res->last_ip.s_addr = INADDR_ANY;
         res->children = 1;
         res->left = res->right = NULL;
         return res;
@@ -558,18 +562,34 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
+upd_session(SERVICE *const svc, char **const headers, BACKEND *const be, struct in_addr *const from_host, char *const u_name, char *const request)
 {
     char            key[KEY_SIZE + 1];
     int             ret_val;
+    SESS            *sp = NULL;
 
     if(svc->sess_type != SESS_HEADER && svc->sess_type != SESS_COOKIE)
         return;
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
     if(get_HEADERS(key, svc, headers))
-        if(sess_find(svc->sessions, key) == NULL)
+        if((sp = sess_find(svc->sessions, key)) == NULL) {
             svc->sessions = sess_add(svc->sessions, key, be);
+            sp = sess_find(svc->sessions, key);
+        }
+        if (sp != NULL) {
+            memcpy(&sp->last_ip, from_host, sizeof(*from_host));
+            fprintf(stderr,"%d:%s\n",(request==NULL)?0:strlen(request), (request==NULL)?"(nullrequest)":request);fflush(stderr);
+            /* Null terminated since string is MAX+1 length and memset got it on sess_add */
+            if (u_name!=NULL && ( !sp->last_user[0]  || strcmp(sp->last_user, u_name))) {
+                fprintf(stderr,"%d:%s\n",strlen(u_name), u_name);
+                strncpy(sp->last_user, u_name, SESSIONUSER_MAX);
+            }
+            if (request!=NULL) {
+                strncpy(sp->last_url, request, SESSIONURL_MAX);
+            }
+            sp->n_requests++;
+        }
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     return;
