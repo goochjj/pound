@@ -1051,9 +1051,15 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(rewrite_redir && redir && v_host[0] && is_be(buf, &to_host, v_host, loc_path, grp)) {
-                        snprintf(buf, MAXBUF, "Location: %s://%s/%s",
-                            (ssl == NULL? "http": "https"), v_host, loc_path);
+                    if(rewrite_redir && redir && is_be(buf, &to_host, v_host, loc_path, grp)) {
+                        if (v_host[0] || to_host.sin_port == htons((ssl==NULL)?80:443)) {
+                            snprintf(buf, MAXBUF, "Location: %s://%s/%s",
+                                (ssl == NULL? "http": "https"), (v_host[0])?(v_host):inet_ntoa(to_host.sin_addr), loc_path);
+                        } else {
+                            snprintf(buf, MAXBUF, "Location: %s://%s:%d/%s",
+                                (ssl == NULL? "http": "https"), 
+                                inet_ntoa(to_host.sin_addr), ntohs(to_host.sin_port), loc_path);
+                        }
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "rewrite Location - out of memory: %s", strerror(errno));
