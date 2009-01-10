@@ -26,9 +26,9 @@
 #
 # $Id: Makefile.in,v 1.9 2005/06/01 15:01:54 roseg Rel roseg $
 
-CFLAGS=-DF_CONF=\"$(F_CONF)\" @CFLAGS@ @CPPFLAGS@
+CFLAGS=-DF_CONF=\"$(F_CONF)\" -DLINUXCAPS @CFLAGS@ @CPPFLAGS@
 
-LIBS=@LIBS@
+LIBS=@LIBS@ -lcap
 
 prefix=@prefix@
 exec_prefix=@exec_prefix@
