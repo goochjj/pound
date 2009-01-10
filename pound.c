@@ -28,6 +28,9 @@
  */
 
 #include    "pound.h"
+#ifdef LINUXCAPS
+#include <sys/capability.h>
+#endif
 
 /* common variables */
 char        *user,              /* user to run as */
@@ -295,6 +298,22 @@ main(const int argc, char **argv)
             logmsg(LOG_ERR, "setuid: %s - aborted", strerror(errno));
             exit(1);
         }
+
+#ifdef LINUXCAPS
+    /* Drop all capabilities explicitly */
+    {
+        cap_t caps = cap_init();
+        if (!caps) {
+            logmsg(LOG_ERR, "cap_init: %s - aborted", strerror(errno));
+            exit(1);
+        }
+        if (cap_set_proc(caps)) {
+            logmsg(LOG_ERR, "cap_set_proc: %s - aborted", strerror(errno));
+            exit(1);
+        }
+        cap_free(caps);
+    }
+#endif
 
     /* split off into monitor and working process if necessary */
     for(;;) {
