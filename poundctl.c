@@ -158,11 +158,11 @@ main(const int argc, char **argv)
                     if(be.disabled < 0)
                         break;
                     if(be.domain == PF_INET)
-                        printf("    %3d. Backend PF_INET %s:%hd %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
-                            ntohs(be.addr.in.sin_port), be.disabled? "*D": "a");
+                        printf("    %3d. Backend PF_INET %s:%hd %s %d %f %f\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
+                            ntohs(be.addr.in.sin_port), be.disabled? "*D": "a", be.n_requests, be.t_requests, be.t_average);
                     else
-                        printf("    %3d. Backend PF_UNIX %s %s\n", n_be++, be.addr.un.sun_path,
-                            be.disabled? "*D": "");
+                        printf("    %3d. Backend PF_UNIX %s %s %d %f %f\n", n_be++, be.addr.un.sun_path,
+                            be.disabled? "*D": "", be.n_requests, be.t_requests, be.t_average);
                 }
                 n_sess = 0;
                 while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
@@ -172,7 +172,7 @@ main(const int argc, char **argv)
                     }
                     if((int)sess.to_host < 0)
                         break;
-                    printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);
+                    printf("    %3d. Session %s -> %d   %s  %s %s  %d %d %d/%d\n", n_sess++, sess.key, (int)sess.to_host, sess.last_user, sess.last_url, inet_ntoa(sess.last_ip), sess.n_requests, sess.last_acc, (sess.last_acc+svc.sess_ttl)-time(NULL), svc.sess_ttl);
                 }
             }
         }
@@ -198,11 +198,11 @@ main(const int argc, char **argv)
                 if(be.disabled < 0)
                     break;
                 if(be.domain == PF_INET)
-                    printf("    %3d. Backend PF_INET %s:%hd %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
-                        ntohs(be.addr.in.sin_port), be.disabled? "*D": "a");
+                    printf("    %3d. Backend PF_INET %s:%hd %s %d %f %f\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
+                        ntohs(be.addr.in.sin_port), be.disabled? "*D": "a", be.n_requests, be.t_requests, be.t_average);
                 else
-                    printf("    %3d. Backend PF_UNIX %s %s\n", n_be++, be.addr.un.sun_path,
-                        be.disabled? "*D": "");
+                    printf("    %3d. Backend PF_UNIX %s %s %d %f %f\n", n_be++, be.addr.un.sun_path,
+                        be.disabled? "*D": "", be.n_requests, be.t_requests, be.t_average);
             }
             n_sess = 0;
             while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
@@ -212,7 +212,7 @@ main(const int argc, char **argv)
                 }
                 if((int)sess.to_host < 0)
                     break;
-                printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);
+                printf("    %3d. Session %s -> %d   %s  %s  %s  %d %d %d/%d\n", n_sess++, sess.key, (int)sess.to_host, sess.last_user, sess.last_url, inet_ntoa(sess.last_ip), sess.n_requests, sess.last_acc, (sess.last_acc+svc.sess_ttl)-time(NULL), svc.sess_ttl);
             }
         }
     }

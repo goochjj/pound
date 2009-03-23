@@ -666,7 +666,7 @@ thr_http(void *arg)
             clean_all();
             pthread_exit(NULL);
         }
-        if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
+        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host);
             logmsg(LOG_NOTICE, "no back-end \"%s\" from %s", request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -693,7 +693,7 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "backend %s connect: %s", backend->addr.un.sun_path, strerror(errno));
                     close(sock);
                     kill_be(svc, backend);
-                    if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
+                    if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
                         addr2str(caddr, MAXBUF - 1, &from_host);
                         logmsg(LOG_NOTICE, "no back-end \"%s\" from %s", request, caddr);
                         err_reply(cl, h503, lstn->err503);
@@ -719,7 +719,7 @@ thr_http(void *arg)
                         caddr, ntohs(backend->addr.in.sin_port), strerror(errno));
                     close(sock);
                     kill_be(svc, backend);
-                    if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
+                    if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
                         addr2str(caddr, MAXBUF - 1, &from_host);
                         logmsg(LOG_NOTICE, "no back-end \"%s\" from %s", request, caddr);
                         err_reply(cl, h503, lstn->err503);
@@ -991,6 +991,18 @@ thr_http(void *arg)
                 logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", caddr,
                     u_name[0]? u_name: "-", req_time, request, referer, u_agent);
                 break;
+            case 5:
+                addr2str(caddr, MAXBUF - 1, &from_host);
+                logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", "-", caddr,
+                    u_name[0]? u_name: "-", req_time, request, response[9], response[10], response[11],
+                    s_res_bytes, referer, u_agent);
+                break;
+            case 6:
+                addr2str(caddr, MAXBUF - 1, &from_host);
+                logmsg(LOG_INFO, "%s %s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", (svc->name==NULL)?"-":svc->name, "-", caddr,
+                    u_name[0]? u_name: "-", req_time, request, response[9], response[10], response[11],
+                    s_res_bytes, referer, u_agent);
+                break;
             }
             if(!cl_11 || conn_closed || force_10)
                 break;
@@ -1062,7 +1074,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies/header) */
-            upd_session(svc, &headers[1], cur_backend);
+            upd_session(svc, &headers[1], cur_backend, u_name);
 
             /* send the response */
             if(!skip)
@@ -1206,6 +1218,20 @@ thr_http(void *arg)
         case 4:
             addr2str(caddr, MAXBUF - 1, &from_host);
             logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", caddr,
+                u_name[0]? u_name: "-", req_time, request, response[9], response[10], response[11],
+                s_res_bytes, referer, u_agent);
+            break;
+        case 5:
+            str_be(buf, MAXBUF - 1, cur_backend);
+            addr2str(caddr, MAXBUF - 1, &from_host);
+            logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", buf, caddr,
+                u_name[0]? u_name: "-", req_time, request, response[9], response[10], response[11],
+                s_res_bytes, referer, u_agent);
+            break;
+        case 6:
+            str_be(buf, MAXBUF - 1, cur_backend);
+            addr2str(caddr, MAXBUF - 1, &from_host);
+            logmsg(LOG_INFO, "%s %s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", (svc->name==NULL)?"-":svc->name, buf, caddr,
                 u_name[0]? u_name: "-", req_time, request, response[9], response[10], response[11],
                 s_res_bytes, referer, u_agent);
             break;

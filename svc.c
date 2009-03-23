@@ -59,7 +59,7 @@ logmsg(const int priority, const char *fmt, ...)
             t_now = localtime(&now);
 #endif
             strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", t_now);
-            fprintf(stderr, "%s: %s\n", t_stamp, buf);
+            fprintf((priority == LOG_INFO ? stdout : stderr), "%s: %s\n", t_stamp, buf);
         }
     } else {
         if(print_log)
@@ -250,7 +250,12 @@ sess_add(SESS *root, const char *key, BACKEND *const to_host)
         res->magic = SESS_MAGIC;
         strncpy(res->key, key, KEY_SIZE);
         res->to_host = to_host;
-        res->last_acc = time(NULL);
+        res->first_acc = time(NULL);
+        res->last_acc = res->first_acc;
+        res->last_user[0] = '\0';
+        res->last_url[0] = '\0';
+        res->n_requests = 1;
+        res->last_ip.s_addr = INADDR_ANY;
         res->children = 1;
         res->left = res->right = NULL;
         return res;
@@ -489,7 +494,7 @@ rand_backend(BACKEND *be, int pri)
  * Find the right back-end for a request
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *request, char **const headers)
+get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *request, char **const headers, char *const u_name)
 {
     BACKEND     *res;
     SESS        *sp;
@@ -516,6 +521,13 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
         } else {
             res = sp->to_host;
             sp->last_acc = time(NULL);
+            strncpy(sp->last_url, request, SESSIONURL_MAX);
+            sp->last_ip.s_addr = from_host->s_addr;
+            sp->n_requests++;
+            /* Null terminated since string is MAX+1 length and memset got it on sess_add */
+            if (u_name!=NULL && ( !sp->last_user[0]  || strcmp(sp->last_user, u_name))) {
+                strncpy(sp->last_user, u_name, SESSIONUSER_MAX);
+            }
         }
         break;
     case SESS_PARM:
@@ -527,6 +539,13 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
             } else {
                 res = sp->to_host;
                 sp->last_acc = time(NULL);
+                strncpy(sp->last_url, request, SESSIONURL_MAX);
+                sp->last_ip.s_addr = from_host->s_addr;
+                sp->n_requests++;
+                /* Null terminated since string is MAX+1 length and memset got it on sess_add */
+                if (u_name!=NULL && ( !sp->last_user[0]  || strcmp(sp->last_user, u_name))) {
+                    strncpy(sp->last_user, u_name, SESSIONUSER_MAX);
+                }
             }
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -542,6 +561,13 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
             } else {
                 res = sp->to_host;
                 sp->last_acc = time(NULL);
+                strncpy(sp->last_url, request, SESSIONURL_MAX);
+                sp->last_ip.s_addr = from_host->s_addr;
+                sp->n_requests++;
+                /* Null terminated since string is MAX+1 length and memset got it on sess_add */
+                if (u_name!=NULL && ( !sp->last_user[0]  || strcmp(sp->last_user, u_name))) {
+                    strncpy(sp->last_user, u_name, SESSIONUSER_MAX);
+                }
             }
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -558,18 +584,27 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
+upd_session(SERVICE *const svc, char **const headers, BACKEND *const be, char *const u_name)
 {
     char            key[KEY_SIZE + 1];
     int             ret_val;
+    SESS            *sp = NULL;
 
     if(svc->sess_type != SESS_HEADER && svc->sess_type != SESS_COOKIE)
         return;
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
     if(get_HEADERS(key, svc, headers))
-        if(sess_find(svc->sessions, key) == NULL)
+        if((sp = sess_find(svc->sessions, key)) == NULL) {
             svc->sessions = sess_add(svc->sessions, key, be);
+            sp = sess_find(svc->sessions, key);
+        }
+        if (sp != NULL) {
+            /* Null terminated since string is MAX+1 length and memset got it on sess_add */
+            if (u_name!=NULL && ( !sp->last_user[0]  || strcmp(sp->last_user, u_name))) {
+                strncpy(sp->last_user, u_name, SESSIONUSER_MAX);
+            }
+        }
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     return;
@@ -605,7 +640,7 @@ kill_be(SERVICE *const svc, const BACKEND *be)
 void
 upd_be(BACKEND *const be, const double elapsed)
 {
-#ifndef NO_DYNSCALE
+/*#ifndef NO_DYNSCALE*/
     int     ret_val;
 
     if(ret_val = pthread_mutex_lock(&be->mut))
@@ -619,7 +654,7 @@ upd_be(BACKEND *const be, const double elapsed)
     be->t_average = be->t_requests / be->n_requests;
     if(ret_val = pthread_mutex_unlock(&be->mut))
         logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
-#endif  /* NO_DYNSCALE */
+/*#endif*/  /* NO_DYNSCALE */
     return;
 }
 

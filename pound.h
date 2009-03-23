@@ -311,6 +311,8 @@ typedef struct _backend {
 
 /* session key max size */
 #define KEY_SIZE    127
+#define SESSIONURL_MAX 500
+#define SESSIONUSER_MAX 100
 
 /* SE 0x5345 */
 #define SESS_MAGIC htons(0x5345)
@@ -320,7 +322,12 @@ typedef struct _sess {
     short               magic;              // 'SE'
     char                key[KEY_SIZE + 1];  /* session key */
     BACKEND             *to_host;           /* backend pointer */
+    time_t              first_acc;          /* time of first access */
     time_t              last_acc;           /* time of last access */
+    struct in_addr      last_ip;            /* Last IP Address */
+    char                last_url[SESSIONURL_MAX + 1];          /* Last requested URL */
+    char                last_user[SESSIONUSER_MAX + 1];         /* Last username seen */
+    int                 n_requests;         /* number of requests seen */
     int                 children;           /* number of children */
     struct _sess        *left, *right;
 }   SESS;
@@ -465,7 +472,7 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct in_addr *, const char *, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct in_addr *, const char *, char **const, char *const);
 
 /*
  * init the gethostbyname protection mutex
@@ -482,7 +489,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *const, char **const, BACKEND *const);
+extern void upd_session(SERVICE *const, char **const, BACKEND *const, char *const);
 
 /*
  * Parse a header
