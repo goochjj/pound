@@ -240,6 +240,8 @@ int     alive_to;           /* check interval for resurrection */
 long    max_req;            /* maximal allowed request size */
 char    **http,             /* HTTP port to listen on */
         **https,            /* HTTPS port to listen on */
+        **status_txt,       /* Status port to listen on and return TEXT */
+        **status_http,      /* Status port to listen on and return HTTP */
         **cert,             /* certificate file */
         **ciphers,          /* cipher types */
 #if HAVE_OPENSSL_ENGINE_H
@@ -381,6 +383,7 @@ main(int argc, char **argv)
     pthread_t           thr;
     pthread_attr_t      attr;
     int                 *http_sock, *https_sock, clnt_length, i, n, n_polls, clnt, host_length;
+    int                 *status_txt_sock, *status_http_sock;
     struct sockaddr_in  host_addr, clnt_addr;
     struct hostent      *host;
     struct pollfd       *polls;
@@ -524,6 +527,116 @@ main(int argc, char **argv)
         }
     }
 
+    /* get Status Text address and port */
+    if(status_txt[0]) {
+        for(i = 0; status_txt[i]; i++)
+            ;
+        if((status_txt_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
+            logmsg(LOG_ERR, "status_txt_sock out of memory - aborted");
+            exit(1);
+        }
+        for(i = 0; status_txt[i]; i++) {
+            memset(&host_addr, 0, sizeof(host_addr));
+            host_addr.sin_family = AF_INET;
+
+            /* host */
+            if(regexec(&LISTEN_ADDR, status_txt[i], 3, matches, 0)) {
+                logmsg(LOG_ERR, "bad StatusText spec %s - aborted", status_txt[i]);
+                exit(1);
+            }
+            status_txt[i][matches[1].rm_eo] = '\0';
+            if(strcmp(status_txt[i], "*") == 0) {
+                /*
+                 * listen on all interfaces
+                 */
+                host_addr.sin_addr.s_addr = INADDR_ANY;
+            } else {
+                if((host = gethostbyname(status_txt[i])) == NULL) {
+                    logmsg(LOG_ERR, "Unknown StatusText host %s", status_txt[i]);
+                    exit(1);
+                }
+                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+            }
+            /* port */
+            host_addr.sin_port = (in_port_t)htons(atoi(status_txt[i] + matches[2].rm_so));
+
+            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+                logmsg(LOG_WARNING, "%s:%s already in use - skipped", status_txt[i], status_txt[i] + matches[2].rm_so);
+                status_txt_sock[i] = -1;
+            } else {
+                int opt;
+
+                /* prepare the socket */
+                if((status_txt_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+                    logmsg(LOG_ERR, "StatusText socket create: %s - aborted", strerror(errno));
+                    exit(1);
+                }
+                opt = 1;
+                setsockopt(status_txt_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
+                if(bind(status_txt_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                    logmsg(LOG_ERR, "StatusText socket bind: %s - aborted", strerror(errno));
+                    exit(1);
+                }
+                listen(status_txt_sock[i], 512);
+            }
+        }
+    }
+
+    /* get Status Text address and port */
+    if(status_http[0]) {
+        for(i = 0; status_http[i]; i++)
+            ;
+        if((status_http_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
+            logmsg(LOG_ERR, "status_http_sock out of memory - aborted");
+            exit(1);
+        }
+        for(i = 0; status_http[i]; i++) {
+            memset(&host_addr, 0, sizeof(host_addr));
+            host_addr.sin_family = AF_INET;
+
+            /* host */
+            if(regexec(&LISTEN_ADDR, status_http[i], 3, matches, 0)) {
+                logmsg(LOG_ERR, "bad StatusHTTP spec %s - aborted", status_http[i]);
+                exit(1);
+            }
+            status_http[i][matches[1].rm_eo] = '\0';
+            if(strcmp(status_http[i], "*") == 0) {
+                /*
+                 * listen on all interfaces
+                 */
+                host_addr.sin_addr.s_addr = INADDR_ANY;
+            } else {
+                if((host = gethostbyname(status_http[i])) == NULL) {
+                    logmsg(LOG_ERR, "Unknown StatusHTTP host %s", status_http[i]);
+                    exit(1);
+                }
+                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+            }
+            /* port */
+            host_addr.sin_port = (in_port_t)htons(atoi(status_http[i] + matches[2].rm_so));
+
+            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+                logmsg(LOG_WARNING, "%s:%s already in use - skipped", status_http[i], status_http[i] + matches[2].rm_so);
+                status_http_sock[i] = -1;
+            } else {
+                int opt;
+
+                /* prepare the socket */
+                if((status_http_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+                    logmsg(LOG_ERR, "StatusHTTP socket create: %s - aborted", strerror(errno));
+                    exit(1);
+                }
+                opt = 1;
+                setsockopt(status_http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
+                if(bind(status_http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                    logmsg(LOG_ERR, "StatusHTTP socket bind: %s - aborted", strerror(errno));
+                    exit(1);
+                }
+                listen(status_http_sock[i], 512);
+            }
+        }
+    }
+
     /* get HTTPS address and port */
     if(https[0]) {
         init_RSAgen();
@@ -663,6 +776,12 @@ main(int argc, char **argv)
     for(i = 0; https[i]; i++)
         if(https_sock[i] >= 0)
             n_polls++;
+    for(i = 0; status_txt[i]; i++)
+        if(status_txt_sock[i] >= 0)
+            n_polls++;
+    for(i = 0; status_http[i]; i++)
+        if(status_http_sock[i] >= 0)
+            n_polls++;
     if((polls = (struct pollfd *)calloc(n_polls, sizeof(struct pollfd))) == NULL) {
         logmsg(LOG_ERR, "Out of memory for poll - aborted");
         exit(1);
@@ -674,6 +793,12 @@ main(int argc, char **argv)
     for(i = 0; https[i]; i++)
         if(https_sock[i] >= 0)
             polls[n++].fd = https_sock[i];
+    for(i = 0; status_txt[i]; i++)
+        if(status_txt_sock[i] >= 0)
+            polls[n++].fd = status_txt_sock[i];
+    for(i = 0; status_http[i]; i++)
+        if(status_http_sock[i] >= 0)
+            polls[n++].fd = status_http_sock[i];
 
     /* set uid if necessary */
     if(user) {
@@ -890,6 +1015,74 @@ main(int argc, char **argv)
                                     if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
                                         logmsg(LOG_WARNING, "HTTPS pthread_create: %s", strerror(errno));
                                         SSL_free(arg->ssl);
+                                        free(arg);
+                                        close(clnt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for(i = 0; status_txt[i]; i++) {
+                        if(status_txt_sock[i] >= 0)
+                            n++;
+                        if(polls[n].revents & (POLLIN | POLLPRI)) {
+                            memset(&clnt_addr, 0, sizeof(clnt_addr));
+                            clnt_length = sizeof(clnt_addr);
+                            if((clnt = accept(status_txt_sock[i], (struct sockaddr *)&clnt_addr,
+                                (socklen_t *)&clnt_length)) < 0) {
+                                logmsg(LOG_WARNING, "StatusText accept: %s", strerror(errno));
+                            } else if (clnt_addr.sin_family != AF_INET) {
+                                /* may happen on FreeBSD, I am told */
+                                logmsg(LOG_WARNING, "StatusText connection prematurely closed by peer");
+                                close(clnt);
+                            } else {
+                                thr_arg *arg;
+
+                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                    logmsg(LOG_WARNING, "StatusText arg: malloc");
+                                    close(clnt);
+                                } else {
+                                    arg->sock = clnt;
+                                    arg->from_host = clnt_addr.sin_addr;
+                                    memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
+                                    getsockname(status_txt_sock[i], (struct sockaddr *)&arg->to_host, &host_length);
+                                    arg->ssl = NULL;
+                                    if(pthread_create(&thr, &attr, thr_status_txt, (void *)arg)) {
+                                        logmsg(LOG_WARNING, "StatusText pthread_create: %s", strerror(errno));
+                                        free(arg);
+                                        close(clnt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for(i = 0; status_http[i]; i++) {
+                        if(status_http_sock[i] >= 0)
+                            n++;
+                        if(polls[n].revents & (POLLIN | POLLPRI)) {
+                            memset(&clnt_addr, 0, sizeof(clnt_addr));
+                            clnt_length = sizeof(clnt_addr);
+                            if((clnt = accept(status_http_sock[i], (struct sockaddr *)&clnt_addr,
+                                (socklen_t *)&clnt_length)) < 0) {
+                                logmsg(LOG_WARNING, "StatusHTTP accept: %s", strerror(errno));
+                            } else if (clnt_addr.sin_family != AF_INET) {
+                                /* may happen on FreeBSD, I am told */
+                                logmsg(LOG_WARNING, "StatusHTTP connection prematurely closed by peer");
+                                close(clnt);
+                            } else {
+                                thr_arg *arg;
+
+                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                    logmsg(LOG_WARNING, "StatusHTTP arg: malloc");
+                                    close(clnt);
+                                } else {
+                                    arg->sock = clnt;
+                                    arg->from_host = clnt_addr.sin_addr;
+                                    memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
+                                    getsockname(status_http_sock[i], (struct sockaddr *)&arg->to_host, &host_length);
+                                    arg->ssl = NULL;
+                                    if(pthread_create(&thr, &attr, thr_status_http, (void *)arg)) {
+                                        logmsg(LOG_WARNING, "StatusHTTP pthread_create: %s", strerror(errno));
                                         free(arg);
                                         close(clnt);
                                     }

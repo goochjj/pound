@@ -297,6 +297,58 @@ check_header(char *header, char *content)
         return HEADER_ILLEGAL;
 }
 
+ /*
+ * Write session information to a socket, text format
+ */
+int
+sess_write_txt(BIO *out, GROUP *g, SESS *root)
+{
+    char *be_ip, *cl_ip;
+    if(!g)
+        return 0;
+    if(!root)
+        return 1;
+    be_ip = strdup(inet_ntoa(g->backend_addr[root->to_host].addr.sin_addr));
+    cl_ip = strdup(inet_ntoa(root->last_ip));
+    BIO_printf(out, "%s\t%s:%d(%s)\t%s\t%s\t%d/%d\t%d\t%d\t%s\n", 
+        root->key, be_ip,ntohs(g->backend_addr[root->to_host].addr.sin_port),
+        g->backend_addr[root->to_host].alive?("alive"):("dead"),
+        cl_ip, (root->user)?(root->user):"(none)",
+        root->last_acc+g->sess_to - time(NULL), g->sess_to,
+        root->last_acc, root->requests, 
+        (root->last_url)?(root->last_url):"(none)");
+    if (be_ip) free(be_ip);
+    if (cl_ip) free(cl_ip);
+
+    return sess_write_txt(out, g, root->left) && sess_write_txt(out, g, root->right);
+}
+
+ /*
+ * Write session information to a socket, html format (tr)
+ */
+int
+sess_write_tr(BIO *out, GROUP *g, SESS *root)
+{
+    char *be_ip, *cl_ip;
+    if(!g)
+        return 0;
+    if(!root)
+        return 1;
+    be_ip = strdup(inet_ntoa(g->backend_addr[root->to_host].addr.sin_addr));
+    cl_ip = strdup(inet_ntoa(root->last_ip));
+    BIO_printf(out, "<tr><td>%s</td><td>%s:%d(%s)</td><td>%s</td><td>%s</td><td>%d/%d</td><td>%d</td><td>%d</td><td>%s</td></tr>\n", 
+        root->key, be_ip,ntohs(g->backend_addr[root->to_host].addr.sin_port),
+        g->backend_addr[root->to_host].alive?("alive"):("dead"),
+        cl_ip, (root->user)?(root->user):"(none)",
+        root->last_acc+g->sess_to - time(NULL), g->sess_to,
+        root->last_acc, root->requests, 
+        (root->last_url)?(root->last_url):"(none)");
+    if (be_ip) free(be_ip);
+    if (cl_ip) free(cl_ip);
+
+    return sess_write_tr(out, g, root->left) && sess_write_tr(out, g, root->right);
+}
+
 /*
  * Find a session in a tree
  */

@@ -282,6 +282,8 @@ extern int  alive_to;           /* check interval for resurrection */
 extern long max_req;            /* maximal allowed request size */
 extern char **http,             /* HTTP port to listen on */
             **https,            /* HTTPS port to listen on */
+            **status_txt,       /* Status port to listen on and return TEXT */
+            **status_http,      /* Status port to listen on and return HTTP */
             **cert,             /* certificate file */
             **ciphers,          /* cipher type */
 #if HAVE_OPENSSL_ENGINE_H
@@ -426,6 +428,13 @@ typedef u_int16_t   in_port_t;
  * handle an HTTP request
  */
 extern void *thr_http(void *);
+
+/*
+ * handle an STATUS request
+ */
+extern void *thr_status_txt(void *);
+extern void *thr_status_http(void *);
+
 
 /*
  * Log an error to the syslog or to stderr

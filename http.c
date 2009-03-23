@@ -579,6 +579,154 @@ URL_syntax(char *line)
     if(ssl != NULL) { ERR_clear_error(); ERR_remove_state(0); } \
 }
 
+void *
+thr_status_http(void *arg)
+{
+    BIO                 *cl, *bb, *be=NULL;
+    thr_arg             *a;
+    struct in_addr      from_host;
+    struct sockaddr_in  *srv, to_host;
+    char headers_ok[MAXHEADERS], **headers;
+    int sock,n,i;
+    struct linger       l;
+
+    a = (thr_arg *)arg;
+    from_host = a->from_host;
+    to_host = a->to_host;
+    sock = a->sock;
+    free(a);
+
+    n = 0;
+    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
+    l.l_onoff = 1;
+    l.l_linger = 30;
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
+
+    if((cl = BIO_new_socket(sock, 1)) == NULL) {
+        logmsg(LOG_WARNING, "BIO_new_socket failed");
+        shutdown(sock, 2);
+        close(sock);
+        pthread_exit(NULL);
+    }
+    if(clnt_to > 0) {
+        BIO_set_callback_arg(cl, (char *)&clnt_to);
+        BIO_set_callback(cl, bio_callback);
+    }
+    
+    if((bb = BIO_new(BIO_f_buffer())) == NULL) {
+        logmsg(LOG_WARNING, "BIO_new(buffer) failed");
+        BIO_free_all(cl);
+        pthread_exit(NULL);
+    }
+    cl = BIO_push(bb, cl);
+
+    for(n = 0; n < MAXHEADERS; n++)
+        headers_ok[n] = 1;
+    if((headers = get_headers(cl, cl)) == NULL) {
+        if(be != NULL) { BIO_flush(be); BIO_reset(be); BIO_free_all(be); be = NULL; } \
+        if(cl != NULL) { BIO_flush(cl); BIO_reset(cl); BIO_free_all(cl); cl = NULL; } \
+        pthread_exit(NULL);
+        return;
+    }
+
+    BIO_printf(cl, "HTTP/1.1 200 OK\nServer: Pound\nContent-Type: text/html; charset=UTF-8\n\n");
+
+    BIO_printf(cl, "<html>\n\t<head>\n\t\t<title>Pound Status</title>\n%s\t</head>\n\t<body class='formbg'>\n",
+        "<style type='text/css'>\nbody { border: 0px; padding: 0px; margin: 0px; background: white; color: black; font-family: arial, helvetica, sans-serif; font-size: .9em; text-decoration: none; font-weight: normal; font-style: normal; } "
+        ".formbg { background: #BFBFBF; color: black; } "
+        ".headbg { background: #EEEEEE; color: black; } "
+        "div.header { background: #EEEEEE; color: black; clear: both; left: 0; right: 0; width: auto; border: black solid 2px; font-size: 1em; font-weight: bold; padding-left: 10px; } "
+        "table, tr, td, th { border: 1px solid black; border-collapse: collapse; } "
+        "tr { background: white; color:black; } "
+        "td { padding: 5px; margin: 0px; } "
+        "th { background: #000099; font-weight: bold; color: white; border: 1px solid black; padding-left: 5px; padding-right: 5px; margin: 0px; } "
+        "</style>");
+    for (i=0; groups[i]; i++) {
+        pthread_mutex_lock(&groups[i]->mut);
+        BIO_printf(cl, "\t\t<div class='header'>Group %s(%d) Requests %d Hits %d Misses %d</div>\n",
+            (groups[i]->name)?(groups[i]->name):"", i, groups[i]->requests, groups[i]->hits, groups[i]->misses);
+        BIO_printf(cl, "\t\t<table border='1' width='100%%'>\n\t\t\t<tr><th>SessionKey</th><th>Backend</th><th>ClientIP</th><th>User</th><th>SessionTime</th><th>LastAccTS</th><th>Requests</th><th>LastURL</th></tr>\n");
+        sess_write_tr(cl, groups[i], groups[i]->sessions);
+        BIO_printf(cl, "</table>\n<table>\n<tr><th>Backend</th><th>Requests</th></tr>\n");
+        for(n = 0; n < groups[i]->tot_pri; n++) {
+            BIO_printf(cl, "<tr><td>%s:%d(%s)</td><td>%d</td></tr>\n", 
+                inet_ntoa(groups[i]->backend_addr[n].addr.sin_addr),
+                ntohs(groups[i]->backend_addr[n].addr.sin_port),
+                groups[i]->backend_addr[n].alive?("alive"):("dead"),
+                groups[i]->backend_addr[n].requests);
+        }
+        BIO_printf(cl, "</table>\n");
+        pthread_mutex_unlock(&groups[i]->mut);
+    }
+    BIO_printf(cl, "</body>\n</html>\n");
+    if(be != NULL) { BIO_flush(be); BIO_free_all(be); be = NULL; }
+    if(cl != NULL) { BIO_flush(cl); BIO_free_all(cl); cl = NULL; }
+    pthread_exit(NULL);
+    return;
+}
+
+void *
+thr_status_txt(void *arg)
+{
+    BIO                 *cl, *bb, *be=NULL;
+    thr_arg             *a;
+    struct in_addr      from_host;
+    struct sockaddr_in  *srv, to_host;
+    int sock,n,i;
+    struct linger       l;
+
+    a = (thr_arg *)arg;
+    from_host = a->from_host;
+    to_host = a->to_host;
+    sock = a->sock;
+    free(a);
+
+    n = 0;
+    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
+    l.l_onoff = 1;
+    l.l_linger = 30;
+    setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
+
+    if((cl = BIO_new_socket(sock, 1)) == NULL) {
+        logmsg(LOG_WARNING, "BIO_new_socket failed");
+        shutdown(sock, 2);
+        close(sock);
+        pthread_exit(NULL);
+    }
+    if(clnt_to > 0) {
+        BIO_set_callback_arg(cl, (char *)&clnt_to);
+        BIO_set_callback(cl, bio_callback);
+    }
+    
+    if((bb = BIO_new(BIO_f_buffer())) == NULL) {
+        logmsg(LOG_WARNING, "BIO_new(buffer) failed");
+        BIO_free_all(cl);
+        pthread_exit(NULL);
+    }
+    cl = BIO_push(bb, cl);
+
+    for (i=0; groups[i]; i++) {
+        pthread_mutex_lock(&groups[i]->mut);
+        BIO_printf(cl, "Group %s(%d) Requests %d Hits %d Misses %d\n",
+            (groups[i]->name)?(groups[i]->name):"", i, groups[i]->requests, groups[i]->hits, groups[i]->misses);
+        sess_write_txt(cl, groups[i], groups[i]->sessions);
+        for(n = 0; n < groups[i]->tot_pri; n++) {
+            BIO_printf(cl, "Backend %s:%d(%s) Requests %d\n", 
+                inet_ntoa(groups[i]->backend_addr[n].addr.sin_addr),
+                ntohs(groups[i]->backend_addr[n].addr.sin_port),
+                groups[i]->backend_addr[n].alive?("alive"):("dead"),
+                groups[i]->backend_addr[n].requests);
+        }
+        BIO_printf(cl, "\n");
+        pthread_mutex_unlock(&groups[i]->mut);
+    }
+    if(be != NULL) { BIO_flush(be); BIO_free_all(be); be = NULL; }
+    if(cl != NULL) { BIO_flush(cl); BIO_free_all(cl); cl = NULL; }
+    pthread_exit(NULL);
+    return;
+}
+
+
 /*
  * handle an HTTP request
  */

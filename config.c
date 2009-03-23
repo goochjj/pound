@@ -239,18 +239,22 @@ parse_file(char *fname)
                         SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
-                        RewriteRedir, NoDaemon, GroupName, AuthTypeBasic, AuthTypeColdfusion;
+                        RewriteRedir, NoDaemon, GroupName, AuthTypeBasic, AuthTypeColdfusion, ListenStatusText, ListenStatusHTTP;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
     struct hostent      *host;
     BACKEND             *be;
-    int                 j, k, tot_be, tot_groups, tot_req, tot_deny, in_group, n_http, n_https;
+    int                 j, k, tot_be, tot_groups, tot_req, tot_deny, in_group, n_http, n_https, n_status_txt, n_status_http;
 
     if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
+        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ListenStatusText, "^[ \t]*ListenStatusText[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$",
+        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ListenStatusHTTP, "^[ \t]*ListenStatusHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([0123])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -311,11 +315,15 @@ parse_file(char *fname)
     }
 
     /* first pass - just find number of groups and backends so we can allocate correctly */
-    for(n_http = n_https = tot_be = tot_groups = n_head_off = tot_req = tot_deny = 0; fgets(lin, MAXBUF, fconf); ) {
+    for(n_http = n_https = n_status_txt = n_status_http = tot_be = tot_groups = n_head_off = tot_req = tot_deny = 0; fgets(lin, MAXBUF, fconf); ) {
         if(!regexec(&ListenHTTP, lin, 4, matches, 0))
             n_http++;
         else if(!regexec(&ListenHTTPS, lin, 4, matches, 0))
             n_https++;
+        else if(!regexec(&ListenStatusText, lin, 4, matches, 0))
+            n_status_txt++;
+        else if(!regexec(&ListenStatusHTTP, lin, 4, matches, 0))
+            n_status_http++;
         else if(!regexec(&UrlGroup, lin, 4, matches, 0))
             tot_groups++;
         else if(!regexec(&BackEnd, lin, 4, matches, 0))
@@ -332,13 +340,15 @@ parse_file(char *fname)
     rewind(fconf);
 
     if((http = (char **)malloc(sizeof(char *) * (n_http + 1))) == NULL
+    || (status_txt = (char **)malloc(sizeof(char *) * (n_status_txt + 1))) == NULL
+    || (status_http = (char **)malloc(sizeof(char *) * (n_status_http + 1))) == NULL
     || (https = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL
     || (cert = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL
     || (ciphers = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL) {
         logmsg(LOG_ERR, "listen setup: out of memory - aborted");
         exit(1);
     }
-    http[n_http] = https[n_https] = cert[n_https] = NULL;
+    http[n_http] = https[n_https] = status_txt[n_status_txt] = status_http[n_status_http] = cert[n_https] = NULL;
 
     if((groups = (GROUP **)malloc(sizeof(GROUP *) * (tot_groups + 1))) == NULL) {
         logmsg(LOG_ERR, "groups setup: out of memory - aborted");
@@ -370,7 +380,7 @@ parse_file(char *fname)
     }
     n_head_off = 0;
 
-    n_http = n_https = tot_groups = in_group = 0;
+    n_http = n_https = n_status_txt = n_status_http = tot_groups = in_group = 0;
     while(fgets(lin, MAXBUF, fconf)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -381,6 +391,18 @@ parse_file(char *fname)
             lin[matches[1].rm_eo] = '\0';
             if((http[n_http++] = strdup(lin + matches[1].rm_so)) == NULL) {
                 logmsg(LOG_ERR, "ListenHTTP config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&ListenStatusText, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((status_txt[n_status_txt++] = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "ListenStatusText config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&ListenStatusHTTP, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((status_http[n_status_http++] = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "ListenStatusHTTP config: out of memory - aborted");
                 exit(1);
             }
         } else if(!regexec(&ListenHTTPS, lin, 4, matches, 0)) {
@@ -749,6 +771,8 @@ parse_file(char *fname)
     regfree(&Comment);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
+    regfree(&ListenStatusText);
+    regfree(&ListenStatusHTTP);
     regfree(&HTTPSHeaders);
     regfree(&SSL_CAlist);
     regfree(&SSL_Verifylist);
