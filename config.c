@@ -80,11 +80,9 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 
-static regex_t  AccessLog, LogFile;
-
-static regex_t  ServiceName, AuthTypeColdfusion, AuthTypeBasic, AuthTypeToken;
-
 static regex_t  ControlGroup, ControlUser, ControlMode;
+
+static regex_t  AuthTypeColdfusion, AuthTypeBasic, AuthTypeToken;
 
 static regmatch_t   matches[5];
 
@@ -321,6 +319,7 @@ static SERVICE *
 parse_service(FILE *const f_conf, const char *svc_name)
 {
     char        lin[MAXBUF];
+    char        pat[MAXBUF];
     SERVICE     *res;
     BACKEND     *be;
     MATCHER     *m;
@@ -332,6 +331,7 @@ parse_service(FILE *const f_conf, const char *svc_name)
     memset(res, 0, sizeof(SERVICE));
     res->magic = SERVICE_MAGIC;
     res->sess_type = SESS_NONE;
+    res->user_type = USER_NONE;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -364,6 +364,39 @@ parse_service(FILE *const f_conf, const char *svc_name)
                 logmsg(LOG_ERR, "line %d: URL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
+        } else if(!regexec(&AuthTypeColdfusion, lin, 4, matches, 0)) {
+            if(res->user_type != USER_NONE) {
+                logmsg(LOG_ERR, "Multiple AuthTypes defined in a Service - aborted");
+                exit(1);
+            }
+            lin[matches[1].rm_eo] = '\0';
+            /* this matches Cookie: ... as well as Set-cookie: ... */
+            snprintf(pat, MAXBUF - 1, "Cookie:.*[ \t]CFAUTHORIZATION_%s=([^ \t;]*)[ \t]*", lin + matches[1].rm_so);
+            if(regcomp(&res->user_pat, pat, REG_ICASE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "AuthTypeColdfusion bad pattern \"%s\" - aborted", pat);
+                exit(1);
+            }
+            res->user_type = USER_CFAUTH;
+        } else if(!regexec(&AuthTypeToken, lin, 4, matches, 0)) {
+            if(res->user_type != USER_NONE) {
+                logmsg(LOG_ERR, "Multiple AuthTypes defined in a Service - aborted");
+                exit(1);
+            }
+            lin[matches[1].rm_eo] = '\0';
+            /* this matches Cookie: ... as well as Set-cookie: ... */
+            snprintf(pat, MAXBUF - 1, "Cookie:.*[ \t]%s=([^ \t;]*)[ \t]*", lin + matches[1].rm_so);
+            if(regcomp(&res->user_pat, pat, REG_ICASE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "AuthTypeToken bad pattern \"%s\" - aborted", pat);
+                exit(1);
+            }
+            res->user_type = USER_AUTHTOKEN;
+        } else if(!regexec(&AuthTypeBasic, lin, 4, matches, 0)) {
+            if(res->user_type != USER_NONE) {
+                logmsg(LOG_ERR, "Multiple AuthTypes defined in a Service - aborted");
+                exit(1);
+            }
+            // As of Pound 2.2 this is handled in http.c natively
+            res->user_type = USER_BASIC;
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
             if(res->req_head) {
                 for(m = res->req_head; m->next; m = m->next)
@@ -958,18 +991,6 @@ parse_file(FILE *const f_conf)
                     }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&LogFile, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            if ((log_file = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "LogFile config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&AccessLog, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            if ((accesslog_file = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "AccessLog config: out of memory - aborted");
-                exit(1);
-            }
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
@@ -1081,8 +1102,6 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-6])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&AccessLog, "^[ \t]*AccessLog[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LogFile, "^[ \t]*LogFile[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1109,6 +1128,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeToken, "^[ \t]*AuthType[ \t]+Token[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1206,8 +1228,6 @@ config_parse(const int argc, char **const argv)
     regfree(&Daemon);
     regfree(&LogFacility);
     regfree(&LogLevel);
-    regfree(&LogFile);
-    regfree(&AccessLog);
     regfree(&Alive);
     regfree(&SSLEngine);
     regfree(&Control);
@@ -1234,6 +1254,9 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&AuthTypeBasic);
+    regfree(&AuthTypeColdfusion);
+    regfree(&AuthTypeToken);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);

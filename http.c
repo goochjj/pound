@@ -607,28 +607,10 @@ thr_http(void *arg)
                     if(!(headers_ok[n] = regexec(&m->pat, headers[n], 0, NULL, 0)))
                         break;
             }
-            /* get User name */
+            /* get User name (default - basic authentication) */
             if(!regexec(&AUTHORIZATION, headers[n], 2, matches, 0)) {
                 int inlen;
-
-                if((bb = BIO_new(BIO_s_mem())) == NULL) {
-                    logmsg(LOG_WARNING, "Can't alloc BIO_s_mem");
-                    continue;
-                }
-                if((b64 = BIO_new(BIO_f_base64())) == NULL) {
-                    logmsg(LOG_WARNING, "Can't alloc BIO_f_base64");
-                    BIO_free(bb);
-                    continue;
-                }
-                b64 = BIO_push(b64, bb);
-                BIO_write(bb, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
-                BIO_write(bb, "\n", 1);
-                if((inlen = BIO_read(b64, buf, MAXBUF - 1)) <= 0) {
-                    logmsg(LOG_WARNING, "Can't read BIO_f_base64");
-                    BIO_free_all(b64);
-                    continue;
-                }
-                BIO_free_all(b64);
+                base64_decode(buf, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
                 if((mh = strchr(buf, ':')) == NULL) {
                     logmsg(LOG_WARNING, "Unknown authentication");
                     continue;
@@ -666,6 +648,62 @@ thr_http(void *arg)
             clean_all();
             pthread_exit(NULL);
         }
+        /* Handle u_name authtype methods here */
+        switch (svc->user_type) {
+            /* Different patterns, but same encodings and such */
+            case USER_BASIC:
+                /*  Handled natively above, maintain u_name */
+                break;
+            case USER_AUTHTOKEN:
+            case USER_CFAUTH:
+                for(n = 0; headers[n]; n++) {
+                    char *mh2, *from;
+                    int inlen;
+
+                    if(regexec(&svc->user_pat, headers[n], 4, matches, 0))
+                        continue;
+                    from = headers[n] + matches[1].rm_so;
+                    inlen = matches[1].rm_eo - matches[1].rm_so;
+                    if ( inlen )
+                    {
+                        int outlen;
+                        outlen = base64_decode(buf, from, inlen);
+                        if (svc->user_type == USER_CFAUTH) {
+                            /* Username:Password */
+                            if((mh = strchr(buf, ':')) == NULL) {
+                                logmsg(LOG_WARNING, "Unknown authentication");
+                                continue;
+                            }
+                            *mh = '\0';
+                            *u_name='\0';
+                            /* Since base64 is 4:3, to will never be longer than from */
+                            strncpy(u_name, buf, inlen);
+                        } else if (svc->user_type == USER_AUTHTOKEN) {
+                            /* Md5Hash:UserId */
+
+                            /* This is like strrchr, but the md5hash area might contain a \0, so we have to move around it */
+                            mh = (buf+outlen);
+                            while (mh>buf) {
+                                if (*--mh == ':') break;
+                            }
+                            if(mh <= buf) {
+                                logmsg(LOG_WARNING, "Unknown authentication");
+                                continue;
+                            }
+                            *mh++ = '\0';
+                            *u_name='\0';
+                            /* Since base64 is 4:3, to will never be longer than from */
+                            strncpy(u_name, mh,inlen);
+                        }
+                   }
+                   break;
+                }
+                break;
+            case USER_NONE:
+            default:
+                break;
+        }
+
         if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host);
             logmsg(LOG_NOTICE, "no back-end \"%s\" from %s", request, caddr);

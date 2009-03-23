@@ -234,10 +234,6 @@ extern char *user,              /* user to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name;          /* file to record pid in */
 
-extern char *log_file;          /* File to log stuff to */
-extern char *accesslog_file;    /* File to log access stuff to */
-extern FILE *accesslog_fd, *logfile_fd;
-
 extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -282,6 +278,7 @@ typedef struct _matcher {
 /* back-end types */
 typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
 typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
+typedef enum    { USER_NONE, USER_CFAUTH, USER_BASIC, USER_FORM, USER_AUTHTOKEN } USER_TYPE;
 
 /* BE 0x4245 */
 #define BACKEND_MAGIC htons(0x4245)
@@ -347,6 +344,8 @@ typedef struct _service {
     BACKEND             *emergency;
     int                 tot_pri;    /* total priority for all back-ends */
     pthread_mutex_t     mut;        /* mutex for this service */
+    USER_TYPE           user_type;  /* Type of authentication */
+    regex_t             user_pat;   /* User pattern to match */
     SESS_TYPE           sess_type;
     int                 sess_ttl;   /* session time-to-live */
     regex_t             sess_pat;   /* pattern to match the session data */

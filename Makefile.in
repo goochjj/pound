@@ -40,9 +40,9 @@ LIBS+= -lcap
 # Configuration file default; if none, look at config.c for default!
 F_CONF=@sysconfdir@/pound.cfg
 
-OBJS=pound.o http.o config.o svc.o
+OBJS=pound.o http.o config.o svc.o base64.o
 
-all:	pound poundctl pound.8
+all:	pound poundctl pound.8 Pound.so Pound.pm
 
 pound:	$(OBJS)
 		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
@@ -62,7 +62,26 @@ install:	all
 		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 644 poundctl.8 ${DESTDIR}@mandir@/man8/poundctl.8
 
 clean:
-		rm -f pound $(OBJS) poundctl poundctl.o
+		rm -f pound $(OBJS) poundctl poundctl.o pl_Pound_wrap.c Pound.pm Pound.so pl_Pound_wrap.o
 
 uninstall:
 		-rm -f @sbindir@/pound @sbindir@/poundctl @mandir@/man8/pound.8 @mandir@/cat8/pound.8 @mandir@/man8/poundctl.8 @mandir@/cat8/poundctl.8
+
+pl_Pound_wrap.c:	perl_Pound.i pound.h
+		swig -perl5 -o $@ $<
+
+Pound.pm:	perl_Pound.i pound.h
+		swig -perl5 -o $@ $<
+
+
+pl_Pound_wrap.o:	pl_Pound_wrap.c
+		gcc -g -fpic -Dbool=char -I/usr/lib/perl5/5.8.7/i386-linux/CORE/ -c -o $@ $^
+
+pl_perl_Pound.o:	perl_Pound.c
+		gcc -g -fpic -c -o $@ $^
+
+Pound.so:	pl_Pound_wrap.o
+		gcc -g -shared -o $@ $^
+
+test_base64:	test_base64.c base64.h base64.o
+		gcc -g -o $@ test_base64.c base64.o

@@ -38,9 +38,6 @@ char        *user,              /* user to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name;          /* file to record pid in */
 
-char        *log_file;          /* File to log stuff to */
-char        *accesslog_file;    /* File to log access stuff to */
-
 int         alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -69,10 +66,6 @@ int     SOL_TCP;
 
 /* worker pid */
 static  pid_t               son = 0;
-
-/* Logfile */
-FILE *logfile_fd = NULL;
-FILE *accesslog_fd = NULL;
 
 /*
  * OpenSSL thread support stuff
@@ -128,36 +121,6 @@ h_term(const int sig)
     exit(0);
 }
 
-static RETSIGTYPE
-h_hup(const int sig)
-{
-    FILE *newfd;
-    /* re-open log files */
-    logmsg(LOG_NOTICE, "Received SIGHUP, restarting logfiles");
-    if (log_file && strcasecmp(log_file,"stdout") && strcasecmp(log_file,"stderr"))
-    {
-        newfd = fopen(log_file, "a");
-        if (newfd)
-        {
-            if (fclose(logfile_fd)!=0)
-                logmsg(LOG_WARNING, "Error closing logfile: %s", strerror(errno));
-            logfile_fd = newfd;
-        }
-    }
-    if (accesslog_file && strcasecmp(accesslog_file,"stdout") && strcasecmp(accesslog_file,"stderr"))
-    {
-        newfd = fopen(accesslog_file, "a");
-        if (newfd)
-        {
-            if (fclose(accesslog_fd)!=0)
-                logmsg(LOG_WARNING, "Error closing access logfile: %s", strerror(errno));
-            accesslog_fd = newfd;
-        }
-    }
-    signal(SIGHUP, h_hup);
-    return;
-}
-
 /*
  * Pound: the reverse-proxy/load-balancer
  *
@@ -195,7 +158,6 @@ main(const int argc, char **argv)
     signal(SIGINT, h_term);
     signal(SIGQUIT, h_term);
     signal(SIGPIPE, SIG_IGN);
-    signal(SIGHUP, h_hup);
 
     srandom(getpid());
 
@@ -401,29 +363,6 @@ main(const int argc, char **argv)
         cap_free(caps);
     }
 #endif
-
-    /* open log file, if necessary */
-    if (log_file && logfile_fd==NULL) {
-        if (!strcasecmp(log_file, "stdout")) {
-            logfile_fd = stdout;
-        } else if (!strcasecmp(log_file, "stderr")) {
-            logfile_fd = stderr;
-        } else if ((logfile_fd = fopen(log_file, "a")) == NULL) {
-            syslog(LOG_WARNING, "Could not open logfile: %s :%s", log_file, strerror(errno));
-            fprintf(stderr, "Could not open logfile: %s :%s", log_file, strerror(errno));
-        }
-    }
-
-    if (accesslog_file && accesslog_fd==NULL) {
-        if (!strcasecmp(accesslog_file, "stdout")) {
-            accesslog_fd = stdout;
-        } else if (!strcasecmp(accesslog_file, "stderr")) {
-            accesslog_fd = stderr;
-        } else if ((accesslog_fd = fopen(accesslog_file, "a")) == NULL) {
-            syslog(LOG_WARNING, "Could not open access logfile: %s :%s", accesslog_file, strerror(errno));
-            fprintf(stderr, "Could not open access logfile: %s :%s", accesslog_file, strerror(errno));
-        }
-    }
 
     /* split off into monitor and working process if necessary */
     for(;;) {

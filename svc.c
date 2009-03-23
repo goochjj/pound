@@ -64,18 +64,8 @@ logmsg(const int priority, const char *fmt, ...)
     } else {
         if(print_log)
             printf("%s\n", buf);
-        else {
-            if (logfile_fd) {
-                if (priority == LOG_INFO && accesslog_fd) {
-                    fprintf(accesslog_fd, "%s\n", buf);
-                    fflush(accesslog_fd);
-                } else {
-                    fprintf(logfile_fd, "%s\n", buf);
-                    fflush(logfile_fd);
-                }
-            } else
-                syslog(log_facility | priority, "%s", buf);
-        }
+        else
+            syslog(log_facility | priority, "%s", buf);
     }
     return;
 }
@@ -112,18 +102,8 @@ va_dcl
     } else {
         if(print_log)
             printf("%s\n", buf);
-        else {
-            if (logfile_fd) {
-                if (priority == LOG_INFO && accesslog_fd) {
-                    fprintf(accesslog_fd, "%s\n", buf);
-                    fflush(accesslog_fd);
-                } else {
-                    fprintf(logfile_fd, "%s\n", buf);
-                    fflush(logfile_fd);
-                }
-            } else
-                syslog(log_facility | priority, "%s", buf);
-        }
+        else
+            syslog(log_facility | priority, "%s", buf);
     }
     return;
 }
