@@ -283,8 +283,12 @@ typedef struct _matcher {
 typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
 typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
 
+/* BE 0x4245 */
+#define BACKEND_MAGIC htons(0x4245)
+
 /* back-end definition */
 typedef struct _backend {
+    short               magic;      // 'BE'
     BE_TYPE             be_type;
     int                 domain;     /* PF_UNIX or PF_INET, in the future also PF_INET6 */
     union {
@@ -308,8 +312,12 @@ typedef struct _backend {
 /* session key max size */
 #define KEY_SIZE    127
 
+/* SE 0x5345 */
+#define SESS_MAGIC htons(0x5345)
+
 /* Session definition */
 typedef struct _sess {
+    short               magic;              // 'SE'
     char                key[KEY_SIZE + 1];  /* session key */
     BACKEND             *to_host;           /* backend pointer */
     time_t              last_acc;           /* time of last access */
@@ -318,9 +326,12 @@ typedef struct _sess {
 }   SESS;
 
 #define n_children(S)   ((S)? (S)->children: 0)
+/* SV 0x5356 */
+#define SERVICE_MAGIC htons(0x5356)
 
 /* service definition */
 typedef struct _service {
+    short               magic;      // 'SV'
     char                name[KEY_SIZE + 1]; /* symbolic name */
     MATCHER             *url,       /* request matcher */
                         *req_head,  /* required headers */
@@ -342,8 +353,12 @@ typedef struct _service {
 extern SERVICE          *services;  /* global services (if any) */
 #endif /* NO_EXTERNALS */
 
+/* LS 0x4c53 */
+#define LISTENER_MAGIC htons(0x4c53)
+
 /* Listener definition */
 typedef struct _listener {
+    short               magic;      // 'LS'
     struct sockaddr_in  addr;       /* address */
     int                 sock;       /* listening socket */
     SSL_CTX             *ctx;       /* CTX for SSL connections */

@@ -484,10 +484,7 @@ main(const int argc, char **argv)
             /* and start working */
             for(;;) {
                 for(lstn = listeners, i = 0; i < n_listeners; lstn = lstn->next, i++) {
-                    if(lstn->disabled)
-                        polls[i].events = 0;
-                    else
-                        polls[i].events = POLLIN | POLLPRI;
+                    polls[i].events = POLLIN | POLLPRI;
                     polls[i].revents = 0;
                 }
                 if(poll(polls, n_listeners, -1) < 0) {
@@ -506,8 +503,9 @@ main(const int argc, char **argv)
                                 close(clnt);
                             } else {
                                 thr_arg *arg;
-
-                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                if (lstn->disabled) {
+                                    close(clnt);
+                                } else if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
                                     logmsg(LOG_WARNING, "HTTP arg: malloc");
                                     close(clnt);
                                 } else {

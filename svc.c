@@ -247,6 +247,7 @@ sess_add(SESS *root, const char *key, BACKEND *const to_host)
         if((res = alloc_sess()) == NULL)
             return NULL;
         memset(res, 0, sizeof(SESS));
+        res->magic = SESS_MAGIC;
         strncpy(res->key, key, KEY_SIZE);
         res->to_host = to_host;
         res->last_acc = time(NULL);
@@ -1230,12 +1231,16 @@ thr_control(void *arg)
     if(control_sock < 0)
         return NULL;
     memset(&dummy_lstn, 0, sizeof(dummy_lstn));
+    dummy_lstn.magic = LISTENER_MAGIC;
     dummy_lstn.disabled = -1;
     memset(&dummy_svc, 0, sizeof(dummy_svc));
+    dummy_svc.magic = SERVICE_MAGIC;
     dummy_svc.disabled = -1;
     memset(&dummy_be, 0, sizeof(dummy_be));
+    dummy_be.magic = BACKEND_MAGIC;
     dummy_be.disabled = -1;
     memset(&dummy_sess, 0, sizeof(dummy_sess));
+    dummy_sess.magic = SESS_MAGIC;
     dummy_sess.to_host = (BACKEND *)-1;
     dummy = sizeof(sa);
     for(;;) {

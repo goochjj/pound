@@ -51,6 +51,7 @@ poundctl:	poundctl.o
 		${CC} @LDFLAGS@ -o poundctl poundctl.o $(LIBS)
 
 $(OBJS):	pound.h
+poundctl.o:	pound.h
 
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@

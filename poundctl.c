@@ -129,12 +129,20 @@ main(const int argc, char **argv)
     if (!is_set) {
         n_lstn = 0;
         while(read(sock, (void *)&lstn, sizeof(LISTENER)) == sizeof(LISTENER)) {
+            if (lstn.magic != LISTENER_MAGIC) {
+                fprintf(stderr, "Listener: wrong magic");
+                exit(-1);
+            }
             if(lstn.disabled < 0)
                 break;
             printf("%3d. %s Listener %s:%hd %s\n", n_lstn++, lstn.ctx? "HTTPS" : "http",
                 inet_ntoa(lstn.addr.sin_addr), ntohs(lstn.addr.sin_port), lstn.disabled? "*D": "a");
             n_svc = 0;
             while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
+                if (svc.magic != SERVICE_MAGIC) {
+                    fprintf(stderr, "Service: wrong magic");
+                    exit(-1);
+                }
                 if(svc.disabled < 0)
                     break;
                 if(svc.name[0])
@@ -143,6 +151,10 @@ main(const int argc, char **argv)
                     printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
                 n_be = 0;
                 while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
+                    if (be.magic != BACKEND_MAGIC) {
+                        fprintf(stderr, "Backend: wrong magic");
+                        exit(-1);
+                    }
                     if(be.disabled < 0)
                         break;
                     if(be.domain == PF_INET)
@@ -154,6 +166,10 @@ main(const int argc, char **argv)
                 }
                 n_sess = 0;
                 while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
+                    if (sess.magic != SESS_MAGIC) {
+                        fprintf(stderr, "Session: wrong magic");
+                        exit(-1);
+                    }
                     if((int)sess.to_host < 0)
                         break;
                     printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);
@@ -163,6 +179,10 @@ main(const int argc, char **argv)
         printf(" -1. Global services\n");
         n_svc = 0;
         while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
+            if (svc.magic != SERVICE_MAGIC) {
+                fprintf(stderr, "Service: wrong magic");
+                exit(-1);
+            }
             if(svc.disabled < 0)
                 break;
             if(svc.name[0])
@@ -171,6 +191,10 @@ main(const int argc, char **argv)
                 printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
             n_be = 0;
             while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
+                if (be.magic != BACKEND_MAGIC) {
+                    fprintf(stderr, "Backend: wrong magic");
+                    exit(-1);
+                }
                 if(be.disabled < 0)
                     break;
                 if(be.domain == PF_INET)
@@ -182,6 +206,10 @@ main(const int argc, char **argv)
             }
             n_sess = 0;
             while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
+                if (sess.magic != SESS_MAGIC) {
+                    fprintf(stderr, "Session: wrong magic");
+                    exit(-1);
+                }
                 if((int)sess.to_host < 0)
                     break;
                 printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);

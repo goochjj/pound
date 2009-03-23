@@ -118,6 +118,7 @@ parse_be(FILE *const f_conf, const int is_emergency)
         exit(1);
     }
     memset(res, 0, sizeof(BACKEND));
+    res->magic = BACKEND_MAGIC;
     res->be_type = BACK_END;
     res->domain = PF_UNSPEC;
     res->to = is_emergency? 120: be_to;
@@ -329,6 +330,7 @@ parse_service(FILE *const f_conf, const char *svc_name)
         exit(1);
     }
     memset(res, 0, sizeof(SERVICE));
+    res->magic = SERVICE_MAGIC;
     res->sess_type = SESS_NONE;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
@@ -423,6 +425,7 @@ parse_service(FILE *const f_conf, const char *svc_name)
                 be = res->backends;
             }
             memset(be, 0, sizeof(BACKEND));
+            be->magic = BACKEND_MAGIC;
             be->be_type = REDIRECTOR;
             be->priority = 1;
             be->alive = 1;
@@ -516,6 +519,7 @@ parse_HTTP(FILE *const f_conf)
         exit(1);
     }
     memset(res, 0, sizeof(LISTENER));
+    res->magic = LISTENER_MAGIC;
     res->to = clnt_to;
     res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
@@ -671,6 +675,7 @@ parse_HTTPS(FILE *const f_conf)
         exit(1);
     }
     memset(res, 0, sizeof(LISTENER));
+    res->magic = LISTENER_MAGIC;
     if((res->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
         logmsg(LOG_ERR, "line %d: SSL_CTX_new failed - aborted", n_lin);
         exit(1);
