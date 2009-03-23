@@ -47,6 +47,9 @@ int         alive_to,           /* check interval for resurrection */
             print_log,          /* print log messages to stdout/stderr */
             control_sock;       /* control socket */
 
+struct sockaddr_un control_addr;
+char * control_user, *control_group; long control_mode;
+
 SERVICE     *services;          /* global services (if any) */
 
 LISTENER    *listeners;         /* all available listeners */
@@ -182,6 +185,9 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
+    control_user=control_group=NULL;
+    control_mode = -1;
+    memset(&control_addr, 0, sizeof(control_addr));
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
@@ -227,6 +233,49 @@ main(const int argc, char **argv)
 
     /* read config */
     config_parse(argc, argv);
+
+    /* open control socket */
+    if (control_addr.sun_path[0]) {
+        (void)unlink(control_addr.sun_path);
+        if((control_sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+            logmsg(LOG_ERR, "Control \"%s\" create: %s", control_addr.sun_path, strerror(errno));
+            exit(1);
+        }
+        if(bind(control_sock, (struct sockaddr *)&control_addr, (socklen_t)sizeof(control_addr)) < 0) {
+            logmsg(LOG_ERR, "Control \"%s\" bind: %s", control_addr.sun_path, strerror(errno));
+            exit(1);
+        }
+        if (control_user) {
+            struct passwd   *pw;
+
+            if((pw = getpwnam(control_user)) == NULL) {
+                logmsg(LOG_ERR, "no such user %s - aborted", control_user);
+                exit(1);
+            }
+            if (chown(control_addr.sun_path, pw->pw_uid, -1)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (control_group) {
+            struct group    *gr;
+            if((gr = getgrnam(control_group)) == NULL) {
+                logmsg(LOG_ERR, "no such group %s - aborted", control_group);
+                exit(1);
+            }
+            if (chown(control_addr.sun_path, -1, gr->gr_gid)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (control_mode>0) {
+            if (chmod(control_addr.sun_path, control_mode)) {
+                logmsg(LOG_ERR, "chmod error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        listen(control_sock, 512);
+    }
 
     if(log_facility != -1)
         openlog("pound", LOG_CONS, LOG_DAEMON);

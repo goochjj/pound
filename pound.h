@@ -244,6 +244,9 @@ extern int  alive_to,           /* check interval for resurrection */
             print_log,          /* print log messages to stdout/stderr */
             control_sock;       /* control socket */
 
+extern struct sockaddr_un control_addr; /* control socket path/address */
+extern char *control_user, *control_group; long control_mode;
+
 extern regex_t  HEADER,     /* Allowed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
