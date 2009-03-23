@@ -225,6 +225,7 @@ static char *rcs_id = "$Id: pound.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $"
 #endif
 
 /* common variables */
+int     daemonize;          /* Fork to background */
 int     clnt_to;            /* client timeout */
 int     server_to;          /* server timeout */
 int     log_level;          /* logging mode - 0, 1, 2 */
@@ -827,21 +828,26 @@ main(int argc, char **argv)
 
 #ifdef  AEMON
     /* daemonize - make ourselves a subprocess. */
-    switch (fork()) {
-        case 0:
+    if (daemonize)
+    {
+        switch (fork()) {
+            case 0:
 #ifndef NO_SYSLOG
-            close(0);
-            close(1);
-            close(2);
+                close(0);
+                close(1);
+                close(2);
 #endif
-            break;
-        case -1:
-            logmsg(LOG_ERR, "fork: %s - aborted", strerror(errno));
-            exit(1);
-        default:
-            exit(0);
+                break;
+            case -1:
+                logmsg(LOG_ERR, "fork: %s - aborted", strerror(errno));
+                exit(1);
+            default:
+                exit(0);
+        }
     }
 #endif
+    // Detach from parent, even if not running as a daemon...
+    (void) setsid();
 
     /* record pid in file */
     if((fpid = fopen(pid_name, "wt")) != NULL) {

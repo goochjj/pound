@@ -267,6 +267,7 @@
  * Global variables needed by everybody
  */
 
+extern int  daemonize;          /* Fork to background */
 extern int  clnt_to;            /* client timeout */
 extern int  server_to;          /* server timeout */
 extern int  log_level;          /* logging mode - 0, 1, 2 */

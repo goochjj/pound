@@ -249,6 +249,7 @@ parse_file(char *fname)
 
     if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&NoDaemon,"^[ \t]*NoDaemon[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -554,6 +555,8 @@ parse_file(char *fname)
             alive_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             clnt_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&NoDaemon, lin, 0, NULL, 0)) {
+            daemonize = 0;
         } else if(!regexec(&Server, lin, 4, matches, 0)) {
             server_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
@@ -769,6 +772,7 @@ parse_file(char *fname)
         free(deny);
     regfree(&Empty);
     regfree(&Comment);
+    regfree(&NoDaemon);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&ListenStatusText);
@@ -831,6 +835,7 @@ config_parse(int argc, char **argv)
     char    *conf_name;
 
     /* init values */
+	daemonize = 1;
     clnt_to = 10;
     server_to = 0;
     log_level = 1;
