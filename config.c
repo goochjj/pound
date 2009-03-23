@@ -82,6 +82,10 @@ static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoH
 
 static regex_t  AccessLog, LogFile;
 
+static regex_t  ServiceName, AuthTypeColdfusion, AuthTypeBasic, AuthTypeToken;
+
+static regex_t  ControlGroup, ControlUser, ControlMode;
+
 static regmatch_t   matches[5];
 
 static char *xhttp[] = {
@@ -991,22 +995,28 @@ parse_file(FILE *const f_conf)
             ENGINE_free(e);
 #endif
         } else if(!regexec(&Control, lin, 4, matches, 0)) {
-            struct sockaddr_un  ctrl;
-
-            memset(&ctrl, 0, sizeof(ctrl));
-            ctrl.sun_family = AF_UNIX;
+            control_addr.sun_family = AF_UNIX;
             lin[matches[1].rm_eo] = '\0';
-            strncpy(ctrl.sun_path, lin + matches[1].rm_so, sizeof(ctrl.sun_path) - 1);
-            (void)unlink(ctrl.sun_path);
-            if((control_sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-                logmsg(LOG_ERR, "Control \"%s\" create: %s", ctrl.sun_path, strerror(errno));
+            strncpy(control_addr.sun_path, lin + matches[1].rm_so, sizeof(control_addr.sun_path) - 1);
+        } else if(!regexec(&ControlUser, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((control_user = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "line %d: ControlUser config: out of memory - aborted", n_lin);
                 exit(1);
             }
-            if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
-                logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
+        } else if(!regexec(&ControlGroup, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((control_group = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "line %d: ControlGroup config: out of memory - aborted", n_lin);
                 exit(1);
             }
-            listen(control_sock, 512);
+        } else if(!regexec(&ControlMode, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            control_mode = strtol(lin+matches[1].rm_so, NULL, 8);
+            if(errno==ERANGE || errno==EINVAL) {
+                logmsg(LOG_ERR, "line %d: ControlMode config: %s - aborted", n_lin, strerror(errno));
+                exit(1);
+            }
         } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
             if(listeners == NULL)
                 listeners = parse_HTTP(f_conf);
@@ -1071,6 +1081,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ControlUser, "^[ \t]*ControlUser[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ControlGroup, "^[ \t]*ControlGroup[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ControlMode, "^[ \t]*ControlMode[ \t]+([0-7]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1193,6 +1206,9 @@ config_parse(const int argc, char **const argv)
     regfree(&Alive);
     regfree(&SSLEngine);
     regfree(&Control);
+    regfree(&ControlUser);
+    regfree(&ControlGroup);
+    regfree(&ControlMode);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&End);
