@@ -240,6 +240,7 @@ parse_file(char *fname)
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
                         RewriteRedir;
+                        RewriteRedir, NoDaemon, GroupName;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -271,10 +272,11 @@ parse_file(char *fname)
     || regcomp(&ExtendedHTTP, "^[ \t]*ExtendedHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NO11SSL, "^[ \t]*NoHTTPS11[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([012345])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Server, "^[ \t]*Server[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&GroupName, "^[ \t]*GroupName[ \t]+(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&UrlGroup, "^[ \t]*UrlGroup[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]+([^,]+),([0-9]+),([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -553,10 +555,15 @@ parse_file(char *fname)
                 exit(1);
             }
             pthread_mutex_init(&groups[tot_groups]->mut, NULL);
+            groups[tot_groups]->name = NULL;
             groups[tot_groups]->sessions = NULL;
             groups[tot_groups]->tot_pri = 0;
             groups[tot_groups]->sess_type = SessNONE;
+            groups[tot_groups]->user_type = UserNONE;
             groups[tot_groups]->sess_to = 300;
+            groups[tot_groups]->requests = 0;
+            groups[tot_groups]->hits = 0;
+            groups[tot_groups]->misses = 0;
             tot_req = tot_deny = j = 0;
         } else if(in_group && !regexec(&BackEnd, lin, 4, matches, 0)) {
             memset(&addr, 0, sizeof(addr));
@@ -573,6 +580,13 @@ parse_file(char *fname)
                 be[j].addr = addr;
                 be[j].alive_addr = alive_addr;
                 be[j].alive = 1;
+                be[j].requests = 0;
+            }
+        } else if(in_group && !regexec(&GroupName, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((groups[tot_groups]->name = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "GroupName config: out of memory - aborted");
+                exit(1);
             }
         } else if(in_group && !regexec(&BackEndHA, lin, 5, matches, 0)) {
             memset(&addr, 0, sizeof(addr));
@@ -731,6 +745,7 @@ parse_file(char *fname)
     regfree(&Client);
     regfree(&Server);
     regfree(&UrlGroup);
+    regfree(&GroupName);
     regfree(&BackEnd);
     regfree(&BackEndHA);
     regfree(&EndGroup);

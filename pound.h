@@ -323,6 +323,7 @@ typedef struct {
     struct sockaddr_in  addr;       /* address */
     struct sockaddr_in  alive_addr; /* address for viability port */
     int                 alive;      /* alive check interval */
+    unsigned int        requests;   /* Requests served */
 }   BACKEND;
 
 /* session key max size */
@@ -333,17 +334,25 @@ typedef struct _sess {
     char    key[KEY_SIZE + 1];  /* session key */
     int     to_host;            /* backend index */
     time_t  last_acc;           /* time of last access */
+    struct  in_addr last_ip;	/* Last IP address */
+    char    *last_url;          /* Last URL Accessed */
+    char    *user;		/* Last username seen */
     int     children;           /* number of children */
+    unsigned int    requests;   /* Requests served */
     struct _sess    *left, *right;
 }   SESS;
 
 #define n_children(S)   ((S)? (S)->children: 0)
 
 typedef enum    { SessNONE, SessIP, SessURL, SessCOOKIE, SessBASIC } SESS_TYPE;
+typedef enum    { UserNONE, UserCFAUTH, UserBasic, UserFORM } USER_TYPE;
 
 /* URL group definition */
 typedef struct _group {
     regex_t         url_pat;            /* pattern to match the URL against */
+    regex_t         user_pat;           /* pattern to match against headers for username retreival */
+    USER_TYPE       user_type;          /* Authentication type */
+    char            *name;              /* Name for this url group */
     regex_t         *head_req;          /* patterns to match the headers against - mandatory */
     int             n_req;              /* how many of them */
     regex_t         *head_deny;         /* patterns to match the headers against - disallowed */
@@ -353,11 +362,21 @@ typedef struct _group {
     SESS_TYPE       sess_type;          /* session type: IP, URL or COOKIE */
     regex_t         sess_pat;           /* pattern to match the session id */
     int             sess_to;            /* session timeout */
+    unsigned int    requests;           /* Requests served */
+    unsigned int    hits;               /* Cache hits */
+    unsigned int    misses;             /* Cache misses */
     pthread_mutex_t mut;                /* group mutex */
     SESS            *sessions;          /* session tree root */
 }   GROUP;
 
 extern GROUP    **groups;
+
+/* Get_BE struct */
+typedef struct _getbe {
+    struct sockaddr_in  *addr;
+    char                *user;
+}   GETBE;
+
 
 typedef struct  {
     int                 sock;
@@ -426,12 +445,12 @@ extern GROUP *get_grp(char *, char **);
 /*
  * Find the host to connect to
  */
-extern struct sockaddr_in *get_be(GROUP *, struct in_addr, char *, char **);
+extern GETBE *get_be(GROUP *, struct in_addr, char *, char **);
 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(GROUP *, char **, struct sockaddr_in  *);
+extern void upd_session(GROUP *, char **, struct sockaddr_in  *, struct in_addr);
 
 /*
  * mark a backend host as dead;

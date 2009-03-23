@@ -574,6 +574,7 @@ URL_syntax(char *line)
     if(ssl != NULL) { BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); } \
     if(be != NULL) { BIO_flush(be); BIO_reset(be); BIO_free_all(be); be = NULL; } \
     if(cl != NULL) { BIO_flush(cl); BIO_reset(cl); BIO_free_all(cl); cl = NULL; } \
+    if(beinfo != NULL) { if (beinfo->user) free(beinfo->user); free(beinfo); beinfo = NULL; } \
     if(x509 != NULL) { X509_free(x509); x509 = NULL; } \
     if(ssl != NULL) { ERR_clear_error(); ERR_remove_state(0); } \
 }
@@ -599,6 +600,7 @@ thr_http(void *arg)
     regmatch_t          matches[4];
     struct linger       l;
     GROUP               *grp;
+    GETBE               *beinfo;
 
     a = (thr_arg *)arg;
     from_host = a->from_host;
@@ -621,6 +623,7 @@ thr_http(void *arg)
     cl = NULL;
     be = NULL;
     x509 = NULL;
+    beinfo = NULL;
 
     if((cl = BIO_new_socket(sock, 1)) == NULL) {
         logmsg(LOG_WARNING, "BIO_new_socket failed");
@@ -797,14 +800,20 @@ thr_http(void *arg)
             be = NULL;
         }
         while(be == NULL) {
+            if (beinfo) {
+                if (beinfo->user) free(beinfo->user);
+                free(beinfo);
+                beinfo = NULL;
+            }
             /* find the session - if any */
-            if((srv = get_be(grp = get_grp(url, &headers[1]), from_host, url, &headers[1])) == NULL) {
+            if((beinfo = get_be(grp = get_grp(url, &headers[1]), from_host, url, &headers[1])) == NULL) {
 				logmsg(LOG_WARNING, "no backend \"%s\" from %s", request, inet_ntoa(from_host));
                 err_reply(cl, h503, e503);
                 free_headers(headers);
                 clean_all();
                 pthread_exit(NULL);
             }
+            srv = beinfo->addr;
 
             if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
                 logmsg(LOG_WARNING, "backend %s:%hd create: %s",
@@ -1073,7 +1082,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies) */
-            upd_session(grp, &headers[1], srv);
+            upd_session(grp, &headers[1], srv, from_host);
 
             /* send the response */
             if(!skip)
@@ -1193,16 +1202,27 @@ thr_http(void *arg)
             break;
         case 3:
             if(v_host[0])
-                logmsg(LOG_INFO, "%s %s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
+                logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
+                    (beinfo && beinfo->user)?(beinfo->user):"-",
                     log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
                     referer, u_agent);
             else
-                logmsg(LOG_INFO, "%s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                    (beinfo && beinfo->user)?(beinfo->user):"-",
                     log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
                     referer, u_agent);
             break;
         case 4:
-            logmsg(LOG_INFO, "%s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+            logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                (beinfo && beinfo->user)?(beinfo->user):"-",
+                log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
+                referer, u_agent);
+            break;
+        case 5:
+            snprintf(buf, sizeof(buf), "%s:%hd", inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+            logmsg(LOG_INFO, "%s %s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", 
+                (grp && grp->name)?(grp->name):"-", buf, inet_ntoa(from_host),
+                (beinfo && beinfo->user)?(beinfo->user):"-",
                 log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
                 referer, u_agent);
             break;

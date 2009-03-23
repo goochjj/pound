@@ -330,6 +330,10 @@ sess_add(SESS *root, char *key, int to_host)
         res->to_host = to_host;
         res->last_acc = time(NULL);
         res->children = 1;
+        res->user = NULL;
+        res->requests = 1;
+        res->last_url = NULL;
+        res->last_ip.s_addr = INADDR_ANY;
         res->left = res->right = NULL;
         return res;
     }
@@ -350,11 +354,15 @@ sess_del(SESS *root)
 
     if(root->left == NULL) {
         s = root->right;
+        if (root->user) free(root->user);
+        if (root->last_url) free(root->last_url);
         free(root);
         return s;
     }
     if(root->right == NULL) {
         s = root->left;
+        if (root->user) free(root->user);
+        if (root->last_url) free(root->last_url);
         free(root);
         return s;
     }
@@ -371,6 +379,8 @@ sess_del(SESS *root)
         s->children += root->right->children;
         s = root->left;
     }
+    if (root->user) free(root->user);
+    if (root->last_url) free(root->last_url);
     free(root);
     return s;
 }
@@ -528,14 +538,16 @@ get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
 /*
  * Find the host to connect to
  */
-struct sockaddr_in *
+GETBE *
 get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
 {
-    struct sockaddr_in  *res;
+    GETBE               *res;
     SESS                *sp;
     int                 n, orig;
     char                *key;
+    regmatch_t  matches[4];
 
+    res = NULL;
     if(g == NULL)
         return NULL;
 
@@ -557,16 +569,44 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
             }
             if(g->backend_addr[n].alive) {
                 g->sessions = sess_add(g->sessions, key, n);
-                res = &(g->backend_addr[n].addr);
+                sp = sess_find(g->sessions, key);
+                if(!res && (res = (GETBE *)malloc(sizeof(*res))) == NULL) {
+                    logmsg(LOG_ERR, "get_be out of memory - aborted");
+                    exit(1);
+                }
+                res->addr = &(g->backend_addr[n].addr);
+                res->user = NULL;
+                g->requests++;
+                g->misses++;
+                g->backend_addr[n].requests++;
             } else
                 res = NULL;
         } else {
             /* session found */
             if(g->backend_addr[sp->to_host].alive) {
                 sp->last_acc = time(NULL);
-                res = &(g->backend_addr[sp->to_host].addr);
+                if(!res && (res = (GETBE *)malloc(sizeof(*res))) == NULL) {
+                    logmsg(LOG_ERR, "get_be out of memory - aborted");
+                    exit(1);
+                }
+                res->addr = &(g->backend_addr[sp->to_host].addr);
+                res->user = NULL;
+                sp->requests++;
+                g->requests++;
+                g->hits++;
+                g->backend_addr[sp->to_host].requests++;
             } else
                 res = NULL;
+        }
+        if (sp) {
+            sp->last_acc = time(NULL);
+            memcpy(&sp->last_ip, &from_host, sizeof(from_host));
+            if (sp->last_url) free(sp->last_url);
+            sp->last_url = strdup(url);
+            if (res) {
+                res->user = NULL;
+                if (sp && sp->user) res->user = strdup(sp->user);
+            }
         }
     } else {
         if(g->sess_to < 0) {
@@ -589,9 +629,17 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
             if(n == orig)
                 break;
         }
-        if(g->backend_addr[n].alive)
-            res = &(g->backend_addr[n].addr);
-        else
+        if(g->backend_addr[n].alive) {
+            if(!res && (res = (GETBE *)malloc(sizeof(*res))) == NULL) {
+                logmsg(LOG_ERR, "get_be out of memory - aborted");
+                exit(1);
+            }
+
+            res->addr = &(g->backend_addr[n].addr);
+            res->user = NULL;
+            g->requests++;
+            g->backend_addr[n].requests++;
+        } else
             res = NULL;
     }
     pthread_mutex_unlock(&g->mut);
@@ -603,11 +651,12 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
  * (for cookies only) possibly create session based on response headers
  */
 void
-upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
+upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv, struct in_addr from_host)
 {
     struct in_addr  dummy;
     char            *key;
     int             n;
+    SESS            *sp;
 
     pthread_mutex_lock(&g->mut);
     memset(&dummy, 0, sizeof(dummy));
@@ -628,6 +677,9 @@ upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
             return;
         }
         g->sessions = sess_add(g->sessions, key, n);
+        if ((sp=sess_find(g->sessions, key)) != NULL) {
+            memcpy(&sp->last_ip, &from_host, sizeof(from_host));
+        }
     }
     pthread_mutex_unlock(&g->mut);
     return;
