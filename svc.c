@@ -186,6 +186,7 @@ static char *rcs_id = "$Id: svc.c,v 1.9 2005/06/01 15:01:54 roseg Rel roseg $";
  */
 
 #include    "pound.h"
+#include    "base64.h"
 
 /*
  * Log an error to the syslog or to stderr
@@ -603,6 +604,44 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
             memcpy(&sp->last_ip, &from_host, sizeof(from_host));
             if (sp->last_url) free(sp->last_url);
             sp->last_url = strdup(url);
+            /* Do user detection */
+            switch (g->user_type) {
+                /* Different patterns, but same encodings and such */
+                case UserBasic:
+                case UserCFAUTH:
+                    for(n = 0; headers[n]; n++) {
+                        char *cp, *from, *to;
+
+                        if(regexec(&g->user_pat, headers[n], 4, matches, 0))
+                            continue;
+                        if (sp->user) free(sp->user);
+                        sp->user = NULL;
+                        from = headers[n] + matches[1].rm_so;
+                        if (strlen(from))
+                        {
+                            /* Since base64 is 4:3, to will never be longer than from */
+                            if ((to = strdup(from)) == NULL)
+                                logmsg(LOG_ERR, "AuthType memory error: %s", strerror(errno));
+                            else {
+                                base64_decode(to, from, strlen(from));
+                                cp = strchr(to, ':');
+                                if (cp)
+                                {
+                                    *cp = '\0';
+                                    sp->user = strdup(to);
+                                }
+                                free(to);
+                            }
+                        }
+                        break;
+                    }
+                    break;
+                case UserNONE:
+                default:
+                    if (sp->user) free(sp->user);
+                    sp->user = NULL;
+                    break;
+            }
             if (res) {
                 res->user = NULL;
                 if (sp && sp->user) res->user = strdup(sp->user);

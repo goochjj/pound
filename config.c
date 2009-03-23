@@ -239,8 +239,7 @@ parse_file(char *fname)
                         SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
-                        RewriteRedir;
-                        RewriteRedir, NoDaemon, GroupName;
+                        RewriteRedir, NoDaemon, GroupName, AuthTypeBasic, AuthTypeColdfusion;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -277,6 +276,8 @@ parse_file(char *fname)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Server, "^[ \t]*Server[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&GroupName, "^[ \t]*GroupName[ \t]+(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+([A-Za-z0-9_]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&UrlGroup, "^[ \t]*UrlGroup[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]+([^,]+),([0-9]+),([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -588,6 +589,30 @@ parse_file(char *fname)
                 logmsg(LOG_ERR, "GroupName config: out of memory - aborted");
                 exit(1);
             }
+        } else if(in_group && !regexec(&AuthTypeColdfusion, lin, 4, matches, 0)) {
+            if(groups[tot_groups]->user_type != UserNONE) {
+                logmsg(LOG_ERR, "Multiple AuthTypes defined in a Group - aborted");
+                exit(1);
+            }
+            lin[matches[1].rm_eo] = '\0';
+            /* this matches Cookie: ... as well as Set-cookie: ... */
+            snprintf(pat, MAXBUF - 1, "Cookie:.*[ \t]CFAUTHORIZATION_%s=([^ \t;]*)[ \t]*", lin + matches[1].rm_so);
+            if(regcomp(&groups[tot_groups]->user_pat, pat, REG_ICASE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "AuthTypeColdfusion bad pattern \"%s\" - aborted", pat);
+                exit(1);
+            }
+            groups[tot_groups]->user_type = UserCFAUTH;
+        } else if(in_group && !regexec(&AuthTypeBasic, lin, 4, matches, 0)) {
+            if(groups[tot_groups]->user_type != UserNONE) {
+                logmsg(LOG_ERR, "Multiple AuthTypes defined in a Group - aborted");
+                exit(1);
+            }
+            snprintf(pat, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
+            if(regcomp(&groups[tot_groups]->user_pat, pat, REG_ICASE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "AuthTypeBasic bad pattern \"%s\" - aborted", pat);
+                exit(1);
+            }
+            groups[tot_groups]->user_type = UserBasic;
         } else if(in_group && !regexec(&BackEndHA, lin, 5, matches, 0)) {
             memset(&addr, 0, sizeof(addr));
             addr.sin_family = AF_INET;
@@ -746,6 +771,8 @@ parse_file(char *fname)
     regfree(&Server);
     regfree(&UrlGroup);
     regfree(&GroupName);
+    regfree(&AuthTypeBasic);
+    regfree(&AuthTypeColdfusion);
     regfree(&BackEnd);
     regfree(&BackEndHA);
     regfree(&EndGroup);
