@@ -194,6 +194,11 @@ customary for them to be at the start. They may appear in any order.
 Includes another configuration file inline, as if it were part of the top config file.
 This directive can be used in any block... but the result must be syntactically correct.
 .TP
+\fBIncludeDir\fR "path"
+Looks for files with conf or cfg extensions in "path", and includes all files, in sorted
+order, inline in the configuration as if it were part of the to pconfiguration file.
+This directive can be used in any block... but the result must be syntactically correct.
+.TP
 \fBUser\fR "user_name"
 Specify the user
 .B Pound

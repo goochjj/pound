@@ -72,7 +72,7 @@ static CODE facilitynames[] = {
 };
 #endif
 
-static regex_t  Include;
+static regex_t  Include, IncludeDir;
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
@@ -112,9 +112,10 @@ typedef struct _confstate {
     int lines_read;
 }   CONFSTATE;
 
-static void include_file(CONFSTATE *state, const char *conf_name) {
+static void _include_file(CONFSTATE *state, char *conf_name, const int dup_name) {
     FILE *f_conf;
     CONFFILE *cf;
+    logmsg(LOG_DEBUG, "Including %s", conf_name);
     if(state==NULL) {
         logmsg(LOG_ERR, "include_file called with null state");
         exit(1);
@@ -132,12 +133,68 @@ static void include_file(CONFSTATE *state, const char *conf_name) {
     memset(cf, 0, sizeof(*cf));
     cf->next = state->files;
     state->files = cf;
-    cf->filename = strdup(conf_name);
+    cf->filename = (dup_name)?strdup(conf_name):conf_name;
     cf->fp = f_conf;
     if (cf->filename == NULL) {
         logmsg(LOG_ERR, "ConfigFile Reader: out of memory opening %s - aborted", conf_name);
         exit(1);
     }
+}
+
+static void include_file(CONFSTATE *state, char *conf_name) {
+    _include_file(state, conf_name, 1);
+}
+
+static void include_dir(CONFSTATE *state, const char *conf_path) {
+    DIR * dp;
+    struct dirent *de;
+    char buf[512];
+    char *files[200], *cp;
+    int filecnt = 0;
+    int idx,use;
+
+    logmsg(LOG_DEBUG, "Including Dir %s", conf_path);
+    if(state==NULL) {
+        logmsg(LOG_ERR, "include_dir called with null state");
+        exit(1);
+    }
+
+    if((dp = opendir(conf_path)) == NULL) {
+        logmsg(LOG_ERR, "can't open configuration directory \"%s\" (%s) - aborted", conf_path, strerror(errno));
+        exit(1);
+    }
+
+    while((de = readdir(dp))!=NULL) {
+        if (de->d_name[0] == '.') continue;
+	if ( (strlen(de->d_name) >= 5 && strncmp(de->d_name + strlen(de->d_name) - 4, ".cfg", 4)==0) ||
+	     (strlen(de->d_name) >= 6 && strncmp(de->d_name + strlen(de->d_name) - 5, ".conf", 5)==0)
+           ){
+            snprintf(buf, sizeof(buf), "%s%s%s", conf_path, (conf_path[strlen(conf_path)-1]=='/')?"":"/", de->d_name);
+            buf[sizeof(buf)-1] = 0;
+            if (filecnt == sizeof(files)/sizeof(*files)) {
+                logmsg(LOG_ERR, "Max config files per directory (%d) reached", sizeof(files)/sizeof(*files));
+                exit(1);
+            }
+            if ((files[filecnt++] = strdup(buf)) == NULL) {
+                logmsg(LOG_ERR, "Error allocating filename space (%s)", strerror(errno));
+                exit(1);
+            }
+	    continue;
+        }
+    }
+    /* We order the list, and include in reverse order, because include_file adds to the top of the list */
+    while(filecnt) {
+        use = 0;
+        for(idx = 1; idx<filecnt; idx++)
+            if (strcmp(files[use], files[idx])<0)
+                use=idx;
+
+        logmsg(LOG_DEBUG, " I==> %s", files[use]);
+        _include_file(state, files[use], 0); // include_file will deallocate strdup
+        files[use] = files[--filecnt];
+    }
+
+    closedir(dp);
 }
 
 static void remove_top_file(CONFSTATE *state) {
@@ -148,6 +205,7 @@ static void remove_top_file(CONFSTATE *state) {
     /* Delink Top */
     cf = state->files;
     state->files = cf->next;
+    logmsg(LOG_DEBUG, "Done with file %s", cf->filename);
     /* And Free */
     if(cf->filename) { free(cf->filename); cf->filename = NULL; }
     if(cf->fp) { fclose(cf->fp); cf->fp = NULL; }
@@ -219,6 +277,9 @@ parse_be(CONFSTATE * state, const int is_emergency)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -361,6 +422,9 @@ parse_sess(CONFSTATE *const state, SERVICE *const svc)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&Type, lin, 4, matches, 0)) {
             if(svc->sess_type != SESS_NONE) {
                 logmsg(LOG_ERR, "line %d: Multiple Session types in one Service - aborted", n_lin);
@@ -512,6 +576,9 @@ parse_service(CONFSTATE *state, const char *svc_name)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&URL, lin, 4, matches, 0)) {
             if(res->url) {
                 for(m = res->url; m->next; m = m->next)
@@ -749,6 +816,9 @@ parse_HTTP(CONFSTATE *state)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -949,6 +1019,9 @@ parse_HTTPS(CONFSTATE *state)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -1221,6 +1294,9 @@ parse_file(CONFSTATE *state)
         } else if(!regexec(&Include, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             include_file(state, lin + matches[1].rm_so);
+        } else if(!regexec(&IncludeDir, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_dir(state, lin + matches[1].rm_so);
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
@@ -1347,6 +1423,7 @@ config_parse(const int argc, char **const argv)
     if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Include, "^[ \t]*Include[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&IncludeDir, "^[ \t]*IncludeDir[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&User, "^[ \t]*User[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Group, "^[ \t]*Group[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1500,6 +1577,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Empty);
     regfree(&Comment);
     regfree(&Include);
+    regfree(&IncludeDir);
     regfree(&User);
     regfree(&Group);
     regfree(&RootJail);
