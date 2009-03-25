@@ -1,6 +1,6 @@
 Include and IncludeDir directives
-PCRE URL Case-Insensitive mappings (URLNoCase?)
-Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
+-PCRE URL Case-Insensitive mappings (URLNoCase?)
+-Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
     BrowserMatch "Mozilla/2" nokeepalive
     BrowserMatch "MSIE 4\.0b2;" nokeepalive downgrade-1.0 force-response-1.0
     BrowserMatch "RealPlayer 4\.0" force-response-1.0
@@ -9,7 +9,7 @@ Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
     #BrowserMatch ".*MSIE.*" nokeepalive ssl-unclean-shutdown downgrade-1.0 force-response-1.0
     BrowserMatch "MSIE [1-4]" nokeepalive ssl-unclean-shutdown downgrade-1.0 force-response-1.0
     BrowserMatch "MSIE [5-9]" ssl-unclean-shutdown
-Add a UncleanShutdown Regexp
+-Add a UncleanShutdown Regexp
     if (ap_ctx_get(conn->client->ctx, "ssl::flag::unclean-shutdown") == PTRUE) {
         /* perform no close notify handshake at all
            (violates the SSL/TLS standard!) */
