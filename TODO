@@ -1,14 +1,14 @@
-PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?)
-RedirectDynamic?
-
+PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
 Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
-Log Files - HUP reopens log files, Access and Error logs
-MagicValues - PoundCtl Structures/Error Handling
 Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
-Perl Bindings (or use XML?)
 AuthTypes - Extract username from request, Token Coldfusion or Basic
-Pound Admin CGI (perl)
+Admin CGI
 
+Deprecated?
+  Log Files - HUP reopens log files, Access and Error logs
+  MagicValues - PoundCtl Structures/Error Handling
+  Perl Bindings (or use XML?)
+  Pound Admin CGI (perl)
 
 
 
