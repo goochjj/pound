@@ -77,7 +77,7 @@ static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogL
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
-static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
+static regex_t  Redirect, RedirectN, TimeOut, ConnectTimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace;
@@ -98,6 +98,7 @@ static int  log_level = 1;
 static int  def_facility = LOG_DAEMON;
 static int  clnt_to = 10;
 static int  be_to = 15;
+static int  be_conn_to = 15;
 static int  n_lin = 0;
 static int  dynscale = 0;
 
@@ -261,6 +262,7 @@ parse_be(CONFSTATE * state, const int is_emergency)
     res->be_type = 0;
     res->addr.ai_socktype = SOCK_STREAM;
     res->to = is_emergency? 120: be_to;
+    res->conn_to = is_emergency? 120: be_conn_to;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
     res->priority = 5;
@@ -328,6 +330,8 @@ parse_be(CONFSTATE * state, const int is_emergency)
             res->priority = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ConnectTimeOut, lin, 4, matches, 0)) {
+            res->conn_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&HAport, lin, 4, matches, 0)) {
             if(is_emergency) {
                 logmsg(LOG_ERR, "line %d: HAport is not supported for Emergency back-ends", n_lin);
@@ -1341,6 +1345,8 @@ parse_file(CONFSTATE *state)
             dynscale = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             be_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ConnectTimeOut, lin, 4, matches, 0)) {
+            be_conn_to = atoi(lin + matches[1].rm_so);
 #if HAVE_OPENSSL_ENGINE_H
         } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
@@ -1484,6 +1490,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Emergency, "^[ \t]*Emergency[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Priority, "^[ \t]*Priority[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ConnectTimeOut, "^[ \t]*ConnectTimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAportAddr, "^[ \t]*HAport[ \t]+([^ \t]+)[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Redirect, "^[ \t]*Redirect[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1641,6 +1648,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Emergency);
     regfree(&Priority);
     regfree(&TimeOut);
+    regfree(&ConnectTimeOut);
     regfree(&HAport);
     regfree(&HAportAddr);
     regfree(&Redirect);
