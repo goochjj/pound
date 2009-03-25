@@ -72,6 +72,7 @@ static CODE facilitynames[] = {
 };
 #endif
 
+static regex_t  Include;
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
@@ -98,11 +99,92 @@ static int  be_to = 15;
 static int  n_lin = 0;
 static int  dynscale = 0;
 
+
+/* Chained Configuration File Handling Start */
+typedef struct _conffile {
+    char * filename;
+    FILE * fp;
+    struct _conffile *next;
+}   CONFFILE;
+
+typedef struct _confstate {
+    CONFFILE *files;
+    int lines_read;
+}   CONFSTATE;
+
+static void include_file(CONFSTATE *state, const char *conf_name) {
+    FILE *f_conf;
+    CONFFILE *cf;
+    if(state==NULL) {
+        logmsg(LOG_ERR, "include_file called with null state");
+        exit(1);
+    }
+
+    if((f_conf = fopen(conf_name, "rt")) == NULL) {
+        logmsg(LOG_ERR, "can't open configuration file \"%s\" (%s) - aborted", conf_name, strerror(errno));
+        exit(1);
+    }
+
+    if((cf = (CONFFILE *)malloc(sizeof(CONFFILE))) == NULL) {
+        logmsg(LOG_ERR, "ConfigFile Reader: out of memory opening %s - aborted", conf_name);
+        exit(1);
+    }
+    memset(cf, 0, sizeof(*cf));
+    cf->next = state->files;
+    state->files = cf;
+    cf->filename = strdup(conf_name);
+    cf->fp = f_conf;
+    if (cf->filename == NULL) {
+        logmsg(LOG_ERR, "ConfigFile Reader: out of memory opening %s - aborted", conf_name);
+        exit(1);
+    }
+}
+
+static void remove_top_file(CONFSTATE *state) {
+    CONFFILE *cf;
+
+    if(state==NULL) return;
+    if(state->files==NULL) return;
+    /* Delink Top */
+    cf = state->files;
+    state->files = cf->next;
+    /* And Free */
+    if(cf->filename) { free(cf->filename); cf->filename = NULL; }
+    if(cf->fp) { fclose(cf->fp); cf->fp = NULL; }
+    free(cf);
+}
+
+static char *confgets(char *s, int size, CONFSTATE *state) {
+    char *res;
+    FILE *fp;
+    CONFFILE *cf;
+
+    if (state==NULL) return NULL;
+    if (state->files==NULL) return NULL;
+    while (state->files) {
+        if((res = fgets(s, size, state->files->fp))!=NULL) {
+           state->lines_read++;
+           return res;
+        }
+	remove_top_file(state);
+    }
+    return NULL;
+}
+
+static void free_files(CONFSTATE *state) {
+    if(state==NULL) return;
+    while(state->files)
+        remove_top_file(state);
+}
+
+/* Chained Configuration File Handling End */
+
+
 /*
  * parse a back-end
  */
 static BACKEND *
-parse_be(FILE *const f_conf, const int is_emergency)
+parse_be(CONFSTATE * state, const int is_emergency)
 {
     char        lin[MAXBUF];
     BACKEND     *res;
@@ -127,13 +209,16 @@ parse_be(FILE *const f_conf, const int is_emergency)
     res->next = NULL;
     has_addr = has_port = 0;
     pthread_mutex_init(&res->mut, NULL);
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -262,17 +347,20 @@ parse_be(FILE *const f_conf, const int is_emergency)
  * parse a session
  */
 static void
-parse_sess(FILE *const f_conf, SERVICE *const svc)
+parse_sess(CONFSTATE *const state, SERVICE *const svc)
 {
     char        lin[MAXBUF], *cp;
 
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&Type, lin, 4, matches, 0)) {
             if(svc->sess_type != SESS_NONE) {
                 logmsg(LOG_ERR, "line %d: Multiple Session types in one Service - aborted", n_lin);
@@ -393,7 +481,7 @@ static IMPLEMENT_LHASH_COMP_FN(t_cmp, const TABNODE *)
  * parse a service
  */
 static SERVICE *
-parse_service(FILE *const f_conf, const char *svc_name)
+parse_service(CONFSTATE *state, const char *svc_name)
 {
     char        lin[MAXBUF];
     SERVICE     *res;
@@ -414,13 +502,16 @@ parse_service(FILE *const f_conf, const char *svc_name)
         logmsg(LOG_ERR, "line %d: lh_new failed - aborted", n_lin);
         exit(1);
     }
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&URL, lin, 4, matches, 0)) {
             if(res->url) {
                 for(m = res->url; m->next; m = m->next)
@@ -561,13 +652,13 @@ parse_service(FILE *const f_conf, const char *svc_name)
             if(res->backends) {
                 for(be = res->backends; be->next; be = be->next)
                     ;
-                be->next = parse_be(f_conf, 0);
+                be->next = parse_be(state, 0);
             } else
-                res->backends = parse_be(f_conf, 0);
+                res->backends = parse_be(state, 0);
         } else if(!regexec(&Emergency, lin, 4, matches, 0)) {
-            res->emergency = parse_be(f_conf, 1);
+            res->emergency = parse_be(state, 1);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
-            parse_sess(f_conf, res);
+            parse_sess(state, res);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             for(be = res->backends; be; be = be->next)
                 res->tot_pri += be->priority;
@@ -621,7 +712,7 @@ file2str(const char *fname)
  * parse an HTTP listener
  */
 static LISTENER *
-parse_HTTP(FILE *const f_conf)
+parse_HTTP(CONFSTATE *state)
 {
     char        lin[MAXBUF];
     LISTENER    *res;
@@ -648,13 +739,16 @@ parse_HTTP(FILE *const f_conf)
         exit(1);
     }
     has_addr = has_port = 0;
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -768,20 +862,20 @@ parse_HTTP(FILE *const f_conf)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(f_conf, NULL);
+                res->services = parse_service(state, NULL);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, NULL);
+                svc->next = parse_service(state, NULL);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(f_conf, lin + matches[1].rm_so);
+                res->services = parse_service(state, lin + matches[1].rm_so);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr || !has_port) {
@@ -812,7 +906,7 @@ verify_OK(int pre_ok, X509_STORE_CTX *ctx)
  * parse an HTTPS listener
  */
 static LISTENER *
-parse_HTTPS(FILE *const f_conf)
+parse_HTTPS(CONFSTATE *state)
 {
     char        lin[MAXBUF];
     LISTENER    *res;
@@ -845,13 +939,16 @@ parse_HTTPS(FILE *const f_conf)
         exit(1);
     }
     has_addr = has_port = has_cert = 0;
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(get_host(lin + matches[1].rm_so, &res->addr)) {
@@ -1061,20 +1158,20 @@ parse_HTTPS(FILE *const f_conf)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(f_conf, NULL);
+                res->services = parse_service(state, NULL);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, NULL);
+                svc->next = parse_service(state, NULL);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(f_conf, lin + matches[1].rm_so);
+                res->services = parse_service(state, lin + matches[1].rm_so);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             X509_STORE  *store;
@@ -1104,7 +1201,7 @@ parse_HTTPS(FILE *const f_conf)
  * parse the config file
  */
 static void
-parse_file(FILE *const f_conf)
+parse_file(CONFSTATE *state)
 {
     char        lin[MAXBUF];
     SERVICE     *svc;
@@ -1114,13 +1211,16 @@ parse_file(FILE *const f_conf)
     ENGINE      *e;
 #endif
 
-    while(fgets(lin, MAXBUF, f_conf)) {
+    while(confgets(lin, MAXBUF, state)) {
         n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
+        } else if(!regexec(&Include, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            include_file(state, lin + matches[1].rm_so);
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
@@ -1195,36 +1295,36 @@ parse_file(FILE *const f_conf)
             ctrl_name = strdup(lin + matches[1].rm_so);
         } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
             if(listeners == NULL)
-                listeners = parse_HTTP(f_conf);
+                listeners = parse_HTTP(state);
             else {
                 for(lstn = listeners; lstn->next; lstn = lstn->next)
                     ;
-                lstn->next = parse_HTTP(f_conf);
+                lstn->next = parse_HTTP(state);
             }
         } else if(!regexec(&ListenHTTPS, lin, 4, matches, 0)) {
             if(listeners == NULL)
-                listeners = parse_HTTPS(f_conf);
+                listeners = parse_HTTPS(state);
             else {
                 for(lstn = listeners; lstn->next; lstn = lstn->next)
                     ;
-                lstn->next = parse_HTTPS(f_conf);
+                lstn->next = parse_HTTPS(state);
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(services == NULL)
-                services = parse_service(f_conf, NULL);
+                services = parse_service(state, NULL);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, NULL);
+                svc->next = parse_service(state, NULL);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(services == NULL)
-                services = parse_service(f_conf, lin + matches[1].rm_so);
+                services = parse_service(state, lin + matches[1].rm_so);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(f_conf, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so);
             }
         } else {
             logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
@@ -1241,11 +1341,12 @@ void
 config_parse(const int argc, char **const argv)
 {
     char    *conf_name;
-    FILE    *f_conf;
+    CONFSTATE	state;
     int     c_opt, check_only;
 
     if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Include, "^[ \t]*Include[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&User, "^[ \t]*User[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Group, "^[ \t]*Group[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1369,11 +1470,6 @@ config_parse(const int argc, char **const argv)
         exit(1);
     }
 
-    if((f_conf = fopen(conf_name, "rt")) == NULL) {
-        logmsg(LOG_ERR, "can't open configuration file \"%s\" (%s) - aborted", conf_name, strerror(errno));
-        exit(1);
-    }
-
     user = NULL;
     group = NULL;
     root_jail = NULL;
@@ -1386,9 +1482,10 @@ config_parse(const int argc, char **const argv)
     services = NULL;
     listeners = NULL;
 
-    parse_file(f_conf);
-
-    fclose(f_conf);
+    memset(&state, 0x00, sizeof(state));
+    include_file(&state, conf_name);
+    parse_file(&state);
+    free_files(&state);
 
     if(check_only) {
         logmsg(LOG_INFO, "Config file %s is OK", conf_name);
@@ -1402,6 +1499,7 @@ config_parse(const int argc, char **const argv)
 
     regfree(&Empty);
     regfree(&Comment);
+    regfree(&Include);
     regfree(&User);
     regfree(&Group);
     regfree(&RootJail);
