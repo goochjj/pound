@@ -247,6 +247,9 @@ extern char *user,              /* user to run as */
             *pid_name,          /* file to record pid in */
             *ctrl_name;         /* control socket name */
 
+/* Control Socket Ownership */
+extern char *control_user, *control_group; long control_mode;
+
 extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
