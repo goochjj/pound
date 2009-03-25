@@ -1,4 +1,4 @@
-Include and IncludeDir directives
+-Include and IncludeDir directives
 -PCRE URL Case-Insensitive mappings (URLNoCase?)
 -Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
     BrowserMatch "Mozilla/2" nokeepalive
@@ -34,7 +34,7 @@ PCRE Replacements - for Redirect directives and possibly adjustment of Case for 
 RedirectDynamic?
 
 Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
-Linux Capabilities
+-Linux Capabilities
 Log Files - HUP reopens log files, Access and Error logs
 ControlSock Ownership - ControlUser,ControlMode,ControlGroup
 MagicValues - PoundCtl Structures/Error Handling
