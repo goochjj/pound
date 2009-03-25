@@ -78,6 +78,7 @@ static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteL
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace;
 
 static regmatch_t   matches[5];
@@ -752,6 +753,19 @@ parse_HTTP(FILE *const f_conf)
             res->rewr_dest = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             res->log_level = atoi(lin + matches[1].rm_so);
+	} else if(!regexec(&ForceHTTP10, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                logmsg(LOG_ERR, "line %d: ForceHTTP10 config: out of memory - aborted", n_lin);
+                exit(1);
+            }
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->forcehttp10;
+            res->forcehttp10 = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: ForceHTTP10 bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+                exit(1);
+            }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(f_conf, NULL);
@@ -1019,6 +1033,32 @@ parse_HTTPS(FILE *const f_conf)
 #endif
         } else if(!regexec(&NoHTTPS11, lin, 4, matches, 0)) {
             res->noHTTPS11 = atoi(lin + matches[1].rm_so);
+	} else if(!regexec(&ForceHTTP10, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                logmsg(LOG_ERR, "line %d: ForceHTTP10 config: out of memory - aborted", n_lin);
+                exit(1);
+            }
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->forcehttp10;
+            res->forcehttp10 = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: ForceHTTP10 bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+                exit(1);
+            }
+	} else if(!regexec(&SSLUncleanShutdown, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                logmsg(LOG_ERR, "line %d: SSLUncleanShutdown config: out of memory - aborted", n_lin);
+                exit(1);
+            }
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->ssl_unclean_shutdown;
+            res->ssl_unclean_shutdown = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: SSLUncleanShutdown bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+                exit(1);
+            }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(f_conf, NULL);
@@ -1258,6 +1298,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ForceHTTP10, "^[ \t]*ForceHTTP10[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLUncleanShutdown, "^[ \t]*SSLUncleanShutdown[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1412,6 +1454,8 @@ config_parse(const int argc, char **const argv)
     regfree(&VerifyList);
     regfree(&CRLlist);
     regfree(&NoHTTPS11);
+    regfree(&ForceHTTP10);
+    regfree(&SSLUncleanShutdown);
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;
