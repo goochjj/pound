@@ -351,7 +351,7 @@ Override the global
 .I Client
 time-out value.
 .TP
-\fBCheckURL\fR "pattern to match"
+\fBCheckURL/CheckURLNoCase\fR "pattern to match"
 Define a pattern that must be matched by each request sent to this
 listener. A request that does not match is considered to be illegal.
 By default
@@ -361,6 +361,12 @@ limit it to something more reasonable. Please note that this applies
 only to the request path -
 .B Pound
 will still check that the request is syntactically correct.
+.I CheckURL 
+is 
+.B case sensitive
+. 
+.I CheckURLNoCase
+is not.  (As you might expect)
 .TP
 \fBErr414\fR "filename"
 A file with the text to be displayed if an Error 414 occurs.
@@ -498,7 +504,7 @@ and
 .I End
 are specific to a single service. The following directives are available:
 .TP
-\fBURL\fR "pattern"
+\fBURL/URLNoCase\fR "pattern"
 Match the incoming request. If a request fails to match than this service
 will be skipped and next one tried. If all services fail to match
 .B Pound
@@ -507,6 +513,12 @@ returns an error. You may define multiple
 conditions per service. If no
 .I URL
 was defined then all requests match.
+.I URL 
+is 
+.B case sensitive
+. 
+.I URLNoCase
+is not.  (As you might expect)
 .TP
 \fBHeadRequire\fR "pattern"
 The request must contain at least on header matching the given pattern.

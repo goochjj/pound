@@ -437,9 +437,9 @@ parse_service(FILE *const f_conf, const char *svc_name)
                 m = res->url;
             }
             memset(m, 0, sizeof(MATCHER));
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "line %d: URL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[2].rm_so, ((matches[1].rm_eo - matches[1].rm_so)>0?REG_ICASE:0) | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: URL bad pattern \"%s\" - aborted", n_lin, lin + matches[2].rm_so);
                 exit(1);
             }
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
@@ -698,9 +698,9 @@ parse_HTTP(FILE *const f_conf)
                 logmsg(LOG_ERR, "line %d: CheckURL multiple pattern - aborted", n_lin);
                 exit(1);
             }
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&res->url_pat, lin + matches[2].rm_so, ((matches[1].rm_eo-matches[1].rm_so)>0?REG_ICASE:0) | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[2].rm_so);
                 exit(1);
             }
             res->has_pat = 1;
@@ -876,9 +876,9 @@ parse_HTTPS(FILE *const f_conf)
                 logmsg(LOG_ERR, "line %d: CheckURL multiple pattern - aborted", n_lin);
                 exit(1);
             }
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&res->url_pat, lin + matches[2].rm_so, ((matches[1].rm_eo-matches[1].rm_so)>0?REG_ICASE:0) | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[2].rm_so);
                 exit(1);
             }
             res->has_pat = 1;
@@ -1224,7 +1224,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CheckURL, "^[ \t]*CheckURL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1235,7 +1235,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&RewriteDestination, "^[ \t]*RewriteDestination[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&URL, "^[ \t]*URL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
