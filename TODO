@@ -1,42 +1,8 @@
--Include and IncludeDir directives
--PCRE URL Case-Insensitive mappings (URLNoCase?)
--Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
-    BrowserMatch "Mozilla/2" nokeepalive
-    BrowserMatch "MSIE 4\.0b2;" nokeepalive downgrade-1.0 force-response-1.0
-    BrowserMatch "RealPlayer 4\.0" force-response-1.0
-    BrowserMatch "Java/1\.0" force-response-1.0
-    BrowserMatch "JDK/1\.0" force-response-1.0
-    #BrowserMatch ".*MSIE.*" nokeepalive ssl-unclean-shutdown downgrade-1.0 force-response-1.0
-    BrowserMatch "MSIE [1-4]" nokeepalive ssl-unclean-shutdown downgrade-1.0 force-response-1.0
-    BrowserMatch "MSIE [5-9]" ssl-unclean-shutdown
--Add a UncleanShutdown Regexp
-    if (ap_ctx_get(conn->client->ctx, "ssl::flag::unclean-shutdown") == PTRUE) {
-        /* perform no close notify handshake at all
-           (violates the SSL/TLS standard!) */
-        SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN|SSL_RECEIVED_SHUTDOWN);
-        cpType = "unclean";
-    }
-    else if (ap_ctx_get(conn->client->ctx, "ssl::flag::accurate-shutdown") == PTRUE) {
-        /* send close notify and wait for clients close notify
-           (standard compliant, but usually causes connection hangs) */
-        SSL_set_shutdown(ssl, 0);
-        cpType = "accurate";
-    }
-    else {
-        /* send close notify, but don't wait for clients close notify
-           (standard compliant and safe, so it's the DEFAULT!) */
-        SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN);
-        cpType = "standard";
-    }
-    SSL_smart_shutdown(ssl);
-
 PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?)
 RedirectDynamic?
 
 Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
--Linux Capabilities
 Log Files - HUP reopens log files, Access and Error logs
-ControlSock Ownership - ControlUser,ControlMode,ControlGroup
 MagicValues - PoundCtl Structures/Error Handling
 Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
 Perl Bindings (or use XML?)
