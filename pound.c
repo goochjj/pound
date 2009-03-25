@@ -38,6 +38,9 @@ char        *user,              /* user to run as */
             *pid_name,          /* file to record pid in */
             *ctrl_name;         /* control socket name */
 
+/* Control Socket Ownership */
+char * control_user, *control_group; long control_mode;
+
 int         alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -172,6 +175,8 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
+    control_user=control_group=NULL;
+    control_mode = -1;
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
@@ -232,6 +237,35 @@ main(const int argc, char **argv)
         if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
             logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
             exit(1);
+        }
+        if (control_user) {
+            struct passwd   *pw;
+
+            if((pw = getpwnam(control_user)) == NULL) {
+                logmsg(LOG_ERR, "no such user %s - aborted", control_user);
+                exit(1);
+            }
+            if (chown(ctrl_name, pw->pw_uid, -1)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (control_group) {
+            struct group    *gr;
+            if((gr = getgrnam(control_group)) == NULL) {
+                logmsg(LOG_ERR, "no such group %s - aborted", control_group);
+                exit(1);
+            }
+            if (chown(ctrl_name, -1, gr->gr_gid)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (control_mode>0) {
+            if (chmod(ctrl_name, control_mode)) {
+                logmsg(LOG_ERR, "chmod error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
         }
         listen(control_sock, 512);
     }

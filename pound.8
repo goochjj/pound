@@ -305,6 +305,15 @@ does not listen for any commands. The commands may be issued by using
 the
 .I poundctl(8)
 program.
+.TP
+\fBControlUser\fR "user"
+The username to chown the Control socket to.
+.TP
+\fBControlGroup\fR "group"
+The groupname to chgrp the Control socket to.
+.TP
+\fBControlMode\fR 0770
+The mode the Control socket should use, in octal.
 .SH "HTTP Listener"
 An HTTP listener defines an address and port that
 .B Pound
