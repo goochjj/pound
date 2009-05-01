@@ -485,6 +485,7 @@ void *
 thr_http(void *arg)
 {
     int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, force_10, sock_proto;
+    int			rewrite_proto;
     LISTENER            *lstn;
     SERVICE             *svc;
     BACKEND             *backend, *cur_backend, *old_backend;
@@ -1223,9 +1224,11 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc)) {
+                    if(v_host[0] && (rewrite_proto=need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0) {
+                        fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
+                        if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
-                            (ssl == NULL? "http": "https"), v_host, loc_path);
+                            (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Location - out of memory: %s",
@@ -1237,9 +1240,11 @@ thr_http(void *arg)
                     }
                     break;
                 case HEADER_CONTLOCATION:
-                    if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc)) {
+                    if(v_host[0] && (rewrite_proto = need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0 ) {
+                        fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
+                        if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Content-location: %s://%s/%s",
-                            (ssl == NULL? "http": "https"), v_host, loc_path);
+                            (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Content-location - out of memory: %s",
