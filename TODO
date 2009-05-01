@@ -1,5 +1,5 @@
 PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
-Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
+-Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
 Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
 AuthTypes - Extract username from request, Token Coldfusion or Basic
 Admin CGI
