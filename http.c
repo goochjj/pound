@@ -1193,7 +1193,6 @@ thr_http(void *arg)
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && (rewrite_proto=need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0) {
-			fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
 			if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
                             (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
@@ -1209,7 +1208,6 @@ thr_http(void *arg)
                     break;
                 case HEADER_CONTLOCATION:
                     if(v_host[0] && (rewrite_proto = need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0 ) {
-			fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
 			if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Content-location: %s://%s/%s",
                             (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
