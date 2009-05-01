@@ -660,6 +660,26 @@ get_host(char *const name, struct addrinfo *res)
  * In general we have two possibilities that require it:
  * (1) if the redirect was done to the correct location with the wrong port
  * (2) if the redirect was done to the back-end rather than the listener
+ *
+ * JG- 
+ * This behavior has been enhanced, largely because in my situation it is inadequate.
+ *
+ * For instance, my backend will send http://hostname:443/...  redirects.  Which is fine,
+ * except my hostname is split-DNS, so internally (on the pound server) it resolves to ip A, 
+ * but where the client is on the outside, it resolves to ip B.  Thus, it doesn't actually match
+ * the listener the request came in on, even though it matches *one* of the global listeners.
+ *
+ * As such, in addition to checking the current listener, we'll also check all the others, as
+ * long as our service is a global service.  If it isn't, well, that doesn't make sense, does it?
+ *
+ * Also, we'll change the return from this function.
+ * 0 - No rewrite necessary
+ * 2 - Rewrite as http please.
+ * 3 - Rewrite as https please
+ * 1 - Rewrite as whichever makes more sense.  You figure it out.
+ *
+ * That way, if a http request comes in for a SSL listener port, we can tell our parent thread to
+ * do SSL, so we don't end up with a protocol mismatch.
  */
 int
 need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc)
@@ -668,6 +688,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     struct sockaddr_in      in_addr, be_addr;
     struct sockaddr_in6     in6_addr, be6_addr;
     regmatch_t              matches[4];
+    LISTENER		    *lstn_chk;
     char                    *proto, *host, *port;
     int                     ret_val;
 
@@ -675,6 +696,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     if(rewr_loc == 0)
         return 0;
 
+    fprintf(stderr, "entered need_rewrite\n" );
     /* applies only to INET/INET6 back-ends */
     if(be->addr.ai_family != AF_INET && be->addr.ai_family != AF_INET6)
         return 0;
@@ -700,7 +722,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
         return 0;
 
     /*
-     * compare the back-end
+     * Get full address and port
      */
     if(addr.ai_family != be->addr.ai_family) {
         free(addr.ai_addr);
@@ -708,13 +730,27 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     }
     if(addr.ai_family == AF_INET) {
         memcpy(&in_addr, addr.ai_addr, sizeof(in_addr));
-        memcpy(&be_addr, be->addr.ai_addr, sizeof(be_addr));
         if(port)
             in_addr.sin_port = (in_port_t)htons(atoi(port));
         else if(!strcasecmp(proto, "https"))
             in_addr.sin_port = (in_port_t)htons(443);
         else
             in_addr.sin_port = (in_port_t)htons(80);
+    } else {
+        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
+        if(port)
+            in6_addr.sin6_port = (in_port_t)htons(atoi(port));
+        else if(!strcasecmp(proto, "https"))
+            in6_addr.sin6_port = (in_port_t)htons(443);
+        else
+            in6_addr.sin6_port = (in_port_t)htons(80);
+    }
+
+    /*
+     * compare the back-end
+     */
+    if(addr.ai_family == AF_INET) {
+        memcpy(&be_addr, be->addr.ai_addr, sizeof(be_addr));
         /*
          * check if the Location points to the back-end
          */
@@ -724,14 +760,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
             return 1;
         }
     } else {
-        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
         memcpy(&be6_addr, be->addr.ai_addr, sizeof(be6_addr));
-        if(port)
-            in6_addr.sin6_port = (in_port_t)htons(atoi(port));
-        else if(!strcasecmp(proto, "https"))
-            in6_addr.sin6_port = (in_port_t)htons(443);
-        else
-            in6_addr.sin6_port = (in_port_t)htons(80);
         /*
          * check if the Location points to the back-end
          */
@@ -743,14 +772,16 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     }
 
     /*
-     * compare the listener
+     * compare the listener if RewriteLocation is 1
      */
-    if(rewr_loc != 1 || addr.ai_family != lstn->addr.ai_family) {
+    if(rewr_loc != 1) {
         free(addr.ai_addr);
         return 0;
     }
-    if(addr.ai_family == AF_INET) {
-        memcpy(&in_addr, addr.ai_addr, sizeof(in_addr));
+    /* Only compare to this listener if it's a non-global service */
+    fprintf(stderr, "comparing to listener\n" );
+    if (!svc->global && addr.ai_family == lstn->addr.ai_family) {
+      if(addr.ai_family == AF_INET) {
         memcpy(&be_addr, lstn->addr.ai_addr, sizeof(be_addr));
         /*
          * check if the Location points to the Listener but with the wrong port or protocol
@@ -761,8 +792,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
             free(addr.ai_addr);
             return 1;
         }
-    } else {
-        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
+      } else {
         memcpy(&be6_addr, lstn->addr.ai_addr, sizeof(be6_addr));
         /*
          * check if the Location points to the Listener but with the wrong port or protocol
@@ -773,7 +803,44 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
             free(addr.ai_addr);
             return 1;
         }
+      }
+    } else if (svc->global) {
+      fprintf(stderr, "comparing to global listeners\n" );
+      /* Otherwise, check all listeners. */
+      fprintf(stderr, "address to compare %s:%d\n", inet_ntoa(in_addr.sin_addr), ntohs(in_addr.sin_port));
+      for(lstn_chk = listeners; lstn_chk; lstn_chk = lstn_chk->next) {
+        if (addr.ai_family != lstn_chk->addr.ai_family) continue;
+
+        if(addr.ai_family == AF_INET) {
+          memcpy(&be_addr, lstn_chk->addr.ai_addr, sizeof(be_addr));
+          fprintf(stderr, "comparing to listener %s:%d\n", inet_ntoa(be_addr.sin_addr), ntohs(be_addr.sin_port));
+          /*
+           * check if the Location points to the Listener.... Ports must match, if protocol is wrong, rewrite.
+           */
+          if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
+          && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0
+          && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
+	      fprintf(stderr, "global listener matched\n" );
+              free(addr.ai_addr);
+              return (lstn_chk->ctx==NULL)?2:3;
+          }
+        } else {
+          memcpy(&be6_addr, lstn_chk->addr.ai_addr, sizeof(be6_addr));
+          /*
+           * check if the Location points to the Listener.... Ports must match, protocol will be rewritten
+           */
+          if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
+          && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0
+          && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
+	      fprintf(stderr, "global listener matched\n" );
+              free(addr.ai_addr);
+              return (lstn_chk->ctx==NULL)?2:3;
+          }
+        }
+      }
+      fprintf(stderr, "no global listeners matched\n" );
     }
+
 
     free(addr.ai_addr);
     return 0;
