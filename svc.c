@@ -669,7 +669,7 @@ get_host(char *const name, struct addrinfo *res)
  * (2) if the redirect was done to the back-end rather than the listener
  */
 int
-need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be)
+need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc)
 {
     struct addrinfo         addr;
     struct sockaddr_in      in_addr, be_addr;
