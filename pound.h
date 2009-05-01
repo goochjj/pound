@@ -480,7 +480,7 @@ extern int  get_host(char *const, struct addrinfo *);
  * (1) if the redirect was done to the correct location with the wrong protocol
  * (2) if the redirect was done to the back-end rather than the listener
  */
-extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, const BACKEND *);
+extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, const BACKEND *, const SERVICE *);
 /*
  * (for cookies only) possibly create session based on response headers
  */
