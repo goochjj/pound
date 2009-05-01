@@ -551,7 +551,7 @@ static IMPLEMENT_LHASH_COMP_FN(t_cmp, const TABNODE *)
  * parse a service
  */
 static SERVICE *
-parse_service(CONFSTATE *state, const char *svc_name)
+parse_service(CONFSTATE *state, const char *svc_name, int global)
 {
     char        lin[MAXBUF];
     SERVICE     *res;
@@ -565,6 +565,7 @@ parse_service(CONFSTATE *state, const char *svc_name)
     memset(res, 0, sizeof(SERVICE));
     res->sess_type = SESS_NONE;
     res->dynscale = dynscale;
+    res->global = global;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -938,20 +939,20 @@ parse_HTTP(CONFSTATE *state)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(state, NULL);
+                res->services = parse_service(state, NULL, 0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, NULL);
+                svc->next = parse_service(state, NULL, 0);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(state, lin + matches[1].rm_so);
+                res->services = parse_service(state, lin + matches[1].rm_so,0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so,0);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr || !has_port) {
@@ -1237,20 +1238,20 @@ parse_HTTPS(CONFSTATE *state)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(state, NULL);
+                res->services = parse_service(state, NULL,0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, NULL);
+                svc->next = parse_service(state, NULL,0);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(state, lin + matches[1].rm_so);
+                res->services = parse_service(state, lin + matches[1].rm_so,0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so,0);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             X509_STORE  *store;
@@ -1414,20 +1415,20 @@ parse_file(CONFSTATE *state)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(services == NULL)
-                services = parse_service(state, NULL);
+                services = parse_service(state, NULL,1);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, NULL);
+                svc->next = parse_service(state, NULL,1);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(services == NULL)
-                services = parse_service(state, lin + matches[1].rm_so);
+                services = parse_service(state, lin + matches[1].rm_so,1);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(state, lin + matches[1].rm_so);
+                svc->next = parse_service(state, lin + matches[1].rm_so,1);
             }
         } else {
             logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
