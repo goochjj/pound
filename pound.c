@@ -225,6 +225,7 @@ static char *rcs_id = "$Id: pound.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $"
 #endif
 
 /* common variables */
+int		logthreads;			/* Log when threads execute */
 int     daemonize;          /* Fork to background */
 int     clnt_to;            /* client timeout */
 int     server_to;          /* server timeout */

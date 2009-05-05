@@ -267,6 +267,7 @@
  * Global variables needed by everybody
  */
 
+extern int  logthreads;			/* Log notices when threads run */
 extern int  daemonize;          /* Fork to background */
 extern int  clnt_to;            /* client timeout */
 extern int  server_to;          /* server timeout */

@@ -954,6 +954,7 @@ thr_prune(void *arg)
 
     for(;;) {
         sleep(GLOB_SESS);
+		if (logthreads) logmsg(LOG_NOTICE,"Pruning sessions");
         for(i = 0; (g = groups[i]) != NULL; i++)
             if(g->sess_to > 0) {
                 pthread_mutex_lock(&g->mut);
@@ -982,6 +983,7 @@ thr_resurect(void *arg)
         cur_time = time(NULL);
         if((n = alive_to - (cur_time - last_time)) > 0)
             sleep(n);
+		if (logthreads) logmsg(LOG_NOTICE,"thr_resurect scanning");
         last_time = time(NULL);
         /* check hosts still alive */
         memset(&z_addr, 0, sizeof(z_addr));
@@ -1084,6 +1086,7 @@ thr_RSAgen(void *arg)
     for(;;) {
         sleep(T_RSA_KEYS);
         pthread_mutex_lock(&RSA_mut);
+		if (logthreads) logmsg(LOG_NOTICE,"Generating RSA keys");
         for(n = 0; n < N_RSA_KEYS; n++) {
             RSA_free(RSA512_keys[n]);
             RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);

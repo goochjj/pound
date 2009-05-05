@@ -240,6 +240,7 @@ parse_file(char *fname)
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
                         RewriteRedir, NoDaemon, GroupName, AuthTypeBasic, AuthTypeColdfusion, ListenStatusText, ListenStatusHTTP;
+    regex_t             LogThreads;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -249,6 +250,7 @@ parse_file(char *fname)
 
     if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogThreads,"^[ \t]*LogThreads[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoDaemon,"^[ \t]*NoDaemon[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
@@ -557,6 +559,8 @@ parse_file(char *fname)
             clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&NoDaemon, lin, 0, NULL, 0)) {
             daemonize = 0;
+        } else if(!regexec(&LogThreads, lin, 0, NULL, 0)) {
+            logthreads++;
         } else if(!regexec(&Server, lin, 4, matches, 0)) {
             server_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
@@ -773,6 +777,7 @@ parse_file(char *fname)
     regfree(&Empty);
     regfree(&Comment);
     regfree(&NoDaemon);
+    regfree(&LogThreads);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&ListenStatusText);
@@ -835,7 +840,8 @@ config_parse(int argc, char **argv)
     char    *conf_name;
 
     /* init values */
-	daemonize = 1;
+    daemonize = 1;
+    logthreads = 0;
     clnt_to = 10;
     server_to = 0;
     log_level = 1;
