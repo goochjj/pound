@@ -793,8 +793,10 @@ thr_http(void *arg)
                  * otherwise allow the HAport mechanism to do its job
                  */
                 memset(&z_addr, 0, sizeof(z_addr));
-                if(memcmp(&(backend->ha_addr), &(z_addr), sizeof(z_addr)) == 0)
+                if(memcmp(&(backend->ha_addr), &(z_addr), sizeof(z_addr)) == 0) {
                     kill_be(svc, backend, BE_KILL);
+                    logmsg(LOG_WARNING, "(%lx) backend %s marked dead", pthread_self(), buf);
+                }
                 /*
                  * ...but make sure we don't get into a loop with the same back-end
                  */

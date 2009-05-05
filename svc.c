@@ -564,7 +564,7 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
         logmsg(LOG_WARNING, "kill_be() lock: %s", strerror(ret_val));
     svc->tot_pri = 0;
     for(b = svc->backends; b; b = b->next) {
-        if(b == be)
+        if(b == be) {
             switch(disable_mode) {
             case BE_DISABLE:
                 b->disabled = 1;
@@ -586,6 +586,9 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
                 logmsg(LOG_WARNING, "kill_be(): unknown mode %d", disable_mode);
                 break;
             }
+            str_be(buf, MAXBUF - 1, be);
+            logmsg(LOG_NOTICE, "BackEnd %s marked dead", buf);
+        }
         if(b->alive && !b->disabled)
             svc->tot_pri += b->priority;
     }
