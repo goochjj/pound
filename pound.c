@@ -240,6 +240,8 @@ int     allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
 int     no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
 int     alive_to;           /* check interval for resurrection */
 long    max_req;            /* maximal allowed request size */
+struct  sockaddr_in *http_addrs;
+struct  sockaddr_in *https_addrs;
 char    **http,             /* HTTP port to listen on */
         **https,            /* HTTPS port to listen on */
         **status_txt,       /* Status port to listen on and return TEXT */
@@ -386,7 +388,7 @@ main(int argc, char **argv)
     pthread_attr_t      attr;
     int                 *http_sock, *https_sock, clnt_length, i, n, n_polls, clnt, host_length;
     int                 *status_txt_sock, *status_http_sock;
-    struct sockaddr_in  host_addr, clnt_addr;
+    struct sockaddr_in  *host_addr, host2_addr, clnt_addr;
     struct hostent      *host;
     struct pollfd       *polls;
     uid_t               user_id;
@@ -475,7 +477,21 @@ main(int argc, char **argv)
     }
 
     /* get HTTP address and port */
+        for(i = 0; http[i]; i++)
+            ;
+    if ((http_addrs = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in)*(i+1))) == NULL) {
+            logmsg(LOG_ERR, "https_addrs out of memory - aborted");
+            exit(1);
+        }
+        for(i = 0; https[i]; i++)
+            ;
+    if ((https_addrs = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in)*(i+1))) == NULL) {
+            logmsg(LOG_ERR, "https_addrs out of memory - aborted");
+            exit(1);
+        }
+	
     if(http[0]) {
+        host_addr = http_addrs;
         for(i = 0; http[i]; i++)
             ;
         if((http_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
@@ -483,8 +499,8 @@ main(int argc, char **argv)
             exit(1);
         }
         for(i = 0; http[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
+            memset(host_addr, 0, sizeof(*host_addr));
+            host_addr->sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, http[i], 3, matches, 0)) {
@@ -496,18 +512,18 @@ main(int argc, char **argv)
                 /*
                  * listen on all interfaces
                  */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr->sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(http[i])) == NULL) {
                     logmsg(LOG_ERR, "Unknown HTTP host %s", http[i]);
                     exit(1);
                 }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+                memcpy(&host_addr->sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr->sin_addr.s_addr));
             }
             /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
+            host_addr->sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
 
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+            if(host_addr->sin_addr.s_addr != INADDR_ANY && addr_in_use(host_addr)) {
                 logmsg(LOG_WARNING, "%s:%s already in use - skipped", http[i], http[i] + matches[2].rm_so);
                 http_sock[i] = -1;
             } else {
@@ -520,17 +536,19 @@ main(int argc, char **argv)
                 }
                 opt = 1;
                 setsockopt(http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                if(bind(http_sock[i], (struct sockaddr *)host_addr, (socklen_t)sizeof(*host_addr)) < 0) {
                     logmsg(LOG_ERR, "HTTP socket bind: %s - aborted", strerror(errno));
                     exit(1);
                 }
                 listen(http_sock[i], 512);
             }
+	    host_addr++;
         }
     }
 
     /* get Status Text address and port */
     if(status_txt[0]) {
+        host_addr = &host2_addr;
         for(i = 0; status_txt[i]; i++)
             ;
         if((status_txt_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
@@ -538,8 +556,8 @@ main(int argc, char **argv)
             exit(1);
         }
         for(i = 0; status_txt[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
+            memset(host_addr, 0, sizeof(*host_addr));
+            host_addr->sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, status_txt[i], 3, matches, 0)) {
@@ -551,18 +569,18 @@ main(int argc, char **argv)
                 /*
                  * listen on all interfaces
                  */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr->sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(status_txt[i])) == NULL) {
                     logmsg(LOG_ERR, "Unknown StatusText host %s", status_txt[i]);
                     exit(1);
                 }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+                memcpy(&host_addr->sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr->sin_addr.s_addr));
             }
             /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(status_txt[i] + matches[2].rm_so));
+            host_addr->sin_port = (in_port_t)htons(atoi(status_txt[i] + matches[2].rm_so));
 
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+            if(host_addr->sin_addr.s_addr != INADDR_ANY && addr_in_use(host_addr)) {
                 logmsg(LOG_WARNING, "%s:%s already in use - skipped", status_txt[i], status_txt[i] + matches[2].rm_so);
                 status_txt_sock[i] = -1;
             } else {
@@ -575,7 +593,7 @@ main(int argc, char **argv)
                 }
                 opt = 1;
                 setsockopt(status_txt_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(status_txt_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                if(bind(status_txt_sock[i], (struct sockaddr *)host_addr, (socklen_t)sizeof(*host_addr)) < 0) {
                     logmsg(LOG_ERR, "StatusText socket bind: %s - aborted", strerror(errno));
                     exit(1);
                 }
@@ -586,6 +604,7 @@ main(int argc, char **argv)
 
     /* get Status Text address and port */
     if(status_http[0]) {
+        host_addr = &host2_addr;
         for(i = 0; status_http[i]; i++)
             ;
         if((status_http_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
@@ -593,8 +612,8 @@ main(int argc, char **argv)
             exit(1);
         }
         for(i = 0; status_http[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
+            memset(host_addr, 0, sizeof(*host_addr));
+            host_addr->sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, status_http[i], 3, matches, 0)) {
@@ -606,18 +625,18 @@ main(int argc, char **argv)
                 /*
                  * listen on all interfaces
                  */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr->sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(status_http[i])) == NULL) {
                     logmsg(LOG_ERR, "Unknown StatusHTTP host %s", status_http[i]);
                     exit(1);
                 }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+                memcpy(&host_addr->sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr->sin_addr.s_addr));
             }
             /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(status_http[i] + matches[2].rm_so));
+            host_addr->sin_port = (in_port_t)htons(atoi(status_http[i] + matches[2].rm_so));
 
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+            if(host_addr->sin_addr.s_addr != INADDR_ANY && addr_in_use(host_addr)) {
                 logmsg(LOG_WARNING, "%s:%s already in use - skipped", status_http[i], status_http[i] + matches[2].rm_so);
                 status_http_sock[i] = -1;
             } else {
@@ -630,7 +649,7 @@ main(int argc, char **argv)
                 }
                 opt = 1;
                 setsockopt(status_http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(status_http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                if(bind(status_http_sock[i], (struct sockaddr *)host_addr, (socklen_t)sizeof(*host_addr)) < 0) {
                     logmsg(LOG_ERR, "StatusHTTP socket bind: %s - aborted", strerror(errno));
                     exit(1);
                 }
@@ -641,6 +660,7 @@ main(int argc, char **argv)
 
     /* get HTTPS address and port */
     if(https[0]) {
+        host_addr = https_addrs;
         init_RSAgen();
 
         for(i = 0; https[i]; i++)
@@ -654,8 +674,8 @@ main(int argc, char **argv)
             exit(1);
         }
         for(i = 0; https[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
+            memset(host_addr, 0, sizeof(*host_addr));
+            host_addr->sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, https[i], 3, matches, 0)) {
@@ -667,18 +687,18 @@ main(int argc, char **argv)
                 /*
                  * listen on all interfaces
                  */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr->sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(https[i])) == NULL) {
                     logmsg(LOG_ERR, "Unknown HTTPS host %s", https[i]);
                     exit(1);
                 }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
+                memcpy(&host_addr->sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr->sin_addr.s_addr));
             }
             /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
+            host_addr->sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
 
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+            if(host_addr->sin_addr.s_addr != INADDR_ANY && addr_in_use(host_addr)) {
                 logmsg(LOG_WARNING, "%s:%s already in use - skipped", https[i], https[i] + matches[2].rm_so);
                 https_sock[i] = -1;
             } else {
@@ -692,7 +712,7 @@ main(int argc, char **argv)
                 }
                 opt = 1;
                 setsockopt(https_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(https_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+                if(bind(https_sock[i], (struct sockaddr *)host_addr, (socklen_t)sizeof(*host_addr)) < 0) {
                     logmsg(LOG_ERR, "HTTPS socket bind: %s - aborted", strerror(errno));
                     exit(1);
                 }
@@ -767,8 +787,11 @@ main(int argc, char **argv)
                     logmsg(LOG_WARNING, "SSL_CTX_get_cert_store failed!");
 #endif
             }
+	    host_addr++;
         }
     }
+    memset(host_addr, 0, sizeof(*host_addr));
+    host_addr->sin_family = -1;
 
     /* alloc the poll structures */
     n_polls = 0;

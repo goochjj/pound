@@ -1193,6 +1193,7 @@ thr_http(void *arg)
             redir = !regexec(&RESP_REDIR, response, 0, NULL, 0);
 
             for(chunked = 0, cont = -1L, n = 1; n < MAXHEADERS && headers[n]; n++) {
+		int i;
                 switch(check_header(headers[n], buf)) {
                 case HEADER_CONNECTION:
                     if(!strcasecmp("close", buf))
@@ -1208,15 +1209,14 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(rewrite_redir && redir && is_be(buf, &to_host, v_host, loc_path, grp)) {
-                        if (v_host[0] || to_host.sin_port == htons((ssl==NULL)?80:443)) {
+		    /* This has ended up being pretty custom.  See is_be for details */
+		    i = is_be(buf, &to_host, v_host, loc_path, grp);
+		    fprintf(stderr,"got location %d %d %s %d\n", rewrite_redir, redir, v_host,i);
+                    if(rewrite_redir && redir && v_host[0] && i) {
+			//fprintf(stderr, "RewroteLocation LocBuf: %s\n",buf);
+			if (i==3) { i = (ssl==NULL?1:2); }
                             snprintf(buf, MAXBUF, "Location: %s://%s/%s",
-                                (ssl == NULL? "http": "https"), (v_host[0])?(v_host):inet_ntoa(to_host.sin_addr), loc_path);
-                        } else {
-                            snprintf(buf, MAXBUF, "Location: %s://%s:%d/%s",
-                                (ssl == NULL? "http": "https"), 
-                                inet_ntoa(to_host.sin_addr), ntohs(to_host.sin_port), loc_path);
-                        }
+                            (i==2 ? "https": "http"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "rewrite Location - out of memory: %s", strerror(errno));

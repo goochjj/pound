@@ -282,6 +282,9 @@ extern int  allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
 extern int  no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
 extern int  alive_to;           /* check interval for resurrection */
 extern long max_req;            /* maximal allowed request size */
+extern struct sockaddr_in *http_addrs;
+extern struct sockaddr_in *https_addrs;
+
 extern char **http,             /* HTTP port to listen on */
             **https,            /* HTTPS port to listen on */
             **status_txt,       /* Status port to listen on and return TEXT */

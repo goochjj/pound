@@ -802,16 +802,35 @@ kill_be(struct sockaddr_in *be)
 
 /*
  * Find if a host is in our list of back-ends
+ * Return 1 if rewrite, and we want http
+ * Return 2 if we want https
+ * Return 3 if we don't know
+ *
+ * Rewrite2 before would only work if the host explicitly matched. No DNS aliases.  But it wasn't good enough for me
+ * because it checked against to_host... Which doesn't work with split dns.
+ *
+ * So, first, we remove the host == vhost check.
+ *
+ * Second, we make dns work in the chroot w/ libresolv, nsl, nss libs.
+ *
+ * Third, we add a listeners addresses array to the pound.c that tracks all our sockets.
+ *
+ * Fourth, we check the hostname against DNS, and check the IPs against ALL our local sockets.
+ * Fifth, if rewritelevel is 2, we ignore ports when doing that comparison.
+ * And sixth, we check against all backend ips too.
+ *
+ * If this function sees port 443, it assumes it should be talking SSL.
  */
 int
 is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path, GROUP *grp)
 {
-    int     i, n;
+    int     i, n, want;
     GROUP   *g;
-    struct sockaddr_in  addr;
+    struct sockaddr_in  addr, *laddr;
     struct hostent      *he;
     regmatch_t          matches[4];
     char                *proto, *host, *port, *v_host, *v_port;
+
 
     /* split the location into its fields */
     if(regexec(&LOCATION, location, 4, matches, 0))
@@ -823,11 +842,13 @@ is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path,
     if((port = strchr(host, ':')) != NULL)
         *port++ = '\0';
 
+    fprintf(stderr, "location %s  prot %s host %s port %s path %s vhostport %s path %s\n", location, proto,host, port, path, v_hostport, path);
+
     /*
      * rewrite if hostname in Host: and Location: are the same
      * applies only if RewriteRedir is 2
      */
-    if(rewrite_redir == 2 && (v_host = strdup(v_hostport)) != NULL) {
+    /*if(rewrite_redir == 2 && (v_host = strdup(v_hostport)) != NULL) {
         if ((v_port = strchr(v_host, ':')) != NULL)
             *v_port++ = '\0';
         if(strcmp(host, v_host) == 0) {
@@ -835,27 +856,46 @@ is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path,
             return 1;
         }
         free(v_host);
-    }
+    }*/
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    if((he = gethostbyname(host)) == NULL)
+    fprintf(stderr, "doing dns\n");
+    if((he = gethostbyname(host)) == NULL) {
+	fprintf(stderr, "dns for :%s: failed %s\n",host, strerror(errno));
         return 0;
+    }
+    fprintf(stderr, "done dns\n");
     memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
-    if(port != NULL)
+    fprintf(stderr, "addr %s\n", inet_ntoa(addr.sin_addr));
+    fprintf(stderr, "to_host %s\n", inet_ntoa(to_host->sin_addr));
+    want = 1; /* http */
+    if(port != NULL) {
+	if (atoi(port) == 443) { want = 2; }
         addr.sin_port = (in_port_t)htons(atoi(port));
-    else if(strncmp(proto, "https", 5) == 0)
+    } else if(strncmp(proto, "https", 5) == 0) {
+	want = 2;
         addr.sin_port = (in_port_t)htons(443);
-    else
+    } else
         addr.sin_port = (in_port_t)htons(80);
 
-    if(memcmp(&to_host->sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
-    && memcmp(&to_host->sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
+    /* Check against all listening sockets */
+    for (laddr=https_addrs; laddr->sin_family==AF_INET; laddr++) {
+      fprintf(stderr, "ssl listener %s\n", inet_ntoa(laddr->sin_addr));
+      if(memcmp(&laddr->sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
+      && memcmp(&laddr->sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
+          return 2;
+    }
+    for (laddr=http_addrs; laddr->sin_family==AF_INET; laddr++) {
+      fprintf(stderr, "nonssl listener %s\n", inet_ntoa(laddr->sin_addr));
+      if(memcmp(&laddr->sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
+      && memcmp(&laddr->sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
         return 1;
+    }
     for(i = 0; i < grp->tot_pri; i++)
         if(memcmp(&grp->backend_addr[i].addr.sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
-        && memcmp(&grp->backend_addr[i].addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
-            return 1;
+        && (rewrite_redir==2||memcmp(&grp->backend_addr[i].addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0))
+            return 3;
     return 0;
 }
 
