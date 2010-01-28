@@ -862,7 +862,7 @@ is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path,
     addr.sin_family = AF_INET;
     fprintf(stderr, "doing dns\n");
     if((he = gethostbyname(host)) == NULL) {
-	fprintf(stderr, "dns for :%s: failed %s\n",host, strerror(errno));
+	fprintf(stderr, "dns for :%s: failed %s\n",host, strerror(h_errno));
         return 0;
     }
     fprintf(stderr, "done dns\n");
