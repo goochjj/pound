@@ -362,7 +362,8 @@ typedef struct _listener {
     char                *err414,    /* error messages */
                         *err500,
                         *err501,
-                        *err503;
+                        *err503,
+                        *errnossl;
     long                max_req;    /* max. request size */
     MATCHER             *head_off;  /* headers to remove */
     int                 rewr_loc;   /* rewrite location response */
