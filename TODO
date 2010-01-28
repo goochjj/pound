@@ -3,6 +3,7 @@ PCRE Replacements - for Redirect directives and possibly adjustment of Case for 
 Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
 AuthTypes - Extract username from request, Token Coldfusion or Basic
 Admin CGI
+Merge SSL patch from http://hg.openpanel.com/pound-sslpatched/rev/90a2b1ae6bf4
 
 Deprecated?
   Log Files - HUP reopens log files, Access and Error logs
