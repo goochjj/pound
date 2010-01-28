@@ -75,7 +75,7 @@ static CODE facilitynames[] = {
 static regex_t  Include, IncludeDir;
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
-static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
+static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, ConnectTimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
@@ -807,6 +807,7 @@ parse_HTTP(CONFSTATE *state)
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->errnossl= "Please use HTTPS.";
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
         logmsg(LOG_ERR, "line %d: xHTTP bad default pattern - aborted", n_lin);
@@ -888,6 +889,9 @@ parse_HTTP(CONFSTATE *state)
         } else if(!regexec(&Err503, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&ErrNoSsl, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->errnossl = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
             res->max_req = atol(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
@@ -1478,6 +1482,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ErrNoSsl, "^[ \t]*ErrNoSsl[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RewriteLocation, "^[ \t]*RewriteLocation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1636,6 +1641,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Err500);
     regfree(&Err501);
     regfree(&Err503);
+    regfree(&ErrNoSsl);
     regfree(&MaxRequest);
     regfree(&HeadRemove);
     regfree(&RewriteLocation);
