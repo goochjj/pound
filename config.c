@@ -700,9 +700,6 @@ parse_HTTP(void)
         } else if(!regexec(&Err503, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
-        } else if(!regexec(&ErrNoSsl, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            res->errnossl = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
             res->max_req = atol(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
@@ -796,6 +793,7 @@ parse_HTTPS(void)
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->errnossl = "Please use HTTPS.";
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
@@ -849,6 +847,9 @@ parse_HTTPS(void)
         } else if(!regexec(&Err503, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&ErrNoSsl, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->errnossl = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
             res->max_req = atol(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
