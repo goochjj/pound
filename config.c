@@ -542,8 +542,8 @@ parse_service(const char *svc_name)
                 m = res->url;
             }
             memset(m, 0, sizeof(MATCHER));
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case? REG_ICASE: 0)))
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[2].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case || (matches[1].rm_eo-matches[1].rm_so)>0 ? REG_ICASE: 0)))
                 conf_err("URL bad pattern - aborted");
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
             if(res->req_head) {
@@ -692,6 +692,7 @@ parse_HTTP(void)
     SERVICE     *svc;
     MATCHER     *m;
     int         has_addr, has_port;
+    int         ign_case;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
 
@@ -711,6 +712,7 @@ parse_HTTP(void)
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
     has_addr = has_port = 0;
+    ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -749,8 +751,8 @@ parse_HTTP(void)
         } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
             if(res->has_pat)
                 conf_err("CheckURL multiple pattern - aborted");
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED))
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&res->url_pat, lin + matches[2].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case || (matches[1].rm_eo-matches[1].rm_so)>0 ? REG_ICASE: 0) ))
                 conf_err("CheckURL bad pattern - aborted");
             res->has_pat = 1;
         } else if(!regexec(&Err414, lin, 4, matches, 0)) {
@@ -823,6 +825,8 @@ parse_HTTP(void)
             if(!has_addr || !has_port)
                 conf_err("ListenHTTP missing Address or Port - aborted");
             return res;
+        } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
+            ign_case = atoi(lin + matches[1].rm_so);
         } else {
             conf_err("unknown directive - aborted");
         }
@@ -851,6 +855,7 @@ parse_HTTPS(void)
     SERVICE     *svc;
     MATCHER     *m;
     int         has_addr, has_port, has_cert;
+    int         ign_case;
     struct hostent      *host;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
@@ -874,6 +879,7 @@ parse_HTTPS(void)
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
     has_addr = has_port = has_cert = 0;
+    ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -907,8 +913,8 @@ parse_HTTPS(void)
         } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
             if(res->has_pat)
                 conf_err("CheckURL multiple pattern - aborted");
-            lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED))
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&res->url_pat, lin + matches[2].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case || (matches[1].rm_eo-matches[1].rm_so)>0 ? REG_ICASE: 0)))
                 conf_err("CheckURL bad pattern - aborted");
             res->has_pat = 1;
         } else if(!regexec(&Err414, lin, 4, matches, 0)) {
@@ -1075,6 +1081,8 @@ parse_HTTPS(void)
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
             return res;
+        } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
+            ign_case = atoi(lin + matches[1].rm_so);
         } else {
             conf_err("unknown directive");
         }
@@ -1235,7 +1243,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CheckURL, "^[ \t]*CheckURL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1248,7 +1256,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&RewriteDestination, "^[ \t]*RewriteDestination[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&URL, "^[ \t]*URL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
