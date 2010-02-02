@@ -474,25 +474,26 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     int         ret_val;
     void        *vp;
 
-    if(svc->tot_pri <= 0)
-        /* it might be NULL, but that is OK */
-        return svc->emergency;
-
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
-        res = rand_backend(svc->backends, random() % svc->tot_pri);
+        res = (svc->tot_pri<=0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host, 1);
         if(svc->sess_ttl < 0)
-            res = hash_backend(svc->backends, svc->abs_pri, key);
+            res = (svc->tot_pri <= 0) ? svc->emergency : hash_backend(svc->backends, svc->abs_pri, key);
         else if((vp = t_find(svc->sessions, key)) == NULL) {
-            /* no session yet - create one */
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
-            t_add(svc->sessions, key, &res, sizeof(res));
+            if (svc->tot_pri <= 0)
+                /* it might be NULL, but that is OK */
+                res = svc->emergency;
+            else {
+                /* no session yet - create one */
+                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                t_add(svc->sessions, key, &res, sizeof(res));
+            }
         } else
             memcpy(&res, vp, sizeof(res));
         break;
@@ -500,30 +501,40 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
             if(svc->sess_ttl < 0)
-                res = hash_backend(svc->backends, svc->abs_pri, key);
+                res = (svc->tot_pri <= 0)? svc->emergency : hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
-                t_add(svc->sessions, key, &res, sizeof(res));
+                if (svc->tot_pri <= 0)
+                    /* it might be NULL, but that is OK */
+                    res = svc->emergency;
+                else {
+                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    t_add(svc->sessions, key, &res, sizeof(res));
+                }
             } else
                 memcpy(&res, vp, sizeof(res));
         } else {
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
+            res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     default:
         /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
             if(svc->sess_ttl < 0)
-                res = hash_backend(svc->backends, svc->abs_pri, key);
+                res = ( svc->tot_pri <= 0 )? svc->emergency : hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
-                t_add(svc->sessions, key, &res, sizeof(res));
+                if (svc->tot_pri <= 0)
+                    /* it might be NULL, but that is OK */
+                    res = svc->emergency;
+                else {
+                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    t_add(svc->sessions, key, &res, sizeof(res));
+                }
             } else
                 memcpy(&res, vp, sizeof(res));
         } else {
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
+            res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     }
@@ -556,7 +567,7 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
 
 /*
  * mark a backend host as dead/disabled; remove its sessions if necessary
- *  disable_only == 1:  mark as disabled, remove sessions
+ *  disable_only == 1:  mark as disabled, do not remove sessions
  *  disable_only == 0:  mark as dead, remove sessions
  *  disable_only == -1:  mark as enabled
  */
