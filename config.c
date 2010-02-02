@@ -71,7 +71,7 @@ static CODE facilitynames[] = {
 };
 #endif
 
-static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogFacility, LogLevel, Alive, SSLEngine, Control;
+static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogRedirects, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL, DefaultHost;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
@@ -1138,6 +1138,8 @@ parse_file(void)
             daemonize = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogThreads, lin, 4, matches, 0)) {
             logthreads = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogRedirects, lin, 4, matches, 0)) {
+            logredirects = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(lin[matches[1].rm_so] == '-')
@@ -1264,6 +1266,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogThreads, "^[ \t]*LogThreads[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogRedirects, "^[ \t]*LogRedirects[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-5])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Grace, "^[ \t]*Grace[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1405,6 +1408,7 @@ config_parse(const int argc, char **const argv)
     alive_to = 30;
     daemonize = 1;
     logthreads = 0;
+    logredirects = 0;
     grace = 30;
 
     services = NULL;
@@ -1429,6 +1433,7 @@ config_parse(const int argc, char **const argv)
     regfree(&RootJail);
     regfree(&Daemon);
     regfree(&LogThreads);
+    regfree(&LogRedirects);
     regfree(&LogFacility);
     regfree(&LogLevel);
     regfree(&Grace);

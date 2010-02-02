@@ -42,6 +42,7 @@ char * control_user, *control_group; long control_mode;
 
 int         alive_to,           /* check interval for resurrection */
             logthreads,         /* log when background threads execute */
+            logredirects,       /* log additional information when rewriting a redirect */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */

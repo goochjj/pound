@@ -714,7 +714,8 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     if(rewr_loc == 0)
         return 0;
 
-    fprintf(stderr, "entered need_rewrite\n" );
+    if (logredirects) logmsg(LOG_DEBUG, "entered need_rewrite");
+
     /* applies only to INET/INET6 back-ends */
     if(be->addr.ai_family != AF_INET && be->addr.ai_family != AF_INET6)
         return 0;
@@ -732,7 +733,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     if((port = strchr(host, ':')) != NULL)
         *port++ = '\0';
 
-    fprintf(stderr, "location %s  prot %s host %s port %s path %s\n", location, proto,host, port, path);
+    if (logredirects) logmsg(LOG_DEBUG, "REDIR: location %s  prot %s host %s port %s path %s", location, proto,host, port, path);
 
     /*
      * Check if the location has the same address as the listener or the back-end
@@ -740,15 +741,15 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
      */
     memset(&addr, 0, sizeof(addr));
     if(get_host(host, &addr)) {
-        fprintf(stderr, "Could not resolve host %s\n", host);
+        if (logredirects) logmsg(LOG_DEBUG, "REDIR: Could not resolve host %s", host);
         if (v_host && !strcmp(v_host, host)) {
-            fprintf(stderr, "Host %s ascii matches Host: header %s, rewriting\n", host, v_host);
+            if (logredirects) logmsg(LOG_DEBUG, "REDIR: Host %s ascii matches Host: header %s, rewriting", host, v_host);
             return 1;
         }
         return 0;
     }
 
-    fprintf(stderr, "Resolved host %s to %s\n", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
+    if (logredirects) logmsg(LOG_DEBUG, "REDIR: Resolved host %s to %s", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
 
     /*
      * Get full address and port
@@ -808,7 +809,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
         return 0;
     }
     /* Only compare to this listener if it's a non-global service */
-    fprintf(stderr, "comparing to listener\n" );
+    if (logredirects) logmsg(LOG_DEBUG, "REDIR: comparing to listener" );
     if (!svc->global && addr.ai_family == lstn->addr.ai_family) {
       if(addr.ai_family == AF_INET) {
         memcpy(&be_addr, lstn->addr.ai_addr, sizeof(be_addr));
@@ -834,22 +835,22 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
         }
       }
     } else if (svc->global) {
-      fprintf(stderr, "comparing to global listeners\n" );
+      if (logredirects) logmsg(LOG_DEBUG, "REDIR: comparing to global listeners" );
       /* Otherwise, check all listeners. */
-      fprintf(stderr, "address to compare %s:%d\n", inet_ntoa(in_addr.sin_addr), ntohs(in_addr.sin_port));
+      if (logredirects) logmsg(LOG_DEBUG, "REDIR: address to compare %s:%d", inet_ntoa(in_addr.sin_addr), ntohs(in_addr.sin_port));
       for(lstn_chk = listeners; lstn_chk; lstn_chk = lstn_chk->next) {
         if (addr.ai_family != lstn_chk->addr.ai_family) continue;
 
         if(addr.ai_family == AF_INET) {
           memcpy(&be_addr, lstn_chk->addr.ai_addr, sizeof(be_addr));
-          fprintf(stderr, "comparing to listener %s:%d\n", inet_ntoa(be_addr.sin_addr), ntohs(be_addr.sin_port));
+          if (logredirects) logmsg(LOG_DEBUG, "REDIR: comparing to listener %s:%d", inet_ntoa(be_addr.sin_addr), ntohs(be_addr.sin_port));
           /*
            * check if the Location points to the Listener.... Ports must match, if protocol is wrong, rewrite.
            */
           if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
           && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-              fprintf(stderr, "global listener matched\n" );
+              if (logredirects) logmsg(LOG_DEBUG, "REDIR: global listener matched" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
@@ -861,13 +862,13 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
           if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
           && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-              fprintf(stderr, "global listener matched\n" );
+              if (logredirects) logmsg(LOG_DEBUG, "REDIR: global listener matched" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
         }
       }
-      fprintf(stderr, "no global listeners matched\n" );
+      if (logredirects) logmsg(LOG_DEBUG, "REDIR: no global listeners matched\n" );
     }
 
 
