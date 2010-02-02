@@ -1,5 +1,23 @@
+PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
+Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
+Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
+AuthTypes - Extract username from request, Token Coldfusion or Basic
+Admin CGI
+
+Deprecated?
+  Log Files - HUP reopens log files, Access and Error logs
+  MagicValues - PoundCtl Structures/Error Handling
+  Perl Bindings (or use XML?)
+  Pound Admin CGI (perl)
+
+
+
+
 -Include and IncludeDir directives
 -PCRE URL Case-Insensitive mappings (URLNoCase?)
+-Linux Capabilities
+-ControlSock Ownership - ControlUser,ControlMode,ControlGroup
+-Merge SSL patch from http://hg.openpanel.com/pound-sslpatched/rev/90a2b1ae6bf4
 -Fix NoHTTPS11 check - Make a ForceHTTP10 user agent matching directive?
     BrowserMatch "Mozilla/2" nokeepalive
     BrowserMatch "MSIE 4\.0b2;" nokeepalive downgrade-1.0 force-response-1.0
@@ -29,20 +47,3 @@
         cpType = "standard";
     }
     SSL_smart_shutdown(ssl);
-
-PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?)
-RedirectDynamic?
-
-Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
--Linux Capabilities
-Log Files - HUP reopens log files, Access and Error logs
-ControlSock Ownership - ControlUser,ControlMode,ControlGroup
-MagicValues - PoundCtl Structures/Error Handling
-Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
-Perl Bindings (or use XML?)
-AuthTypes - Extract username from request, Token Coldfusion or Basic
-Pound Admin CGI (perl)
-
-
-
-
