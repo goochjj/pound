@@ -251,6 +251,7 @@ extern char *user,              /* user to run as */
 extern char *control_user, *control_group; long control_mode;
 
 extern int  alive_to,           /* check interval for resurrection */
+            logthreads,		/* do we log each time a background process runs? */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */
