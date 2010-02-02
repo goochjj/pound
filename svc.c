@@ -1459,18 +1459,22 @@ thr_timer(void *arg)
         last_time = time(NULL);
         if((last_time - last_RSA) >= T_RSA_KEYS) {
             last_RSA = time(NULL);
+            if (logthreads) logmsg(LOG_NOTICE, "TIMER: Generating DSA keys");
             do_RSAgen();
         }
         if((last_time - last_rescale) >= RESCALE_TO) {
             last_rescale = time(NULL);
+            if (logthreads) logmsg(LOG_NOTICE, "TIMER: Processing Dynamic Rescaling");
             do_rescale();
         }
         if((last_time - last_alive) >= alive_to) {
             last_alive = time(NULL);
+            if (logthreads) logmsg(LOG_NOTICE, "TIMER: Checking for backend resurrection");
             do_resurect();
         }
         if((last_time - last_expire) >= EXPIRE_TO) {
             last_expire = time(NULL);
+            if (logthreads) logmsg(LOG_NOTICE, "TIMER: Pruning expired sessions");
             do_expire();
         }
     }
