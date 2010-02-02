@@ -77,6 +77,7 @@ static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteL
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads, CNName;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
@@ -762,6 +763,15 @@ parse_HTTP(void)
             res->rewr_dest = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             res->log_level = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ForceHTTP10, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                conf_err("out of memory");
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->forcehttp10;
+            res->forcehttp10 = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("ForceHTTP10 bad pattern");
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(NULL);
@@ -1107,6 +1117,24 @@ parse_HTTPS(void)
 #endif
         } else if(!regexec(&NoHTTPS11, lin, 4, matches, 0)) {
             res->noHTTPS11 = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ForceHTTP10, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                conf_err("out of memory");
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->forcehttp10;
+            res->forcehttp10 = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("bad pattern");
+        } else if(!regexec(&SSLUncleanShutdown, lin, 4, matches, 0)) {
+            if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                conf_err("out of memory");
+            memset(m, 0, sizeof(MATCHER));
+            m->next = res->ssl_unclean_shutdown;
+            res->ssl_unclean_shutdown = m;
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("bad pattern");
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(NULL);
@@ -1369,6 +1397,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ForceHTTP10, "^[ \t]*ForceHTTP10[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLUncleanShutdown, "^[ \t]*SSLUncleanShutdown[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Include, "^[ \t]*Include[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ConnTO, "^[ \t]*ConnTO[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&IgnoreCase, "^[ \t]*IgnoreCase[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1532,6 +1562,8 @@ config_parse(const int argc, char **const argv)
     regfree(&VerifyList);
     regfree(&CRLlist);
     regfree(&NoHTTPS11);
+    regfree(&ForceHTTP10);
+    regfree(&SSLUncleanShutdown);
     regfree(&Include);
     regfree(&ConnTO);
     regfree(&IgnoreCase);
