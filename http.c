@@ -1144,6 +1144,15 @@ thr_http(void *arg)
             break;
         default:
             force_10 = 0;
+            if (lstn->forcehttp10) {
+                MATCHER *m;
+
+                for(m = lstn->forcehttp10; m; m = m->next)
+                    if(!regexec(&m->pat, u_agent, 0, NULL, 0)) {
+                        force_10 = 1;
+                        break;
+                    }
+            }
             break;
         }
 
@@ -1426,7 +1435,21 @@ thr_http(void *arg)
     /*
      * This may help with some versions of IE with a broken channel shutdown
      */
-    if(ssl != NULL)
+    if(lstn && lstn->ssl_unclean_shutdown && ssl != NULL) {
+        MATCHER *m;
+        int found = 0;
+
+        for(m = lstn->ssl_unclean_shutdown; m; m = m->next)
+            if(!regexec(&m->pat, u_agent, 0, NULL, 0)) {
+                found = 1;
+                break;
+            }
+
+        if(found)
+            SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+        else
+            SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN);
+    } else if(ssl != NULL)
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();
