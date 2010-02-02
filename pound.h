@@ -29,6 +29,7 @@
 #include    <stdio.h>
 #include    <math.h>
 
+#include    <dirent.h>
 #if HAVE_STDLIB_H
 #include    <stdlib.h>
 #else
