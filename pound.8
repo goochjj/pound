@@ -396,6 +396,9 @@ Honors the \fBIgnoreCase\fR directive.
 \fBCheckURLNoCase\fR "pattern to match"
 Same as \fBCheckURL\fR but always case insensitive. (regardless of \fBIgnoreCase\fR)
 .TP
+\fBDefaultHost\fR "hostname"
+If a Host: header is not provided by the client, this value will be used as a default.
+.TP
 \fBErr414\fR "filename"
 A file with the text to be displayed if an Error 414 occurs.
 Default: "Request URI is too long.".

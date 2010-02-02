@@ -689,7 +689,7 @@ get_host(char *const name, struct addrinfo *res)
  * do SSL, so we don't end up with a protocol mismatch.
  */
 int
-need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc)
+need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc, char *const v_host)
 {
     struct addrinfo         addr;
     struct sockaddr_in      in_addr, be_addr;
@@ -728,8 +728,14 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
      * This uses DNS so make sure the hostnames resolve properly!
      */
     memset(&addr, 0, sizeof(addr));
-    if(get_host(host, &addr))
+    if(get_host(host, &addr)) {
+        fprintf(stderr, "Could not resolve host %s\n", host);
+        if (v_host && !strcmp(v_host, host)) {
+            fprintf(stderr, "Host %s ascii matches Host: header %s, rewriting\n", host, v_host);
+            return 1;
+        }
         return 0;
+    }
 
     fprintf(stderr, "Resolved host %s to %s\n", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
 

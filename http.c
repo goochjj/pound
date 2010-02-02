@@ -1261,11 +1261,14 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(v_host[0] && (rewrite_proto=need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0) {
+                    // This only works if v_host is specified, because we can't possibly know the DNS name you should be
+                    // using to talk to the load balancer.  So, we use default host, or give up.
+                    fprintf(stderr, "%d def %s\n", v_host[0], (lstn->def_host?lstn->def_host:"(null)"));
+                    if((v_host[0]||lstn->def_host) && (rewrite_proto = need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc, (v_host[0]?v_host:lstn->def_host)))>0 ) {
                         fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
                         if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
-                            (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
+                            (rewrite_proto==2 ? "http": "https"), (v_host[0]?v_host:lstn->def_host), loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Location - out of memory: %s",
@@ -1277,11 +1280,11 @@ thr_http(void *arg)
                     }
                     break;
                 case HEADER_CONTLOCATION:
-                    if(v_host[0] && (rewrite_proto = need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc))>0 ) {
+                    if((v_host[0]||lstn->def_host) && (rewrite_proto = need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend, svc, (v_host[0]?v_host:lstn->def_host)))>0 ) {
                         fprintf(stderr, "Got rewrite proto of %d\n", rewrite_proto);
                         if (rewrite_proto == 1) { rewrite_proto = (ssl==NULL?2:3); }
                         snprintf(buf, MAXBUF, "Content-location: %s://%s/%s",
-                            (rewrite_proto==2 ? "http": "https"), v_host, loc_path);
+                            (rewrite_proto==2 ? "http": "https"), (v_host[0]?v_host:lstn->def_host), loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Content-location - out of memory: %s",

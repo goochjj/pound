@@ -357,6 +357,8 @@ extern SERVICE          *services;  /* global services (if any) */
 typedef struct _listener {
     struct addrinfo     addr;       /* IPv4/6 address */
     int                 sock;       /* listening socket */
+    char                *def_host;  /* Default Host: to use if not defined in the headers.  So we can
+                                       use a DNS entry as a default instead of a guessed IP */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     int                 clnt_check; /* client verification mode */
     int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
@@ -481,7 +483,7 @@ extern int  get_host(char *const, struct addrinfo *);
  * (1) if the redirect was done to the correct location with the wrong protocol
  * (2) if the redirect was done to the back-end rather than the listener
  */
-extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, const BACKEND *, const SERVICE *);
+extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, const BACKEND *, const SERVICE *, char *const);
 /*
  * (for cookies only) possibly create session based on response headers
  */
