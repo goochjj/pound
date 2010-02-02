@@ -689,7 +689,7 @@ get_host(char *const name, struct addrinfo *res)
  * do SSL, so we don't end up with a protocol mismatch.
  */
 int
-need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc)
+need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be, const SERVICE *svc, char *const v_host)
 {
     struct addrinfo         addr;
     struct sockaddr_in      in_addr, be_addr;
@@ -728,8 +728,14 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
      * This uses DNS so make sure the hostnames resolve properly!
      */
     memset(&addr, 0, sizeof(addr));
-    if(get_host(host, &addr))
+    if(get_host(host, &addr)) {
+        fprintf(stderr, "Could not resolve host %s\n", host);
+        if (v_host && !strcmp(v_host, host)) {
+            fprintf(stderr, "Host %s ascii matches Host: header %s, rewriting\n", host, v_host);
+            return 1;
+        }
         return 0;
+    }
 
     fprintf(stderr, "Resolved host %s to %s\n", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
 
@@ -832,7 +838,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
           if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
           && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-	      fprintf(stderr, "global listener matched\n" );
+              fprintf(stderr, "global listener matched\n" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
@@ -844,7 +850,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
           if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
           && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-	      fprintf(stderr, "global listener matched\n" );
+              fprintf(stderr, "global listener matched\n" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
