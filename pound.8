@@ -254,7 +254,7 @@ This value can be overridden for specific listeners.
 .TP
 \fBIgnoreCase\fR 0|1
 Ignore case when matching URLs (default: 0). This value can be
-overridden for specific services.
+overridden for specific services and listeners.
 .TP
 \fBDynScale\fR 0|1
 Enable or disable the dynamic rescaling code (default: 0). If enabled
@@ -390,6 +390,11 @@ limit it to something more reasonable. Please note that this applies
 only to the request path -
 .B Pound
 will still check that the request is syntactically correct.
+
+Honors the \fBIgnoreCase\fR directive.
+.TP
+\fBCheckURLNoCase\fR "pattern to match"
+Same as \fBCheckURL\fR but always case insensitive. (regardless of \fBIgnoreCase\fR)
 .TP
 \fBErr414\fR "filename"
 A file with the text to be displayed if an Error 414 occurs.
@@ -571,6 +576,9 @@ conditions per service. If no
 was defined then all requests match. The matching is by default case-sensitive,
 but this can be overridden by specifying
 .B IgnoreCase 1
+.TP
+\fBURLNoCase\fR "pattern to match"
+Same as \fBURL\fR but always case insensitive. (regardless of \fBIgnoreCase\fR)
 .TP
 \fBIgnoreCase\fR 0|1
 Override the global
