@@ -72,7 +72,7 @@ static CODE facilitynames[] = {
 #endif
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogFacility, LogLevel, Alive, SSLEngine, Control;
-static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL, DefaultHost;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
@@ -703,6 +703,7 @@ parse_HTTP(void)
         conf_err("ListenHTTP config: out of memory - aborted");
     memset(res, 0, sizeof(LISTENER));
     res->to = clnt_to;
+    res->def_host = NULL;
     res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
@@ -742,6 +743,10 @@ parse_HTTP(void)
                 conf_err("Unknown Listener address family");
             }
             has_port = 1;
+        } else if(!regexec(&DefaultHost, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((res->def_host = strdup(lin + matches[1].rm_so))==NULL)
+                conf_err("Out of memory");
         } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
             int n;
 
@@ -870,6 +875,7 @@ parse_HTTPS(void)
         conf_err("SSL_CTX_new failed - aborted");
 
     res->to = clnt_to;
+    res->def_host = NULL;
     res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
@@ -904,6 +910,10 @@ parse_HTTPS(void)
                 memcpy(res->addr.ai_addr, &in6, sizeof(in6));
             }
             has_port = 1;
+        } else if(!regexec(&DefaultHost, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((res->def_host = strdup(lin + matches[1].rm_so))==NULL)
+                conf_err("Out of memory");
         } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
             int n;
 
@@ -1272,6 +1282,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CheckURL, "^[ \t]*CheckURL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DefaultHost, "^[ \t]*DefaultHost[ \t]+\"(.*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1436,6 +1447,7 @@ config_parse(const int argc, char **const argv)
     regfree(&xHTTP);
     regfree(&Client);
     regfree(&CheckURL);
+    regfree(&DefaultHost);
     regfree(&Err414);
     regfree(&Err500);
     regfree(&Err501);

@@ -357,6 +357,8 @@ extern SERVICE          *services;  /* global services (if any) */
 typedef struct _listener {
     struct addrinfo     addr;       /* IPv4/6 address */
     int                 sock;       /* listening socket */
+    char                *def_host;  /* Default Host: to use if not defined in the headers.  So we can
+                                       use a DNS entry as a default instead of a guessed IP */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     int                 clnt_check; /* client verification mode */
     int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
