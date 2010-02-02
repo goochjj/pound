@@ -500,6 +500,12 @@ Override the global
 .I LogLevel
 value.
 .TP
+\fBForceHTTP10\fR "user agent pattern"
+Force connections for browser user agents matching this pattern to use
+HTTP/1.0 even if the browser has requested HTTP/1.1.  Some MSIE browsers have
+problems with HTTP/1.1 over SSL connections.  Other browsers, like Java/1.0 or
+JDK connections might require this feature as well.
+.TP
 \fBService\fR [ "name" ]
 This defines a private service (see below for service definition syntax). This
 service will be used only by this listener. The service may be optionally
@@ -605,6 +611,15 @@ Behave like an HTTP/1.0 server for HTTPS clients. If this value is
 requests on SSL connections. If the value is 2 (default) disable multiple
 requests on SSL connections only for MSIE clients. Required
 work-around for a bug in certain versions of IE.
+.TP
+\fBSSLUncleanShutdown\fR "UserAgent Match Pattern"
+Implement a workaround for MSIE's ssl shutdown code... basically don't
+send a shutdown message because MSIE can't handle it.  Pound, by default,
+would do this on all connections, and will do that if this directive is
+never specified.  If this directive is specified, one or many times, any
+matching useragent pattern will cause the ssl unclean shutdown behavior.
+Other user agents will follow the mod_ssl compliant and safe code.
+You likely want to set this for all MSIE browsers.
 .SH "Service"
 A service is a definition of which back-end servers
 .B Pound

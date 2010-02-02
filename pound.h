@@ -399,6 +399,8 @@ typedef struct _listener {
     POUND_CTX           *ctx;               /* CTX for SSL connections */
     int                 clnt_check;         /* client verification mode */
     int                 noHTTPS11;          /* HTTP 1.1 mode for SSL */
+    MATCHER             *forcehttp10;       /* User Agent Patterns to force HTTP 1.0 mode */
+    MATCHER             *ssl_uncln_shutdn;  /* User Agent Patterns to enable ssl unclean shutdown */
     char                *add_head;          /* extra SSL header */
     regex_t             verb;               /* pattern to match the request verb against */
     int                 to;                 /* client time-out */
