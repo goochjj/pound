@@ -516,7 +516,7 @@ static IMPLEMENT_LHASH_COMP_FN(t_cmp, const TABNODE *)
  * parse a service
  */
 static SERVICE *
-parse_service(const char *svc_name)
+parse_service(const char *svc_name, int global)
 {
     char        lin[MAXBUF];
     SERVICE     *res;
@@ -529,6 +529,7 @@ parse_service(const char *svc_name)
     memset(res, 0, sizeof(SERVICE));
     res->sess_type = SESS_NONE;
     res->dynscale = dynscale;
+    res->global = global;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -805,20 +806,20 @@ parse_HTTP(void)
                 conf_err("ForceHTTP10 bad pattern");
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(NULL);
+                res->services = parse_service(NULL, 0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(NULL);
+                svc->next = parse_service(NULL, 0);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(lin + matches[1].rm_so);
+                res->services = parse_service(lin + matches[1].rm_so, 0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(lin + matches[1].rm_so);
+                svc->next = parse_service(lin + matches[1].rm_so, 0);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr || !has_port)
@@ -1053,20 +1054,20 @@ parse_HTTPS(void)
                 conf_err("bad pattern");
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
-                res->services = parse_service(NULL);
+                res->services = parse_service(NULL, 0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(NULL);
+                svc->next = parse_service(NULL, 0);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(res->services == NULL)
-                res->services = parse_service(lin + matches[1].rm_so);
+                res->services = parse_service(lin + matches[1].rm_so, 0);
             else {
                 for(svc = res->services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(lin + matches[1].rm_so);
+                svc->next = parse_service(lin + matches[1].rm_so, 0);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             X509_STORE  *store;
@@ -1209,20 +1210,20 @@ parse_file(void)
             }
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(services == NULL)
-                services = parse_service(NULL);
+                services = parse_service(NULL, 1);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(NULL);
+                svc->next = parse_service(NULL, 1);
             }
         } else if(!regexec(&ServiceName, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(services == NULL)
-                services = parse_service(lin + matches[1].rm_so);
+                services = parse_service(lin + matches[1].rm_so, 1);
             else {
                 for(svc = services; svc->next; svc = svc->next)
                     ;
-                svc->next = parse_service(lin + matches[1].rm_so);
+                svc->next = parse_service(lin + matches[1].rm_so, 1);
             }
         } else {
             conf_err("unknown directive - aborted");
