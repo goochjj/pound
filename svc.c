@@ -721,12 +721,17 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     if((port = strchr(host, ':')) != NULL)
         *port++ = '\0';
 
+    fprintf(stderr, "location %s  prot %s host %s port %s path %s\n", location, proto,host, port, path);
+
     /*
      * Check if the location has the same address as the listener or the back-end
+     * This uses DNS so make sure the hostnames resolve properly!
      */
     memset(&addr, 0, sizeof(addr));
     if(get_host(host, &addr))
         return 0;
+
+    fprintf(stderr, "Resolved host %s to %s\n", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
 
     /*
      * Get full address and port
@@ -827,7 +832,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
           if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
           && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-              fprintf(stderr, "global listener matched\n" );
+	      fprintf(stderr, "global listener matched\n" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
@@ -839,7 +844,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
           if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
           && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0
           && strcasecmp(proto, (lstn_chk->ctx == NULL)? "http": "https") ) {
-              fprintf(stderr, "global listener matched\n" );
+	      fprintf(stderr, "global listener matched\n" );
               free(addr.ai_addr);
               return (lstn_chk->ctx==NULL)?2:3;
           }
