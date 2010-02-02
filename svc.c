@@ -721,12 +721,17 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     if((port = strchr(host, ':')) != NULL)
         *port++ = '\0';
 
+    fprintf(stderr, "location %s  prot %s host %s port %s path %s\n", location, proto,host, port, path);
+
     /*
      * Check if the location has the same address as the listener or the back-end
+     * This uses DNS so make sure the hostnames resolve properly!
      */
     memset(&addr, 0, sizeof(addr));
     if(get_host(host, &addr))
         return 0;
+
+    fprintf(stderr, "Resolved host %s to %s\n", host, inet_ntoa(((struct sockaddr_in *)addr.ai_addr)->sin_addr));
 
     /*
      * Get full address and port
