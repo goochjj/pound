@@ -311,6 +311,11 @@ typedef struct _backend {
     unsigned int        n_requests; /* number of requests seen */
     double              t_requests; /* time to answer these requests */
     double              t_average;  /* average time to answer requests */
+    unsigned int        http1xx;    /* number of requests with a 1xx response code */
+    unsigned int        http2xx;    /* number of requests with a 2xx response code */
+    unsigned int        http3xx;    /* number of requests with a 3xx response code */
+    unsigned int        http4xx;    /* number of requests with a 4xx response code */
+    unsigned int        http5xx;    /* number of requests with a 5xx response code */
     int                 alive;      /* false if the back-end is dead */
     int                 resurrect;  /* this back-end is to be resurrected */
     int                 disabled;   /* true if the back-end is disabled */
@@ -350,6 +355,11 @@ typedef struct _service {
     unsigned int        requests;   /* Requests served */
     unsigned int        hits;       /* Cache hits */
     unsigned int        misses;     /* Cache misses */
+    unsigned int        http1xx;    /* number of requests with a 1xx response code */
+    unsigned int        http2xx;    /* number of requests with a 2xx response code */
+    unsigned int        http3xx;    /* number of requests with a 3xx response code */
+    unsigned int        http4xx;    /* number of requests with a 4xx response code */
+    unsigned int        http5xx;    /* number of requests with a 5xx response code */
     struct _service     *next;
 }   SERVICE;
 
@@ -542,7 +552,7 @@ extern void kill_be(SERVICE *const, const BACKEND *, const int);
 /*
  * Update the number of requests and time to answer for a given back-end
  */
-extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
+extern void upd_be(SERVICE *const svc, BACKEND *const be, const double, const char*);
 
 /*
  * Non-blocking version of connect(2). Does the same as connect(2) but

@@ -114,13 +114,13 @@ be_prt(const int sock)
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
         if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
+            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\" />\n",
                 n_be++,
                 prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
-                be.disabled? "DISABLED": "active");
+                be.disabled? "DISABLED": "active", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
         else
-            printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s\n", n_be++, prt_addr(&be.addr),
-                be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD");
+            printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s [%u/%u/%u/%u/%u]\n", n_be++, prt_addr(&be.addr),
+                be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
     }
     return;
 }
@@ -148,7 +148,7 @@ sess_prt(const int sock, SERVICE *svc)
         if (sess.last_ip_len==0) {
             sess.last_ip = NULL;
         } else {
-	    sess.last_ip = addrbuf;
+	    sess.last_ip = (struct sockaddr *)addrbuf;
             read(sock, addrbuf, sess.last_ip_len);
         }
         last_ip.ai_family = sess.last_ip_family;
@@ -166,7 +166,7 @@ sess_prt(const int sock, SERVICE *svc)
                 } else
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
-            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL),
+            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL),
 		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
         } else
             printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL), svc->sess_ttl,
@@ -187,16 +187,16 @@ svc_prt(const int sock)
             break;
         if(xml_out) {
             if(svc.name[0])
-                printf("<service index=\"%d\" name=\"%s\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\">\n",
-                    n_svc++, svc.name, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses);
+                printf("<service index=\"%d\" name=\"%s\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\">\n",
+                    n_svc++, svc.name, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses, svc.http1xx, svc.http2xx, svc.http3xx, svc.http4xx, svc.http5xx);
             else
-                printf("<service index=\"%d\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\">\n", n_svc++, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses);
+                printf("<service index=\"%d\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\">\n", n_svc++, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses, svc.http1xx, svc.http2xx, svc.http3xx, svc.http4xx, svc.http5xx);
         } else {
             if(svc.name[0])
-                printf("  %3d. Service \"%s\" %s (%d) req %d/%d/%d\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active",
-                    svc.tot_pri, svc.misses, svc.hits, svc.requests);
+                printf("  %3d. Service \"%s\" %s (%d) req %u/%u/%u [%u/%u/%u/%u/%u]\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active",
+                    svc.tot_pri, svc.misses, svc.hits, svc.requests, svc.http1xx, svc.http2xx, svc.http3xx, svc.http4xx, svc.http5xx);
             else
-                printf("  %3d. Service %s (%d) req %d/%d/%d\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri, svc.misses, svc.hits, svc.requests);
+                printf("  %3d. Service %s (%d) req %u/%u/%u [%u/%u/%u/%u/%u]\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri, svc.misses, svc.hits, svc.requests, svc.http1xx, svc.http2xx, svc.http3xx, svc.http4xx, svc.http5xx);
         }
         be_prt(sock);
         sess_prt(sock,&svc);

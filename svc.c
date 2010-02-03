@@ -708,7 +708,7 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
  * Update the number of requests and time to answer for a given back-end
  */
 void
-upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
+upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed, const char * response)
 {
     int     ret_val;
 
@@ -722,8 +722,27 @@ upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
         be->t_requests /= 2;
     }
     be->t_average = be->t_requests / be->n_requests;
+    switch (response[9]) {
+       case '1': be->http1xx++; break;
+       case '2': be->http2xx++; break;
+       case '3': be->http3xx++; break;
+       case '4': be->http4xx++; break;
+       case '5': be->http5xx++; break;
+    }
     if(ret_val = pthread_mutex_unlock(&be->mut))
         logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
+
+    if(ret_val = pthread_mutex_lock(&svc->mut))
+        logmsg(LOG_WARNING, "upd_be() svc lock: %s", strerror(ret_val));
+    switch (response[9]) {
+       case '1': svc->http1xx++; break;
+       case '2': svc->http2xx++; break;
+       case '3': svc->http3xx++; break;
+       case '4': svc->http4xx++; break;
+       case '5': svc->http5xx++; break;
+    }
+    if(ret_val = pthread_mutex_unlock(&svc->mut))
+        logmsg(LOG_WARNING, "upd_be() svc unlock: %s", strerror(ret_val));
 
     return;
 }
