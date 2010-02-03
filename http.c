@@ -495,7 +495,7 @@ thr_http(void *arg)
     X509                *x509;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
-                        caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], *mh;
+                        caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], sess_key[KEY_SIZE+1], *mh;
     SSL                 *ssl, *be_ssl;
     long                cont, res_bytes;
     regmatch_t          matches[4];
@@ -749,7 +749,7 @@ thr_http(void *arg)
             clean_all();
             pthread_exit(NULL);
         }
-        if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
+        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -757,6 +757,8 @@ thr_http(void *arg)
             clean_all();
             pthread_exit(NULL);
         }
+        sess_key[0] = '\0';
+        if(lstn->log_level>=6) get_session_key(sess_key, svc, &from_host, url, &headers[1]);
 
         if(be != NULL && backend != cur_backend) {
             BIO_reset(be);
@@ -806,7 +808,7 @@ thr_http(void *arg)
                  * ...but make sure we don't get into a loop with the same back-end
                  */
                 old_backend = backend;
-                if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL || backend == old_backend) {
+                if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL || backend == old_backend) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
@@ -1452,6 +1454,13 @@ thr_http(void *arg)
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
                 response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
                 (end_req - start_req) / 1000000.0);
+            break;
+        case 6:
+            logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s) %.3f sec %s",
+                v_host[0]? v_host: "-",
+                caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
+                response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
+                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-");
             break;
         }
 
