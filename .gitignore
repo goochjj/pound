@@ -1,0 +1,6 @@
+*.orig
+*.rej
+*~
+Thumbs.db
+*.bak
+
