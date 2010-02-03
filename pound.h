@@ -391,6 +391,10 @@ typedef struct _listener {
 extern LISTENER         *listeners; /* all available listeners */
 #endif /* NO_EXTERNALS */
 
+typedef struct _session {
+    BACKEND             *be;        /* Backend this session is attached to */
+}   SESSION;
+
 typedef struct  {
     int             sock;
     LISTENER        *lstn;

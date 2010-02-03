@@ -28,6 +28,32 @@
 #include    "pound.h"
 
 /*
+ * Create new  session structure and initialize
+ */
+static SESSION *new_session()
+{
+    SESSION *ret;
+
+    if((ret = malloc(sizeof(*ret))) == NULL) {
+        logmsg(LOG_ERR, "new session content malloc");
+        exit(1);
+    }
+    ret->be = NULL;
+    return ret;
+}
+
+/*
+ * Clear out a session structure
+ */
+static void clear_session(SESSION *sess)
+{
+    if (!sess) return;
+    /* Don't currently have subobjects to clear... */
+    free(sess);
+}
+
+
+/*
  * Add a new key/content pair to a hash table
  * the table should be already locked
  */
@@ -87,9 +113,12 @@ static void
 t_remove(LHASH *const tab, char *const key)
 {
     TABNODE t, *res;
+    SESSION *sess;
 
     t.key = key;
     if((res = (TABNODE *)lh_delete(tab, &t)) != NULL) {
+        memcpy(&sess, res->content, sizeof(sess));
+        clear_session(sess);
         free(res->key);
         free(res->content);
         free(res);
@@ -470,12 +499,14 @@ BACKEND *
 get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers)
 {
     BACKEND     *res;
+    SESSION     *sess;
     char        key[KEY_SIZE + 1];
     int         ret_val;
     void        *vp;
 
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
+    sess = NULL;
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
@@ -492,10 +523,14 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             else {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                t_add(svc->sessions, key, &res, sizeof(res));
+                sess = new_session();
+                sess->be = res;
+                t_add(svc->sessions, key, &sess, sizeof(sess));
             }
-        } else
-            memcpy(&res, vp, sizeof(res));
+        } else {
+            memcpy(&sess, vp, sizeof(sess));
+            memcpy(&res, &sess->be, sizeof(res));
+        }
         break;
     case SESS_URL:
     case SESS_PARM:
@@ -509,10 +544,14 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
-                    t_add(svc->sessions, key, &res, sizeof(res));
+                    sess = new_session();
+                    sess->be = res;
+                    t_add(svc->sessions, key, &sess, sizeof(sess));
                 }
-            } else
-                memcpy(&res, vp, sizeof(res));
+            } else {
+                memcpy(&sess, vp, sizeof(sess));
+                memcpy(&res, &sess->be, sizeof(res));
+            }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         }
@@ -529,10 +568,14 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
-                    t_add(svc->sessions, key, &res, sizeof(res));
+                    sess = new_session();
+                    sess->be = res;
+                    t_add(svc->sessions, key, &sess, sizeof(sess));
                 }
-            } else
-                memcpy(&res, vp, sizeof(res));
+            } else {
+                memcpy(&sess, vp, sizeof(sess));
+                memcpy(&res, &sess->be, sizeof(res));
+            }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         }
@@ -550,6 +593,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
 void
 upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
 {
+    SESSION         *sess;
     char            key[KEY_SIZE + 1];
     int             ret_val;
 
@@ -558,8 +602,11 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
     if(get_HEADERS(key, svc, headers))
-        if(t_find(svc->sessions, key) == NULL)
-            t_add(svc->sessions, key, &be, sizeof(be));
+        if(t_find(svc->sessions, key) == NULL) {
+            sess = new_session();
+            sess->be = be;
+            t_add(svc->sessions, key, &sess, sizeof(sess));
+        }
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     return;
@@ -1508,10 +1555,12 @@ t_dump(TABNODE *t, void *arg)
 {
     DUMP_ARG    *a;
     BACKEND     *be, *bep;
+    SESSION     *sess;
     int         n_be, sz;
 
     a = (DUMP_ARG *)arg;
-    memcpy(&bep, t->content, sizeof(bep));
+    memcpy(&sess, t->content, sizeof(sess));
+    memcpy(&bep, sess->be, sizeof(bep));
     for(n_be = 0, be = a->backends; be; be = be->next, n_be++)
         if(be == bep)
             break;
@@ -1610,7 +1659,8 @@ thr_control(void *arg)
     LISTENER        *lstn, dummy_lstn;
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
-    TABNODE         dummy_sess;
+    SESSION         *sess, dummy_sess;
+    TABNODE         dummy_tsess;
     struct pollfd   polls;
 
     /* just to be safe */
@@ -1622,8 +1672,8 @@ thr_control(void *arg)
     dummy_svc.disabled = -1;
     memset(&dummy_be, 0, sizeof(dummy_be));
     dummy_be.disabled = -1;
-    memset(&dummy_sess, 0, sizeof(dummy_sess));
-    dummy_sess.content = NULL;
+    memset(&dummy_tsess, 0, sizeof(dummy_tsess));
+    dummy_tsess.content = NULL;
     dummy = sizeof(sa);
     for(;;) {
         polls.fd = control_sock;
@@ -1663,7 +1713,7 @@ thr_control(void *arg)
                         if(dummy = pthread_mutex_unlock(&svc->mut))
                             logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                     }
-                    write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
+                    write(ctl, (void *)&dummy_tsess, sizeof(TABNODE));
                 }
                 write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             }
@@ -1684,7 +1734,7 @@ thr_control(void *arg)
                     if(dummy = pthread_mutex_unlock(&svc->mut))
                         logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                 }
-                write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
+                write(ctl, (void *)&dummy_tsess, sizeof(TABNODE));
             }
             write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             break;
@@ -1743,7 +1793,9 @@ thr_control(void *arg)
             }
             if(ret_val = pthread_mutex_lock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() add session lock: %s", strerror(ret_val));
-            t_add(svc->sessions, cmd.key, &be, sizeof(be));
+            sess = new_session();
+            sess->be = be;
+            t_add(svc->sessions, cmd.key, &sess, sizeof(sess));
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() add session unlock: %s", strerror(ret_val));
             break;
