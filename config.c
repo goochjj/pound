@@ -523,6 +523,9 @@ parse_service(const char *svc_name, int global)
     res->sess_type = SESS_NONE;
     res->dynscale = dynscale;
     res->global = global;
+    res->requests = 0;
+    res->hits = 0;
+    res->misses = 0;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);

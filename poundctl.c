@@ -171,16 +171,16 @@ svc_prt(const int sock)
             break;
         if(xml_out) {
             if(svc.name[0])
-                printf("<service index=\"%d\" name=\"%s\" status=\"%s\">\n",
-                    n_svc++, svc.name, svc.disabled? "DISABLED": "active");
+                printf("<service index=\"%d\" name=\"%s\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\">\n",
+                    n_svc++, svc.name, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses);
             else
-                printf("<service index=\"%d\"%s>\n", n_svc++, svc.disabled? " DISABLED": "");
+                printf("<service index=\"%d\" status=\"%s\" req=\"%d\" hits=\"%d\" misses=\"%d\">\n", n_svc++, svc.disabled? "DISABLED": "active", svc.requests, svc.hits, svc.misses);
         } else {
             if(svc.name[0])
-                printf("  %3d. Service \"%s\" %s (%d)\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active",
-                    svc.tot_pri);
+                printf("  %3d. Service \"%s\" %s (%d) req %d/%d/%d\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active",
+                    svc.tot_pri, svc.misses, svc.hits, svc.requests);
             else
-                printf("  %3d. Service %s (%d)\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri);
+                printf("  %3d. Service %s (%d) req %d/%d/%d\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri, svc.misses, svc.hits, svc.requests);
         }
         be_prt(sock);
         sess_prt(sock,&svc);

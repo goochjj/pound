@@ -347,6 +347,9 @@ typedef struct _service {
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     int			global;     /* true if this service is global rather than attached to a specific listener */
+    unsigned int        requests;   /* Requests served */
+    unsigned int        hits;       /* Cache hits */
+    unsigned int        misses;     /* Cache misses */
     struct _service     *next;
 }   SERVICE;
 

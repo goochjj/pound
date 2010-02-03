@@ -507,6 +507,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
     sess = NULL;
+    svc->requests++;
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
@@ -526,10 +527,12 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 sess = new_session();
                 sess->be = res;
                 t_add(svc->sessions, key, &sess, sizeof(sess));
+                svc->misses++;
             }
         } else {
             memcpy(&sess, vp, sizeof(sess));
             memcpy(&res, &sess->be, sizeof(res));
+            svc->hits++;
         }
         break;
     case SESS_URL:
@@ -547,10 +550,12 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     sess = new_session();
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
+                    svc->misses++;
                 }
             } else {
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
+                svc->hits++;
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
@@ -571,10 +576,12 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     sess = new_session();
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
+                    svc->misses++;
                 }
             } else {
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
+                svc->hits++;
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
@@ -606,6 +613,7 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
             sess = new_session();
             sess->be = be;
             t_add(svc->sessions, key, &sess, sizeof(sess));
+            svc->misses++;
         }
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
