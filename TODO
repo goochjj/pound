@@ -1,8 +1,10 @@
 PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
-Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
-Statistics - track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
-AuthTypes - Extract username from request, Token Coldfusion or Basic
-Admin CGI
+Statistics - 
+  actual session structures
+  track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
+  fix poundctl to display this information
+AuthTypes - Extract username from request, Token Coldfusion or Basic, throw into session
+Admin CGI (perhaps use XML from poundctl)
 
 Deprecated?
   Log Files - HUP reopens log files, Access and Error logs
@@ -13,6 +15,7 @@ Deprecated?
 
 
 
+-Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
 -Include and IncludeDir directives
 -PCRE URL Case-Insensitive mappings (URLNoCase?)
 -Linux Capabilities
