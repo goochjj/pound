@@ -667,19 +667,19 @@ upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
 {
     int     ret_val;
 
-    if(svc->dynscale) {
-        if(ret_val = pthread_mutex_lock(&be->mut))
-            logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
-        be->t_requests += elapsed;
-        if(++be->n_requests > RESCALE_MAX) {
-            /* scale it down */
-            be->n_requests /= 2;
-            be->t_requests /= 2;
-        }
-        be->t_average = be->t_requests / be->n_requests;
-        if(ret_val = pthread_mutex_unlock(&be->mut))
-            logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
+    if(ret_val = pthread_mutex_lock(&be->mut))
+        logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
+    be->t_requests += elapsed;
+    be->n_requests++;
+    if(svc->dynscale && be->n_requests > RESCALE_MAX) {
+        /* scale it down */
+        be->n_requests /= 2;
+        be->t_requests /= 2;
     }
+    be->t_average = be->t_requests / be->n_requests;
+    if(ret_val = pthread_mutex_unlock(&be->mut))
+        logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
+
     return;
 }
 
