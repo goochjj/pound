@@ -41,7 +41,7 @@ static SESSION *new_session()
     memset(ret, 0x00, sizeof(*ret));
     ret->be = NULL;
     ret->first_acc = time(NULL);
-    ret->n_requests = 1;
+    ret->n_requests = 0;
     ret->last_ip = NULL;
     return ret;
 }
@@ -514,11 +514,41 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
     return res;
 }
 
+/* key must point to a buffer of KEY_SIZE+1 length */
+int
+get_session_key(char *key, SERVICE *const svc, const struct addrinfo *from_host, const char *request,char ** const headers)
+{
+    int         lck_val;
+    int         ret;
+
+    if(lck_val = pthread_mutex_lock(&svc->mut))
+        logmsg(LOG_WARNING, "get_session_key() lock: %s", strerror(lck_val));
+
+    key[0]='\0';
+    switch(svc->sess_type) {
+    case SESS_NONE:
+        ret = 1; break;
+    case SESS_IP:
+        addr2str(key, KEY_SIZE, from_host, 1);
+        ret = 1; break;
+    case SESS_URL:
+    case SESS_PARM:
+        ret = get_REQUEST(key, svc, request);
+        break;
+    default:
+        ret = get_HEADERS(key, svc, headers);
+        break;
+    }
+    if(lck_val = pthread_mutex_unlock(&svc->mut))
+        logmsg(LOG_WARNING, "get_session_key() unlock: %s", strerror(lck_val));
+    return ret;
+}
+
 /*
  * Find the right back-end for a request
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers)
+get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers, const char * u_name)
 {
     BACKEND     *res;
     SESSION     *sess;
@@ -548,8 +578,6 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
                 sess = new_session();
                 sess->be = res;
-                copy_lastip(sess, from_host);
-                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                 t_add(svc->sessions, key, &sess, sizeof(sess));
                 svc->misses++;
             }
@@ -558,8 +586,6 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             memcpy(&res, &sess->be, sizeof(res));
             svc->hits++;
             sess->n_requests++;
-            memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
-            copy_lastip(sess, from_host);
         }
         break;
     case SESS_URL:
@@ -576,8 +602,6 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session();
                     sess->be = res;
-                    copy_lastip(sess, from_host);
-                    memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
                 }
@@ -585,9 +609,6 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
                 svc->hits++;
-                sess->n_requests++;
-                copy_lastip(sess, from_host);
-                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
@@ -607,8 +628,6 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session();
                     sess->be = res;
-                    copy_lastip(sess, from_host);
-                    memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
                 }
@@ -616,15 +635,19 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
                 svc->hits++;
-                sess->n_requests++;
-                copy_lastip(sess, from_host);
-                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     }
+    if (sess!=NULL) {
+        sess->n_requests++;
+        copy_lastip(sess, from_host);
+        strncpy(sess->last_url, request, sizeof(sess->last_url)-1);
+        strncpy(sess->last_user, u_name, sizeof(sess->last_user)-1);
+    }
+
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() unlock: %s", strerror(ret_val));
 

@@ -501,7 +501,12 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, const char *);
+
+/*
+ * Retrieve the session key (for logging)
+ */
+extern int       get_session_key(char *key, SERVICE *const, const struct addrinfo *, const char *, char **const);
 
 /*
  * Search for a host name, return the addrinfo for it
