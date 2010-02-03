@@ -686,35 +686,6 @@ thr_http(void *arg)
                     if(!(headers_ok[n] = regexec(&m->pat, headers[n], 0, NULL, 0)))
                         break;
             }
-            /* get User name */
-            if(!regexec(&AUTHORIZATION, headers[n], 2, matches, 0)) {
-                int inlen;
-
-                if((bb = BIO_new(BIO_s_mem())) == NULL) {
-                    logmsg(LOG_WARNING, "(%lx) Can't alloc BIO_s_mem", pthread_self());
-                    continue;
-                }
-                if((b64 = BIO_new(BIO_f_base64())) == NULL) {
-                    logmsg(LOG_WARNING, "(%lx) Can't alloc BIO_f_base64", pthread_self());
-                    BIO_free(bb);
-                    continue;
-                }
-                b64 = BIO_push(b64, bb);
-                BIO_write(bb, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
-                BIO_write(bb, "\n", 1);
-                if((inlen = BIO_read(b64, buf, MAXBUF - 1)) <= 0) {
-                    logmsg(LOG_WARNING, "(%lx) Can't read BIO_f_base64", pthread_self());
-                    BIO_free_all(b64);
-                    continue;
-                }
-                BIO_free_all(b64);
-                if((mh = strchr(buf, ':')) == NULL) {
-                    logmsg(LOG_WARNING, "(%lx) Unknown authentication", pthread_self());
-                    continue;
-                }
-                *mh = '\0';
-                strcpy(u_name, buf);
-            }
         }
 
         /* possibly limited request size */
@@ -745,6 +716,41 @@ thr_http(void *arg)
             clean_all();
             pthread_exit(NULL);
         }
+
+        /* Now that we know the service, check for authorization information */
+        for(n = 1; n < MAXHEADERS && headers[n]; n++) {
+            /* get User name */
+            if(svc->user_type != UserFORM && !regexec(&svc->auth_pat, headers[n], 2, matches, 0)) {
+                int inlen, chptr;
+
+		fprintf(stderr, "%c - %c - %s\n", *(headers[n] + matches[1].rm_so), *(headers[n] + matches[1].rm_eo - 1), headers[n] + matches[1].rm_so);
+                inlen = base64_decode(buf, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+                /* Sanitize input - CF tokens will use \r or \0... turn them into : */
+                for(chptr=0; chptr<inlen; chptr++) {
+                    switch (buf[chptr]) {
+                    case '\r':
+                    case '\n':
+                    case '\0':
+                        buf[chptr] = ':';
+                    }
+                }
+                buf[inlen] = '\0';
+                fprintf(stderr, "auth decode %s\n",buf);
+		mh = svc->user_type==UserCFAUTHToken ? strrchr(buf, ':') : strchr(buf, ':');
+                if(mh == NULL) {
+                    logmsg(LOG_WARNING, "(%lx) Unknown authentication", pthread_self());
+                    continue;
+                }
+                if(svc->user_type==UserCFAUTHToken)
+                    strcpy(u_name, mh+1);
+                else {
+                    *mh = '\0';
+                    strcpy(u_name, buf);
+                }
+            }
+        }
+        /* Find backend information */
+
         if((backend = get_backend(svc, &from_host, url, &headers[1], u_name)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);

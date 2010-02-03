@@ -57,8 +57,7 @@ regex_t HEADER,             /* Allowed header */
         CHUNK_HEAD,         /* chunk header line */
         RESP_SKIP,          /* responses for which we skip response */
         RESP_IGN,           /* responses for which we ignore content */
-        LOCATION,           /* the host we are redirected to */
-        AUTHORIZATION;      /* the Authorisation header */
+        LOCATION;           /* the host we are redirected to */
 
 static int  shut_down = 0;
 
@@ -204,7 +203,6 @@ main(const int argc, char **argv)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[456]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LOCATION, "(http|https)://([^/]+)(.*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&AUTHORIZATION, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad essential Regex - aborted");
         exit(1);
