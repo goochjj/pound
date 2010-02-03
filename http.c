@@ -1412,7 +1412,7 @@ thr_http(void *arg)
             }
         }
         end_req = cur_time();
-        upd_be(svc, cur_backend, end_req - start_req);
+        upd_be(svc, cur_backend, end_req - start_req, response);
 
         /* log what happened */
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);

@@ -308,9 +308,14 @@ typedef struct _backend {
     int                 redir_req;  /* 0 - redirect is absolute, 1 - the redirect should include the request path, or 2 if it should use perl dynamic replacement */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
-    int                 n_requests; /* number of requests seen */
+    unsigned int        n_requests; /* number of requests seen */
     double              t_requests; /* time to answer these requests */
     double              t_average;  /* average time to answer requests */
+    unsigned int        http1xx;    /* number of requests with a 1xx response code */
+    unsigned int        http2xx;    /* number of requests with a 2xx response code */
+    unsigned int        http3xx;    /* number of requests with a 3xx response code */
+    unsigned int        http4xx;    /* number of requests with a 4xx response code */
+    unsigned int        http5xx;    /* number of requests with a 5xx response code */
     int                 alive;      /* false if the back-end is dead */
     int                 resurrect;  /* this back-end is to be resurrected */
     int                 disabled;   /* true if the back-end is disabled */
@@ -347,6 +352,14 @@ typedef struct _service {
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     int                 global;     /* true if this service is global rather than attached to a specific listener */
+    unsigned int        requests;   /* Requests served */
+    unsigned int        hits;       /* Cache hits */
+    unsigned int        misses;     /* Cache misses */
+    unsigned int        http1xx;    /* number of requests with a 1xx response code */
+    unsigned int        http2xx;    /* number of requests with a 2xx response code */
+    unsigned int        http3xx;    /* number of requests with a 3xx response code */
+    unsigned int        http4xx;    /* number of requests with a 4xx response code */
+    unsigned int        http5xx;    /* number of requests with a 5xx response code */
     struct _service     *next;
 }   SERVICE;
 
@@ -390,6 +403,23 @@ typedef struct _listener {
 #ifndef NO_EXTERNALS
 extern LISTENER         *listeners; /* all available listeners */
 #endif /* NO_EXTERNALS */
+
+#define SESSIONURL_MAX 511
+#define SESSIONUSER_MAX 127
+#define SESSIONINFO_MAX 255
+
+typedef struct _session {
+    BACKEND             *be;                            /* Backend this session is attached to */
+    time_t              first_acc;                      /* Time session was created */
+    int                 last_ip_family;                 /* Last IP Address's family type */
+    socklen_t           last_ip_len;                    /* Length of the IP Address */
+    socklen_t           last_ip_alloc;                  /* Memory allocated for IP address */
+    struct sockaddr     *last_ip;                       /* Actual address */
+    char                last_url[SESSIONURL_MAX+1];     /* Last URL accessed */
+    char                last_user[SESSIONUSER_MAX+1];   /* Last username seen */
+    char                lb_info[SESSIONINFO_MAX+1];      /* Custom LoadBalancer information */
+    unsigned int        n_requests;                     /* Number of requests seen */
+}   SESSION;
 
 typedef struct  {
     int             sock;
@@ -471,7 +501,12 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, const char *);
+
+/*
+ * Retrieve the session key (for logging)
+ */
+extern int       get_session_key(char *key, SERVICE *const, const struct addrinfo *, const char *, char **const);
 
 /*
  * Search for a host name, return the addrinfo for it
@@ -522,7 +557,7 @@ extern void kill_be(SERVICE *const, const BACKEND *, const int);
 /*
  * Update the number of requests and time to answer for a given back-end
  */
-extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
+extern void upd_be(SERVICE *const svc, BACKEND *const be, const double, const char*);
 
 /*
  * Non-blocking version of connect(2). Does the same as connect(2) but
