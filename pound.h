@@ -308,7 +308,7 @@ typedef struct _backend {
     int                 redir_req;  /* the redirect should include the request path */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
-    int                 n_requests; /* number of requests seen */
+    unsigned int        n_requests; /* number of requests seen */
     double              t_requests; /* time to answer these requests */
     double              t_average;  /* average time to answer requests */
     int                 alive;      /* false if the back-end is dead */
@@ -394,8 +394,21 @@ typedef struct _listener {
 extern LISTENER         *listeners; /* all available listeners */
 #endif /* NO_EXTERNALS */
 
+#define SESSIONURL_MAX 511
+#define SESSIONUSER_MAX 127
+#define SESSIONINFO_MAX 255
+
 typedef struct _session {
-    BACKEND             *be;        /* Backend this session is attached to */
+    BACKEND             *be;                            /* Backend this session is attached to */
+    time_t              first_acc;                      /* Time session was created */
+    int                 last_ip_family;                 /* Last IP Address's family type */
+    socklen_t           last_ip_len;                    /* Length of the IP Address */
+    socklen_t           last_ip_alloc;                  /* Memory allocated for IP address */
+    struct sockaddr     *last_ip;                       /* Actual address */
+    char                last_url[SESSIONURL_MAX+1];     /* Last URL accessed */
+    char                last_user[SESSIONUSER_MAX+1];   /* Last username seen */
+    char                lb_info[SESSIONINFO_MAX+1];      /* Custom LoadBalancer information */
+    unsigned int        n_requests;                     /* Number of requests seen */
 }   SESSION;
 
 typedef struct  {

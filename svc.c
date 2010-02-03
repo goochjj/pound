@@ -38,7 +38,11 @@ static SESSION *new_session()
         logmsg(LOG_ERR, "new session content malloc");
         exit(1);
     }
+    memset(ret, 0x00, sizeof(*ret));
     ret->be = NULL;
+    ret->first_acc = time(NULL);
+    ret->n_requests = 1;
+    ret->last_ip = NULL;
     return ret;
 }
 
@@ -48,8 +52,26 @@ static SESSION *new_session()
 static void clear_session(SESSION *sess)
 {
     if (!sess) return;
-    /* Don't currently have subobjects to clear... */
+    if (sess->last_ip!=NULL) free(sess->last_ip);
     free(sess);
+}
+
+static void copy_lastip(SESSION *sess, const struct addrinfo * ai) {
+    if (!sess) return;
+    sess->last_ip_family = ai->ai_family;
+    sess->last_ip_len = ai->ai_addrlen;
+    if (ai->ai_addrlen > 0) {
+        if (sess->last_ip_alloc < ai->ai_addrlen) {
+            if (sess->last_ip != NULL) {
+                free(sess->last_ip);
+            }
+            if ((sess->last_ip = malloc(sess->last_ip_alloc = ai->ai_addrlen))==NULL) {
+                logmsg(LOG_ERR, "lastip malloc");
+                exit(1);
+            }
+        }
+        memcpy(sess->last_ip, ai->ai_addr, ai->ai_addrlen);
+    }
 }
 
 
@@ -526,6 +548,8 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
                 sess = new_session();
                 sess->be = res;
+                copy_lastip(sess, from_host);
+                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                 t_add(svc->sessions, key, &sess, sizeof(sess));
                 svc->misses++;
             }
@@ -533,6 +557,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             memcpy(&sess, vp, sizeof(sess));
             memcpy(&res, &sess->be, sizeof(res));
             svc->hits++;
+            sess->n_requests++;
+            memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
+            copy_lastip(sess, from_host);
         }
         break;
     case SESS_URL:
@@ -549,6 +576,8 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session();
                     sess->be = res;
+                    copy_lastip(sess, from_host);
+                    memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
                 }
@@ -556,6 +585,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
                 svc->hits++;
+                sess->n_requests++;
+                copy_lastip(sess, from_host);
+                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
@@ -575,6 +607,8 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session();
                     sess->be = res;
+                    copy_lastip(sess, from_host);
+                    memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
                 }
@@ -582,6 +616,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 memcpy(&sess, vp, sizeof(sess));
                 memcpy(&res, &sess->be, sizeof(res));
                 svc->hits++;
+                sess->n_requests++;
+                copy_lastip(sess, from_host);
+                memcpy(sess->last_url, request, sizeof(sess->last_url)-1);
             }
         } else {
             res = ( svc->tot_pri <= 0) ? svc->emergency : rand_backend(svc->backends, random() % svc->tot_pri);
@@ -1580,6 +1617,8 @@ t_dump(TABNODE *t, void *arg)
     sz = strlen(t->key);
     write(a->control_sock, &sz, sizeof(sz));
     write(a->control_sock, t->key, sz);
+    write(a->control_sock, sess, sizeof(SESSION));
+    if (sess->last_ip_len>0) write(a->control_sock, sess->last_ip, sess->last_ip_len);
     return;
 }
 

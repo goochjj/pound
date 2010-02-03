@@ -128,19 +128,33 @@ be_prt(const int sock)
 static void
 sess_prt(const int sock, SERVICE *svc)
 {
-    TABNODE     sess;
+    TABNODE     tsess;
+    SESSION     sess;
     int         n_be, n_sess, cont_len;
     char        buf[KEY_SIZE + 1], escaped[KEY_SIZE * 2 + 1];
+    char        addrbuf[MAXBUF];
+    struct addrinfo last_ip;
 
     n_sess = 0;
-    while(read(sock, (void *)&sess, sizeof(TABNODE)) == sizeof(TABNODE)) {
-        if(sess.content == NULL)
+    while(read(sock, (void *)&tsess, sizeof(TABNODE)) == sizeof(TABNODE)) {
+        if(tsess.content == NULL)
             break;
         read(sock, &n_be, sizeof(n_be));
         read(sock, &cont_len, sizeof(cont_len));
         memset(buf, 0, KEY_SIZE + 1);
         /* cont_len is at most KEY_SIZE */
         read(sock, buf, cont_len);
+        read(sock, &sess, sizeof(SESSION));
+        if (sess.last_ip_len==0) {
+            sess.last_ip = NULL;
+        } else {
+	    sess.last_ip = addrbuf;
+            read(sock, addrbuf, sess.last_ip_len);
+        }
+        last_ip.ai_family = sess.last_ip_family;
+        last_ip.ai_addrlen = sess.last_ip_len;
+        last_ip.ai_addr = sess.last_ip;
+
         if(xml_out) {
             int     i, j;
             char    escaped[KEY_SIZE * 2 + 1];
@@ -152,9 +166,11 @@ sess_prt(const int sock, SERVICE *svc)
                 } else
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
-            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" lastaccess=\"%d\" timeleft=\"%d\" />\n", n_sess++, escaped, n_be, sess.last_acc, (sess.last_acc+svc->sess_ttl)-time(NULL));
+            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL),
+		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
         } else
-            printf("    %3d. Session %s -> %d la %d ttl %d/%d\n", n_sess++, buf, n_be, sess.last_acc, (sess.last_acc+svc->sess_ttl)-time(NULL), svc->sess_ttl);
+            printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL), svc->sess_ttl,
+		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
     }
     return;
 }
