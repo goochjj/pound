@@ -114,19 +114,19 @@ be_prt(const int sock)
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
         if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
+            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
                 n_be++,
-                prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "yes": "DEAD",
+                prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
                 be.disabled? "DISABLED": "active");
         else
-            printf("    %3d. Backend %s %s (%d %.3f sec) %s\n", n_be++, prt_addr(&be.addr),
-                be.disabled? "DISABLED": "active", be.priority, be.t_average / 1000000, be.alive? "alive": "DEAD");
+            printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s\n", n_be++, prt_addr(&be.addr),
+                be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD");
     }
     return;
 }
 
 static void
-sess_prt(const int sock)
+sess_prt(const int sock, SERVICE *svc)
 {
     TABNODE     sess;
     int         n_be, n_sess, cont_len;
@@ -152,9 +152,9 @@ sess_prt(const int sock)
                 } else
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
-            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" />\n", n_sess++, escaped, n_be);
+            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" lastaccess=\"%d\" timeleft=\"%d\" />\n", n_sess++, escaped, n_be, sess.last_acc, (sess.last_acc+svc->sess_ttl)-time(NULL));
         } else
-            printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
+            printf("    %3d. Session %s -> %d la %d ttl %d/%d\n", n_sess++, buf, n_be, sess.last_acc, (sess.last_acc+svc->sess_ttl)-time(NULL), svc->sess_ttl);
     }
     return;
 }
@@ -183,7 +183,7 @@ svc_prt(const int sock)
                 printf("  %3d. Service %s (%d)\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri);
         }
         be_prt(sock);
-        sess_prt(sock);
+        sess_prt(sock,&svc);
         if(xml_out)
             printf("</service>\n");
     }
