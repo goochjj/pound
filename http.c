@@ -723,7 +723,7 @@ thr_http(void *arg)
             if(svc->user_type != UserFORM && !regexec(&svc->auth_pat, headers[n], 2, matches, 0)) {
                 int inlen, chptr;
 
-		fprintf(stderr, "%c - %c - %s\n", *(headers[n] + matches[1].rm_so), *(headers[n] + matches[1].rm_eo - 1), headers[n] + matches[1].rm_so);
+		//fprintf(stderr, "%c - %c - %s\n", *(headers[n] + matches[1].rm_so), *(headers[n] + matches[1].rm_eo - 1), headers[n] + matches[1].rm_so);
                 inlen = base64_decode(buf, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
                 /* Sanitize input - CF tokens will use \r or \0... turn them into : */
                 for(chptr=0; chptr<inlen; chptr++) {
@@ -735,7 +735,7 @@ thr_http(void *arg)
                     }
                 }
                 buf[inlen] = '\0';
-                fprintf(stderr, "auth decode %s\n",buf);
+                //fprintf(stderr, "auth decode %s\n",buf);
 		mh = svc->user_type==UserCFAUTHToken ? strrchr(buf, ':') : strchr(buf, ':');
                 if(mh == NULL) {
                     logmsg(LOG_WARNING, "(%lx) Unknown authentication", pthread_self());
