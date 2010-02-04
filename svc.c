@@ -514,47 +514,27 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
     return res;
 }
 
-/* key must point to a buffer of KEY_SIZE+1 length */
-int
-get_session_key(char *key, SERVICE *const svc, const struct addrinfo *from_host, const char *request,char ** const headers)
-{
-    int         lck_val;
-    int         ret;
-
-    if(lck_val = pthread_mutex_lock(&svc->mut))
-        logmsg(LOG_WARNING, "get_session_key() lock: %s", strerror(lck_val));
-
-    key[0]='\0';
-    switch(svc->sess_type) {
-    case SESS_NONE:
-        ret = 1; break;
-    case SESS_IP:
-        addr2str(key, KEY_SIZE, from_host, 1);
-        ret = 1; break;
-    case SESS_URL:
-    case SESS_PARM:
-        ret = get_REQUEST(key, svc, request);
-        break;
-    default:
-        ret = get_HEADERS(key, svc, headers);
-        break;
-    }
-    if(lck_val = pthread_mutex_unlock(&svc->mut))
-        logmsg(LOG_WARNING, "get_session_key() unlock: %s", strerror(lck_val));
-    return ret;
-}
-
 /*
  * Find the right back-end for a request
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers, const char * u_name)
+get_backend(REQUEST *req, char **const headers)
 {
     BACKEND     *res;
     SESSION     *sess;
-    char        key[KEY_SIZE + 1];
-    int         ret_val;
     void        *vp;
+    int         ret_val;
+    SERVICE     *svc;
+    struct addrinfo *from_host;
+    char        *request;
+    char        *key;
+    char        *u_name;
+
+    svc = req->svc;
+    from_host = req->from_host;
+    request = req->request;
+    key = req->sess_key;
+    u_name = req->u_name;
 
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
@@ -646,6 +626,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
         copy_lastip(sess, from_host);
         strncpy(sess->last_url, request, sizeof(sess->last_url)-1);
         strncpy(sess->last_user, u_name, sizeof(sess->last_user)-1);
+
+        req->sess = sess;
+        strncpy(req->lb_info, sess->lb_info, MAXBUF - 1);
     }
 
     if(ret_val = pthread_mutex_unlock(&svc->mut))
@@ -658,25 +641,52 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
+upd_session(REQUEST *req, char **const headers)
 {
+    SERVICE         *svc;
+    BACKEND         *be;
+    MATCHER         *m;
     SESSION         *sess;
-    char            key[KEY_SIZE + 1];
-    int             ret_val;
+    void            *vp;
+    regmatch_t      matches[4];
+    char            key[KEY_SIZE+1];
+    int             ret_val,i;
 
-    if(svc->sess_type != SESS_HEADER && svc->sess_type != SESS_COOKIE)
-        return;
-    if(ret_val = pthread_mutex_lock(&svc->mut))
-        logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
-    if(get_HEADERS(key, svc, headers))
-        if(t_find(svc->sessions, key) == NULL) {
-            sess = new_session();
-            sess->be = be;
-            t_add(svc->sessions, key, &sess, sizeof(sess));
-            svc->misses++;
-        }
-    if(ret_val = pthread_mutex_unlock(&svc->mut))
-        logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
+    svc = req->svc;
+    be = req->be;
+    sess = req->sess;
+
+    /* If using Header/Cookie Sessions, they can be set from the response */
+    if(svc->sess_type == SESS_HEADER || svc->sess_type == SESS_COOKIE) {
+        if(ret_val = pthread_mutex_lock(&svc->mut))
+            logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
+        if(get_HEADERS(key, svc, headers))
+            if(t_find(svc->sessions, key) == NULL) {
+                req->sess = sess = new_session();
+                sess->be = be;
+                t_add(svc->sessions, key, &sess, sizeof(sess));
+                svc->misses++;
+                strcpy(req->sess_key,key);
+            }
+        if(ret_val = pthread_mutex_unlock(&svc->mut))
+            logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
+    }
+    /* Extract LBInfo Headers and update the session */
+    if(sess!=NULL && svc->lbinfo!=NULL)
+        /* check for LBInfo headers */
+        for(m = svc->lbinfo; m; m = m->next)
+            for(i = 0; i < (MAXHEADERS - 1); i++)
+                if(headers[i] && !regexec(&m->pat, headers[i], 4, matches, 0)) {
+                    if(ret_val = pthread_mutex_lock(&svc->mut))
+                        logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
+                    memcpy(sess->lb_info, headers[i] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+                    sess->lb_info[matches[1].rm_eo - matches[1].rm_so] = 0;
+                    strncpy(req->lb_info, sess->lb_info, MAXBUF - 1);
+                    if(ret_val = pthread_mutex_unlock(&svc->mut))
+                        logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
+                    return;
+                }
+
     return;
 }
 

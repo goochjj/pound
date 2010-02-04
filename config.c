@@ -81,6 +81,7 @@ static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 
 static regex_t  AuthTypeBasic, AuthTypeColdfusion, AuthTypeCFAuthToken;
+static regex_t  LBInfoHeader, LBInfoCookie;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
@@ -672,6 +673,24 @@ parse_service(const char *svc_name, int global)
             if (regcomp(&res->auth_pat, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                 conf_err("setting AuthType Token");
             res->user_type = UserCFAUTHToken;
+        } else if(!regexec(&LBInfoHeader, lin, 4, matches, 0)) {
+            if(res->lbinfo) {
+                for(m = res->lbinfo; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                    conf_err("LBInfoHeader config: out of memory - aborted");
+                m = m->next;
+            } else {
+                if((res->lbinfo = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                    conf_err("LBInfoHeader config: out of memory - aborted");
+                m = res->lbinfo;
+		m->next = NULL;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "%s:[ \t]*([^ \t]*)", lin + matches[1].rm_so);
+            if(regcomp(&m->pat, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("LBInfoHeader pattern failed - aborted");
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
@@ -1336,6 +1355,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeCFAuthToken, "^[ \t]*AuthType[ \t]+(AuthToken|Token|CFAuthToken)[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LBInfoHeader, "^[ \t]*LBInfoHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1506,6 +1526,7 @@ config_parse(const int argc, char **const argv)
     regfree(&AuthTypeBasic);
     regfree(&AuthTypeColdfusion);
     regfree(&AuthTypeCFAuthToken);
+    regfree(&LBInfoHeader);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
