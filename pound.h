@@ -340,7 +340,8 @@ typedef struct _service {
     char                name[KEY_SIZE + 1]; /* symbolic name */
     MATCHER             *url,       /* request matcher */
                         *req_head,  /* required headers */
-                        *deny_head; /* forbidden headers */
+                        *deny_head, /* forbidden headers */
+                        *lbinfo;    /* Load Balancer Header matching */
     USER_TYPE           user_type;  /* Type of authorization done */
     regex_t             auth_pat;   /* Authorization header matching */
     BACKEND             *backends;
@@ -414,6 +415,7 @@ extern LISTENER         *listeners; /* all available listeners */
 
 typedef struct _session {
     BACKEND             *be;                            /* Backend this session is attached to */
+    pthread_mutex_t     mut;        /* mutex for this back-end */
     time_t              first_acc;                      /* Time session was created */
     int                 last_ip_family;                 /* Last IP Address's family type */
     socklen_t           last_ip_len;                    /* Length of the IP Address */
@@ -505,12 +507,7 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, const char *);
-
-/*
- * Retrieve the session key (for logging)
- */
-extern int       get_session_key(char *key, SERVICE *const, const struct addrinfo *, const char *, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, char *const, char *, SESSION **);
 
 /*
  * Search for a host name, return the addrinfo for it
@@ -527,7 +524,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *const, char **const, BACKEND *const);
+extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, char **const, char *const, BACKEND *const, char *, SESSION **, SESSION *);
 
 /*
  * Parse a header
