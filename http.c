@@ -1166,9 +1166,9 @@ thr_http(void *arg)
         if(cur_backend->be_type) {
             memset(buf, 0, sizeof(buf));
             if(!cur_backend->redir_req)
-                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
+                strncpy(buf, cur_backend->url, sizeof(buf) - 1);
             else if (cur_backend->redir_req==1)
-                    strncpy(buf, cur_backend->url, sizeof(buf) - 1);
+                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
             else {
                 regmatch_t umtch[10];
                 char *chptr, *enptr, *srcptr;

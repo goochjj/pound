@@ -603,10 +603,14 @@ parse_service(const char *svc_name, int global)
             // 1 - Dynamic or not, 2 - Request Redirect #, 3 - Destination URL
             memset(be, 0, sizeof(BACKEND));
             be->be_type = 302;
+            be->redir_req = 0;
             if (matches[1].rm_eo != matches[1].rm_so) {
-                be->redir_req = 2;
-                if(!res->url || res->url->next)
-                    conf_err("Dynamic Redirect must be preceeded by a URL line, and ONLY one.");
+                if((lin[matches[1].rm_so] & ~0x20)=='D') {
+                    be->redir_req = 2;
+                    if(!res->url || res->url->next)
+                        conf_err("Dynamic Redirect must be preceeded by a URL line");
+                } else if((lin[matches[1].rm_so] & ~0x20)=='A')
+                    be->redir_req = 1;
             }
             if (matches[2].rm_eo != matches[2].rm_so)
                 be->be_type = atoi(lin + matches[2].rm_so);
@@ -619,11 +623,9 @@ parse_service(const char *svc_name, int global)
             /* split the URL into its fields */
             if(regexec(&LOCATION, be->url, 4, matches, 0))
                 conf_err("Redirect bad URL - aborted");
-            if(be->redir_req != 2 && (matches[3].rm_eo - matches[3].rm_so) == 1) {
+            if((matches[3].rm_eo - matches[3].rm_so) == 1)
                 /* the path is a single '/', so remove it */
-                be->redir_req = 1;
                 be->url[matches[3].rm_so] = '\0';
-            }
         } else if(!regexec(&BackEnd, lin, 4, matches, 0)) {
             if(res->backends) {
                 for(be = res->backends; be->next; be = be->next)
@@ -1348,7 +1350,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAportAddr, "^[ \t]*HAport[ \t]+([^ \t]+)[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Redirect, "^[ \t]*Redirect(Dynamic|)[ \t]+(30[127][ \t]+|)\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Redirect, "^[ \t]*Redirect(Append|Dynamic|)[ \t]+(30[127][ \t]+|)\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Session, "^[ \t]*Session[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
