@@ -559,7 +559,10 @@ thr_http(void *arg)
         if(BIO_do_handshake(cl) <= 0) {
             if ((ERR_GET_REASON(ERR_peek_error()) == SSL_R_HTTP_REQUEST)
             && (ERR_GET_LIB(ERR_peek_error()) == ERR_LIB_SSL)) {
-                err_reply(oldcl, h400, lstn->errnossl);
+                if (lstn->nossl_redir)
+                    redirect_reply(oldcl, lstn->nossl_url, lstn->nossl_redir);
+                else
+                    err_reply(oldcl, h400, lstn->errnossl);
             }
             BIO_reset(cl);
             BIO_free_all(cl);
