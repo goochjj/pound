@@ -564,10 +564,14 @@ thr_http(void *arg)
         if(BIO_do_handshake(cl) <= 0) {
             if ((ERR_GET_REASON(ERR_peek_error()) == SSL_R_HTTP_REQUEST)
             && (ERR_GET_LIB(ERR_peek_error()) == ERR_LIB_SSL)) {
-                if (lstn->nossl_redir)
+                addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                if (lstn->nossl_redir) {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s redirecting to \"%s\"", pthread_self(), caddr, lstn->nossl_url);
                     redirect_reply(oldcl, lstn->nossl_url, lstn->nossl_redir);
-                else
+                } else {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s sending error", pthread_self(), caddr);
                     err_reply(oldcl, h400, lstn->errnossl);
+                }
             }
             BIO_reset(cl);
             BIO_free_all(cl);
