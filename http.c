@@ -494,41 +494,24 @@ thr_http(void *arg)
     BIO                 *oldcl, *cl, *be, *bb, *b64;
     X509                *x509;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
-                        headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF], lb_info[MAXBUF],
+                        headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
                         caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], sess_key[KEY_SIZE+1], *mh;
+    SESSION             *sess, sess_copy;
     SSL                 *ssl, *be_ssl;
     long                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
     double              start_req, end_req;
-    REQUEST             req;
 
     from_host = ((thr_arg *)arg)->from_host;
     memcpy(&from_host_addr, from_host.ai_addr, from_host.ai_addrlen);
     from_host.ai_addr = (struct sockaddr *)&from_host_addr;
-    req.lstn = lstn = ((thr_arg *)arg)->lstn;
+    lstn = ((thr_arg *)arg)->lstn;
     sock = ((thr_arg *)arg)->sock;
     free(((thr_arg *)arg)->from_host.ai_addr);
     free(arg);
     sess_key[0] = '\0';
-    lb_info[0] = '\0';
-
-    req.from_host = &from_host;
-    req.request = request;
-    req.response = response;
-    req.url = url;
-    req.loc_path = loc_path;
-    req.u_name = u_name;
-    req.v_host = v_host;
-    req.referer = referer;
-    req.u_agent = u_agent;
-    req.sess_key = sess_key;
-    req.lb_info = lb_info;
-
-    req.be = NULL;
-    req.sess = NULL;
-    req.req_headers = NULL;
-    req.resp_headers = NULL;
+    sess = NULL;
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -619,7 +602,7 @@ thr_http(void *arg)
         conn_closed = 0;
         for(n = 0; n < MAXHEADERS; n++)
             headers_ok[n] = 1;
-        if((req.req_headers = headers = get_headers(cl, cl, lstn)) == NULL) {
+        if((headers = get_headers(cl, cl, lstn)) == NULL) {
             if(!cl_11) {
                 if(errno) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
@@ -728,7 +711,7 @@ thr_http(void *arg)
         }
 
         /* check that the requested URL still fits the old back-end (if any) */
-        if((req.svc = svc = get_service(lstn, url, &headers[1])) == NULL) {
+        if((svc = get_service(lstn, url, &headers[1])) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no service \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -771,7 +754,7 @@ thr_http(void *arg)
         }
         /* Find backend information */
 
-        if((req.be = backend = get_backend(&req, &headers[1])) == NULL) {
+        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -828,7 +811,7 @@ thr_http(void *arg)
                  * ...but make sure we don't get into a loop with the same back-end
                  */
                 old_backend = backend;
-                if((req.be = backend = get_backend(&req, &headers[1])) == NULL || backend == old_backend) {
+                if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess)) == NULL || backend == old_backend) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
@@ -1217,7 +1200,7 @@ thr_http(void *arg)
 
         /* get the response */
         for(skip = 1; skip;) {
-            if((req.resp_headers = headers = get_headers(be, cl, lstn)) == NULL) {
+            if((headers = get_headers(be, cl, lstn)) == NULL) {
                 str_be(buf, MAXBUF - 1, cur_backend);
                 end_req = cur_time();
                 logmsg(LOG_NOTICE, "(%lx) e500 response error read from %s/%s: %s (%.3f secs)",
@@ -1288,8 +1271,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies/header) */
-            req.be = cur_backend;
-            upd_session(&req, &headers[1]);
+            upd_session(svc, &from_host, url, response, &headers[1], u_name, cur_backend, sess_key, &sess, &sess_copy);
 
             /* send the response */
             if(!skip)
@@ -1449,7 +1431,7 @@ thr_http(void *arg)
                 v_host[0]? v_host: "-",
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
                 response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
-                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", lb_info[0]>0?lb_info:"");
+                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
             break;
         }
 

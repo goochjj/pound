@@ -415,6 +415,7 @@ extern LISTENER         *listeners; /* all available listeners */
 
 typedef struct _session {
     BACKEND             *be;                            /* Backend this session is attached to */
+    pthread_mutex_t     mut;        /* mutex for this back-end */
     time_t              first_acc;                      /* Time session was created */
     int                 last_ip_family;                 /* Last IP Address's family type */
     socklen_t           last_ip_len;                    /* Length of the IP Address */
@@ -431,33 +432,6 @@ typedef struct  {
     LISTENER        *lstn;
     struct addrinfo from_host;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
-
-/*
- * This structure was added so we have a request structure that has
- * all our relevant info close at hand.
- * This makes it easier to handle sessions, and we can actually log more information
- * because we don't have to weave in and out of get_backend and get_session_key and
- * upd_sesion and others.
- */
-typedef struct _request {
-    LISTENER            *lstn;
-    SERVICE             *svc;
-    BACKEND             *be;
-    SESSION             *sess;
-    char                *sess_key;
-    char                **req_headers;
-    char                *request;
-    char                **resp_headers;
-    char                *response;
-    char                *url;
-    char                *loc_path;
-    struct addrinfo     *from_host;
-    char                *u_name;
-    char                *v_host;
-    char                *referer;
-    char                *u_agent;
-    char                *lb_info;
-} REQUEST;
 
 /* Header types */
 #define HEADER_ILLEGAL              -1
@@ -533,7 +507,7 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(REQUEST *req, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, char *const, char *, SESSION **);
 
 /*
  * Search for a host name, return the addrinfo for it
@@ -550,7 +524,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(REQUEST *req, char **const);
+extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, char **const, char *const, BACKEND *const, char *, SESSION **, SESSION *);
 
 /*
  * Parse a header
