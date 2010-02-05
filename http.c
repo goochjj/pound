@@ -512,6 +512,7 @@ thr_http(void *arg)
     free(arg);
     sess_key[0] = '\0';
     sess = NULL;
+    memset(&sess_copy, 0x00, sizeof(sess_copy));
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -758,7 +759,7 @@ thr_http(void *arg)
         }
         /* Find backend information */
 
-        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess)) == NULL) {
+        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess, &sess_copy)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -815,7 +816,7 @@ thr_http(void *arg)
                  * ...but make sure we don't get into a loop with the same back-end
                  */
                 old_backend = backend;
-                if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess)) == NULL || backend == old_backend) {
+                if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess, &sess_copy)) == NULL || backend == old_backend) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
@@ -1204,6 +1205,7 @@ thr_http(void *arg)
             }
             redirect_reply(cl, buf, cur_backend->be_type);
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
+            end_req = cur_time();
             switch(lstn->log_level) {
             case 0:
                 break;
@@ -1225,8 +1227,11 @@ thr_http(void *arg)
                     u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
                 break;
             case 6:
-                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\" \"%s\"", caddr,
-                    u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, buf, referer, u_agent);
+                logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\" \"%s\" (REDIR -> \"%s\") %.3f sec %s [%s]",
+                    v_host[0]? v_host: "-",
+                    caddr, u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, 
+                    referer, u_agent, svc->name[0]?svc->name:"-", buf,
+                    (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
                 break;
             }
             if(!cl_11 || conn_closed || force_10)

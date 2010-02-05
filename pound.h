@@ -507,7 +507,7 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, char *const, char *, SESSION **);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, char *const, char *, SESSION **, SESSION *);
 
 /*
  * Search for a host name, return the addrinfo for it
