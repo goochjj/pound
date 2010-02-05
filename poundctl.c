@@ -101,26 +101,46 @@ be_prt(const int sock)
 {
     BACKEND be;
     struct  sockaddr_storage    a, h;
-    int     n_be;
+    char    url[MAXBUF+1];
+    int     n_be,sz;
 
     n_be = 0;
     while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
         if(be.disabled < 0)
             break;
+        read(sock, &sz, sizeof(sz));
+        if(sz) read(sock, url, sz);
+        url[sz]='\0';
+        be.url=url;
+
         read(sock, &a, be.addr.ai_addrlen);
         be.addr.ai_addr = (struct sockaddr *)&a;
         if(be.ha_addr.ai_addrlen > 0) {
             read(sock, &h, be.ha_addr.ai_addrlen);
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
-        if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\" />\n",
-                n_be++,
-                prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
-                be.disabled? "DISABLED": "active", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
-        else
-            printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s [%u/%u/%u/%u/%u]\n", n_be++, prt_addr(&be.addr),
-                be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
+        if(!be.be_type) {
+            if(xml_out)
+                printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\" />\n",
+                    n_be++,
+                    prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
+                    be.disabled? "DISABLED": "active", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
+            else
+                printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s [%u/%u/%u/%u/%u]\n", n_be++, prt_addr(&be.addr),
+                    be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
+        } else {
+            if(xml_out)
+                printf("<redirect index=\"%d\" redirect_code=\"%d\" url=\"%s\" type=\"%s\" status=\"%s\" />\n",
+                    n_be++,
+                    be.be_type, be.url, be.redir_req==2?"RedirectDynamic":(be.redir_req==1?"RedirectAppend":"Redirect"),
+                    be.disabled? "DISABLED": "active");
+            else
+                printf("    %3d. %s %s %d -> %s\n",
+                    n_be++,
+                    be.redir_req==2?"RedirectDynamic":(be.redir_req==1?"RedirectAppend":"Redirect"),
+                    be.disabled? "DISABLED": "active",
+                    be.be_type, be.url);
+        }
     }
     return;
 }

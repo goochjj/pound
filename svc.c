@@ -523,7 +523,7 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
  * If save_ssss_key or save_sess are specified, we will write the session key and/or session pointer to the given pointer pointer.
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers, char *const u_name, char *save_sess_key, SESSION **save_sess)
+get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers, char *const u_name, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
 {
     BACKEND     *res;
     SESSION     *sess;
@@ -534,6 +534,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
     sess = NULL;
+    key[0]='\0';
     svc->requests++;
     switch(svc->sess_type) {
     case SESS_NONE:
@@ -619,14 +620,15 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() unlock: %s", strerror(ret_val));
     if (sess!=NULL) {
-        if(ret_val = pthread_mutex_unlock(&sess->mut))
-            logmsg(LOG_WARNING, "get_backend() unlock: %s", strerror(ret_val));
+        if(ret_val = pthread_mutex_lock(&sess->mut))
+            logmsg(LOG_WARNING, "get_backend() session lock: %s", strerror(ret_val));
         sess->n_requests++;
         copy_lastip(sess, from_host);
         strncpy(sess->last_url, request, sizeof(sess->last_url)-1);
         strncpy(sess->last_user, u_name, sizeof(sess->last_user)-1);
+        if (save_sess_copy) memcpy(save_sess_copy, sess, sizeof(*sess));
         if(ret_val = pthread_mutex_unlock(&sess->mut))
-            logmsg(LOG_WARNING, "get_backend() unlock: %s", strerror(ret_val));
+            logmsg(LOG_WARNING, "get_backend() session unlock: %s", strerror(ret_val));
     }
     if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
     if (save_sess) *save_sess = sess;
@@ -648,6 +650,7 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     int             ret_val,i;
 
     sess = NULL;
+    key[0]='\0';
     if (save_sess) sess = *save_sess;
 
     /* If using Header/Cookie Sessions, they can be set from the response */
@@ -1761,7 +1764,7 @@ thr_control(void *arg)
 {
     CTRL_CMD        cmd;
     struct sockaddr sa;
-    int             ctl, dummy, ret_val;
+    int             ctl, dummy, ret_val, sz;
     LISTENER        *lstn, dummy_lstn;
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
@@ -1807,6 +1810,9 @@ thr_control(void *arg)
                     write(ctl, (void *)svc, sizeof(SERVICE));
                     for(be = svc->backends; be; be = be->next) {
                         write(ctl, (void *)be, sizeof(BACKEND));
+                        sz = be->url?strlen(be->url):0;
+                        write(ctl, &sz, sizeof(sz));
+                        if(sz>0) write(ctl, be->url, sz);
                         write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         if(be->ha_addr.ai_addrlen > 0)
                             write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
@@ -1828,6 +1834,9 @@ thr_control(void *arg)
                 write(ctl, (void *)svc, sizeof(SERVICE));
                 for(be = svc->backends; be; be = be->next) {
                     write(ctl, (void *)be, sizeof(BACKEND));
+                    sz = be->url?strlen(be->url):0;
+                    write(ctl, &sz, sizeof(sz));
+                    if(sz>0) write(ctl, be->url, sz);
                     write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     if(be->ha_addr.ai_addrlen > 0)
                         write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
