@@ -1,7 +1,4 @@
-PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
-AuthTypes - Extract username from request, Token Coldfusion or Basic, throw into session
 Admin CGI (perhaps use XML from poundctl)
-Track custom LoadbalancerInfo Header we can populate from our system - district id perhaps?
 
 Deprecated?
   Log Files - HUP reopens log files, Access and Error logs
@@ -12,10 +9,13 @@ Deprecated?
 
 
 
+-PCRE Replacements - for Redirect directives and possibly adjustment of Case for URL Directives (modSpelling?) RedirectDynamic?
 -Statistics - 
 -  actual session structures
 -  track first access, last access, last IP, last_url, last_user, number of requests seen per session, upd_be
 -  fix poundctl to display this information
+-  Track custom LoadbalancerInfo Header we can populate from our system - district id perhaps?
+-AuthTypes - Extract username from request, Token Coldfusion or Basic, throw into session
 -Verify Redirect Behavior - HEADER_LOCATION and rewriting based on protocol
 -Include and IncludeDir directives
 -PCRE URL Case-Insensitive mappings (URLNoCase?)
