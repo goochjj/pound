@@ -103,7 +103,7 @@ static int  be_connto = 15;
 static int  dynscale = 0;
 static int  ignore_case = 0;
 
-#define MAX_FIN 8
+#define MAX_FIN 100
 
 static FILE *f_in[MAX_FIN];
 static char *f_name[MAX_FIN];
