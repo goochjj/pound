@@ -1661,19 +1661,18 @@ static void
 t_dump(TABNODE *t, void *arg)
 {
     DUMP_ARG    *a;
-    BACKEND     *be, *bep;
+    BACKEND     *be;
     SESSION     *sess;
     int         n_be, sz;
 
     a = (DUMP_ARG *)arg;
     memcpy(&sess, t->content, sizeof(sess));
-    memcpy(&bep, sess->be, sizeof(bep));
     for(n_be = 0, be = a->backends; be; be = be->next, n_be++)
-        if(be == bep)
+        if(be == sess->be)
             break;
     if(!be)
         /* should NEVER happen */
-        n_be = 0;
+        n_be = -1;
     write(a->control_sock, t, sizeof(TABNODE));
     write(a->control_sock, &n_be, sizeof(n_be));
     sz = strlen(t->key);
