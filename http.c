@@ -685,24 +685,9 @@ thr_http(void *arg)
             if(!regexec(&AUTHORIZATION, headers[n], 2, matches, 0)) {
                 int inlen;
 
-                if((bb = BIO_new(BIO_s_mem())) == NULL) {
-                    logmsg(LOG_WARNING, "(%lx) Can't alloc BIO_s_mem", pthread_self());
-                    continue;
-                }
-                if((b64 = BIO_new(BIO_f_base64())) == NULL) {
-                    logmsg(LOG_WARNING, "(%lx) Can't alloc BIO_f_base64", pthread_self());
-                    BIO_free(bb);
-                    continue;
-                }
-                b64 = BIO_push(b64, bb);
-                BIO_write(bb, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
-                BIO_write(bb, "\n", 1);
-                if((inlen = BIO_read(b64, buf, MAXBUF - 1)) <= 0) {
-                    logmsg(LOG_WARNING, "(%lx) Can't read BIO_f_base64", pthread_self());
-                    BIO_free_all(b64);
-                    continue;
-                }
-                BIO_free_all(b64);
+                inlen = base64_decode(buf, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+                buf[inlen] = '\0';
+                logmsg(LOG_INFO, "AUTHDEBUG - got authentication header (%s) decoded to (%s)", headers[n], buf);
                 if((mh = strchr(buf, ':')) == NULL) {
                     logmsg(LOG_WARNING, "(%lx) Unknown authentication", pthread_self());
                     continue;
