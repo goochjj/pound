@@ -526,6 +526,10 @@ Override the global
 .B IgnoreCase
 setting.
 .TP
+\fBEnabled\fR 0|1
+If 0, the service will start disabled.  If 1, the service will start enabled.
+Services are enabled by default.
+.TP
 \fBHeadRequire\fR "pattern"
 The request must contain at least on header matching the given pattern.
 Multiple
@@ -665,6 +669,10 @@ will present this certificate to the back-end.
 The priority of this back-end (between 1 and 9, 5 is default). Higher priority
 back-ends will be used more often than lower priority ones, so you should
 define higher priorities for more capable servers.
+.TP
+\fBEnabled\fR 0|1
+If 0, the backend will start disabled.  If 1, the backend will start enabled.
+Backends are enabled by default.
 .TP
 \fBTimeOut\fR val
 Override the global
