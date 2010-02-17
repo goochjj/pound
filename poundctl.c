@@ -146,6 +146,24 @@ be_prt(const int sock)
 }
 
 static void
+escape_url(char *buf, int maxsize)
+{
+    char *cp = buf, *cpy;
+    char *ep = buf+strlen(buf);
+    char *mp = buf + maxsize;
+    while (cp < (mp-4) && (cp=strchr(cp, '&'))!=NULL) {
+      for(cpy=ep; cpy>=cp; cpy--) if (cpy<(mp-4)) cpy[4] = cpy[0];
+      ep+=4;
+      cp++;
+      *cp++ = 'a';
+      *cp++ = 'm';
+      *cp++ = 'p';
+      *cp++ = ';';
+    }
+    *(mp-1) = '\0';
+}
+
+static void
 sess_prt(const int sock, SERVICE *svc)
 {
     TABNODE     tsess;
@@ -171,6 +189,8 @@ sess_prt(const int sock, SERVICE *svc)
             sess.last_ip = (struct sockaddr *)addrbuf;
             read(sock, addrbuf, sess.last_ip_len);
         }
+        escape_url(sess.last_url, sizeof(sess.last_url));
+        escape_url(sess.lb_info, sizeof(sess.lb_info));
         last_ip.ai_family = sess.last_ip_family;
         last_ip.ai_addrlen = sess.last_ip_len;
         last_ip.ai_addr = sess.last_ip;
