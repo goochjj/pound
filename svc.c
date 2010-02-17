@@ -496,6 +496,23 @@ get_HEADERS(char *res, const SERVICE *svc, char **const headers)
     return res[0] != '\0';
 }
 
+static int
+find_EndSessionHeader(const SERVICE *svc, char **const headers)
+{
+    int         i, n, s;
+    regmatch_t  matches[4];
+
+    if (svc->sess_end_hdr == 0) return 0;
+    /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
+    for(i = 0; i < (MAXHEADERS - 1); i++) {
+        if(headers[i] == NULL)
+            continue;
+        if(!regexec(&svc->sess_end, headers[i], 4, matches, 0))
+            return 1;
+    }
+    return 0;
+}
+
 /*
  * Pick a random back-end from a candidate list
  */
@@ -686,7 +703,12 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(svc->sess_type == SESS_HEADER || svc->sess_type == SESS_COOKIE) {
         if(ret_val = pthread_mutex_lock(&svc->mut))
             logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
-        if(get_HEADERS(key, svc, resp_headers)) {
+        if(find_EndSessionHeader(svc, resp_headers))
+            if(sess!=NULL) {
+                t_clean_be(svc->sessions, sess, sizeof(sess));
+                sess = NULL;
+            }
+        else if(get_HEADERS(key, svc, resp_headers)) {
             if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
             if(t_find(svc->sessions, key) == NULL) {
                 sess = new_session();
@@ -704,8 +726,8 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     }
     /* Extract LBInfo Headers and update the session */
+    if (save_sess) *save_sess = sess;
     if(sess!=NULL) {
-        if (save_sess) *save_sess = sess;
         /* check for LBInfo headers */
         for(m = svc->lbinfo; m; m = m->next)
             for(i = 0; i < (MAXHEADERS - 1); i++)
