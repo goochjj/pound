@@ -82,7 +82,7 @@ static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert
 static regex_t  Enabled;
 
 static regex_t  AuthTypeBasic, AuthTypeColdfusion, AuthTypeCFAuthToken;
-static regex_t  LBInfoHeader, LBInfoCookie;
+static regex_t  LBInfoHeader, EndSessionHeader;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
@@ -436,6 +436,13 @@ parse_sess(SERVICE *const svc)
                 conf_err("Unknown Session type");
         } else if(!regexec(&TTL, lin, 4, matches, 0)) {
             svc->sess_ttl = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&EndSessionHeader, lin, 4, matches, 0)) {
+            if(svc->sess_end_hdr>0)
+                conf_err("Can only have one EndSessionHeader per session type");
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&svc->sess_end, lin+matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("EndSessionHeader pattern failed - aborted");
+            svc->sess_end_hdr++;
         } else if(!regexec(&ID, lin, 4, matches, 0)) {
             if(svc->sess_type != SESS_COOKIE && svc->sess_type != SESS_URL && svc->sess_type != SESS_HEADER)
                 conf_err("no ID permitted unless COOKIE/URL/HEADER Session - aborted");
@@ -1364,6 +1371,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HAportAddr, "^[ \t]*HAport[ \t]+([^ \t]+)[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Redirect, "^[ \t]*Redirect(Append|Dynamic|)[ \t]+(30[127][ \t]+|)\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Session, "^[ \t]*Session[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&EndSessionHeader, "^[ \t]*EndOnHeaderMatch[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1535,6 +1543,7 @@ config_parse(const int argc, char **const argv)
     regfree(&HAportAddr);
     regfree(&Redirect);
     regfree(&Session);
+    regfree(&EndSessionHeader);
     regfree(&Type);
     regfree(&TTL);
     regfree(&ID);

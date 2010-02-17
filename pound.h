@@ -353,6 +353,8 @@ typedef struct _service {
     int                 sess_ttl;   /* session time-to-live */
     regex_t             sess_start; /* pattern to identify the session data */
     regex_t             sess_pat;   /* pattern to match the session data */
+    int                 sess_end_hdr; /* 1 if session end header is set */
+    regex_t             sess_end;   /* Pattern to explicitly end a session */
     LHASH               *sessions;  /* currently active sessions */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
