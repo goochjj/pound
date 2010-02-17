@@ -201,6 +201,18 @@ t_cont(TABNODE *t, void *arg)
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, void *)
 
+static void
+t_cont_be(TABNODE *t, void *arg)
+{
+    ALL_ARG *a;
+
+    a = (ALL_ARG *)arg;
+    if(memcmp(((SESSION*)t->content)->be, a->content, a->cont_len) == 0)
+        lh_delete(a->tab, t);
+    return;
+}
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE *, void *)
+
 /*
  * Remove all nodes with the given content
  */
@@ -216,6 +228,25 @@ t_clean(LHASH *const tab, void *const content, const size_t cont_len)
     down_load = tab->down_load;
     tab->down_load = 0;
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_cont), &a);
+    tab->down_load = down_load;
+    return;
+}
+
+/*
+ * Remove all nodes with the given content
+ */
+static void
+t_clean_be(LHASH *const tab, void *const content, const size_t cont_len)
+{
+    ALL_ARG a;
+    int down_load;
+
+    a.tab = tab;
+    a.content = content;
+    a.cont_len = cont_len;
+    down_load = tab->down_load;
+    tab->down_load = 0;
+    lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_cont_be), &a);
     tab->down_load = down_load;
     return;
 }
@@ -726,7 +757,7 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
                 b->alive = 0;
                 str_be(buf, MAXBUF - 1, b);
                 logmsg(LOG_NOTICE, "(%lx) BackEnd %s dead (killed)", pthread_self(), buf);
-                t_clean(svc->sessions, &be, sizeof(be));
+                t_clean_be(svc->sessions, &be, sizeof(be));
                 break;
             case BE_ENABLE:
                 str_be(buf, MAXBUF - 1, b);
