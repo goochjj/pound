@@ -1,0 +1,6 @@
+@ Pound
+sdesc: "Sapphire Load Balancer - Pound"
+ldesc: "Sapphire Software - Load Balancer for Web Applications"
+category: Sapphire
+requires: openssl cygwin libpcre0
+version: 2.5k12-1
