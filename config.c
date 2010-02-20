@@ -550,6 +550,7 @@ parse_service(const char *svc_name, int global)
         strncpy(res->name, svc_name, KEY_SIZE);
     if((res->sessions = lh_new(LHASH_HASH_FN(t_hash), LHASH_COMP_FN(t_cmp))) == NULL)
         conf_err("lh_new failed - aborted");
+    res->del_sessions = NULL;
     ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')

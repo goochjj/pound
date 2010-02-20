@@ -356,6 +356,7 @@ typedef struct _service {
     int                 sess_end_hdr; /* 1 if session end header is set */
     regex_t             sess_end;   /* Pattern to explicitly end a session */
     LHASH               *sessions;  /* currently active sessions */
+    struct _session     *del_sessions;  /* Sessions pending deletion */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     int			global;     /* true if this service is global rather than attached to a specific listener */
@@ -417,7 +418,8 @@ extern LISTENER         *listeners; /* all available listeners */
 
 typedef struct _session {
     BACKEND             *be;                            /* Backend this session is attached to */
-    pthread_mutex_t     mut;        /* mutex for this back-end */
+    char                *key;                           /* link this back to the session key... shared with tabnode */
+    pthread_mutex_t     mut;                            /* mutex for this session - used to update last_ip et al */
     time_t              first_acc;                      /* Time session was created */
     int                 last_ip_family;                 /* Last IP Address's family type */
     socklen_t           last_ip_len;                    /* Length of the IP Address */
@@ -427,6 +429,9 @@ typedef struct _session {
     char                last_user[SESSIONUSER_MAX+1];   /* Last username seen */
     char                lb_info[SESSIONINFO_MAX+1];      /* Custom LoadBalancer information */
     unsigned int        n_requests;                     /* Number of requests seen */
+    struct _session     *next;                          /* When a session is slated for deletion we put 
+                                                           it on a linked list... This is only used for
+                                                           pending deletions */
 }   SESSION;
 
 typedef struct  {

@@ -32,20 +32,21 @@
  */
 static SESSION *new_session(void)
 {
-    SESSION *ret;
+    SESSION *sess;
 
-    if((ret = malloc(sizeof(*ret))) == NULL) {
+    if((sess = malloc(sizeof(*sess))) == NULL) {
         logmsg(LOG_ERR, "new session content malloc");
         exit(1);
     }
-    memset(ret, 0x00, sizeof(*ret));
-    ret->be = NULL;
-    if (pthread_mutex_init(&ret->mut, NULL))
+    memset(sess, 0x00, sizeof(*sess));
+    sess->be = NULL;
+    if (pthread_mutex_init(&sess->mut, NULL))
         logmsg(LOG_WARNING, "session mutex_init error %s", strerror(errno));
-    ret->first_acc = time(NULL);
-    ret->n_requests = 0;
-    ret->last_ip = NULL;
-    return ret;
+    sess->first_acc = time(NULL);
+    sess->n_requests = 0;
+    sess->last_ip = NULL;
+    sess->next = NULL;
+    return sess;
 }
 
 /*
@@ -56,8 +57,44 @@ static void clear_session(SESSION *sess)
     if (!sess) return;
     if (pthread_mutex_destroy(&sess->mut))
         logmsg(LOG_WARNING, "session mutex_destroy error %s", strerror(errno));
+    if (sess->key!=NULL) free(sess->key);
     if (sess->last_ip!=NULL) free(sess->last_ip);
     free(sess);
+}
+
+static int try_clear_session(SESSION *sess) {
+    if(!sess) return 0;
+    if(pthread_mutex_trylock(&sess->mut))
+        return 1;
+
+    /* Aquired lock which means (since we aren't in the tree anymore) we're safe to delete. */
+    pthread_mutex_unlock(&sess->mut);
+    clear_session(sess);
+    return 0;
+}
+
+/*
+ * Delete session from LHASH table, freeing memory
+ */
+static void delete_session(SERVICE *const svc, LHASH *const tab, TABNODE *t)
+{
+    TABNODE *res;
+    SESSION *sess;
+    int ret_val;
+
+    if (!tab || !t) return;
+
+    if((res = (TABNODE *)lh_delete(tab, t)) != NULL) {
+        memcpy(&sess, res->content, sizeof(sess));
+        free(res->content);
+        free(res);
+        if(try_clear_session(sess)) {
+            /* lock in use... dump into pending delete state */
+            logmsg(LOG_WARNING, "session for %s in use, delayed delete", sess->key);
+            sess->next = svc->del_sessions;
+            svc->del_sessions = sess;
+        }
+    }
 }
 
 static void copy_lastip(SESSION *sess, const struct addrinfo * ai) {
@@ -136,23 +173,18 @@ t_find(LHASH *const tab, char *const key)
  * Delete a key
  */
 static void
-t_remove(LHASH *const tab, char *const key)
+t_remove(SERVICE *const svc, LHASH *const tab, char *const key)
 {
     TABNODE t, *res;
     SESSION *sess;
 
     t.key = key;
-    if((res = (TABNODE *)lh_delete(tab, &t)) != NULL) {
-        memcpy(&sess, res->content, sizeof(sess));
-        clear_session(sess);
-        free(res->key);
-        free(res->content);
-        free(res);
-    }
+    delete_session(svc, tab, &t);
     return;
 }
 
 typedef struct  {
+    SERVICE *svc;
     LHASH   *tab;
     time_t  lim;
     void    *content;
@@ -162,11 +194,13 @@ typedef struct  {
 static void
 t_old(TABNODE *t, void *arg)
 {
+    TABNODE *res;
     ALL_ARG *a;
+    SESSION *sess;
 
     a = (ALL_ARG *)arg;
     if(t->last_acc < a->lim)
-        lh_delete(a->tab, t);
+        delete_session(a->svc, a->tab, t);
     return;
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
@@ -175,11 +209,12 @@ IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
  * Expire all old nodes
  */
 static void
-t_expire(LHASH *const tab, const time_t lim)
+t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim)
 {
     ALL_ARG a;
     int down_load;
 
+    a.svc = svc;
     a.tab = tab;
     a.lim = lim;
     down_load = tab->down_load;
@@ -190,13 +225,35 @@ t_expire(LHASH *const tab, const time_t lim)
 }
 
 static void
+del_pending(SESSION **list)
+{
+    SESSION **ptr;
+    SESSION *sess,*next;
+
+    if(!list) return;
+    ptr = list;
+    sess = *ptr;
+    for(sess=*ptr; sess; sess = next) {
+        next = sess->next;
+        if (try_clear_session(sess)) {
+            /* lock in use... dump into pending delete state */
+            logmsg(LOG_WARNING, "session for %s still in use, cannot delete", sess->key);
+            ptr = &sess->next;
+        } else {
+            *ptr = next;
+        }
+    }
+
+}
+
+static void
 t_cont(TABNODE *t, void *arg)
 {
     ALL_ARG *a;
 
     a = (ALL_ARG *)arg;
     if(memcmp(t->content, a->content, a->cont_len) == 0)
-        lh_delete(a->tab, t);
+        delete_session(a->svc, a->tab, t);
     return;
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, void *)
@@ -208,7 +265,7 @@ t_cont_be(TABNODE *t, void *arg)
 
     a = (ALL_ARG *)arg;
     if(memcmp(((SESSION*)t->content)->be, a->content, a->cont_len) == 0)
-        lh_delete(a->tab, t);
+        delete_session(a->svc, a->tab, t);
     return;
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE *, void *)
@@ -217,11 +274,12 @@ IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE *, void *)
  * Remove all nodes with the given content
  */
 static void
-t_clean(LHASH *const tab, void *const content, const size_t cont_len)
+t_clean(SERVICE *const svc, LHASH *const tab, void *const content, const size_t cont_len)
 {
     ALL_ARG a;
     int down_load;
 
+    a.svc = svc;
     a.tab = tab;
     a.content = content;
     a.cont_len = cont_len;
@@ -236,11 +294,12 @@ t_clean(LHASH *const tab, void *const content, const size_t cont_len)
  * Remove all nodes with the given content
  */
 static void
-t_clean_be(LHASH *const tab, void *const content, const size_t cont_len)
+t_clean_be(SERVICE *const svc, LHASH *const tab, void *const content, const size_t cont_len)
 {
     ALL_ARG a;
     int down_load;
 
+    a.svc = svc;
     a.tab = tab;
     a.content = content;
     a.cont_len = cont_len;
@@ -705,7 +764,7 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
         if(find_EndSessionHeader(svc, resp_headers))
             if(sess!=NULL) {
-                t_clean_be(svc->sessions, sess, sizeof(sess));
+                t_clean_be(svc, svc->sessions, sess, sizeof(sess));
                 sess = NULL;
             }
         else if(get_HEADERS(key, svc, resp_headers)) {
@@ -779,7 +838,7 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
                 b->alive = 0;
                 str_be(buf, MAXBUF - 1, b);
                 logmsg(LOG_NOTICE, "(%lx) BackEnd %s dead (killed)", pthread_self(), buf);
-                t_clean_be(svc->sessions, &be, sizeof(be));
+                t_clean_be(svc, svc->sessions, &be, sizeof(be));
                 break;
             case BE_ENABLE:
                 str_be(buf, MAXBUF - 1, b);
@@ -1409,7 +1468,8 @@ do_expire(void)
                 logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
                 continue;
             }
-            t_expire(svc->sessions, cur_time - svc->sess_ttl);
+            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl);
+            del_pending(&svc->del_sessions);
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
         }
@@ -1420,7 +1480,8 @@ do_expire(void)
                 logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
                 continue;
             }
-            t_expire(svc->sessions, cur_time - svc->sess_ttl);
+            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl);
+            del_pending(&svc->del_sessions);
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
         }
@@ -1971,7 +2032,7 @@ thr_control(void *arg)
             }
             if(ret_val = pthread_mutex_lock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() del session lock: %s", strerror(ret_val));
-            t_remove(svc->sessions, cmd.key);
+            t_remove(svc, svc->sessions, cmd.key);
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
             break;
