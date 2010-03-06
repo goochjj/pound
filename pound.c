@@ -38,6 +38,7 @@ char        *user,              /* user to run as */
 char * control_user, *control_group; long control_mode;
 
 int         alive_to,           /* check interval for resurrection */
+            logsni,             /* log SNI debugging information */
             logthreads,         /* log when background threads execute */
             logredirects,       /* log additional information when rewriting a redirect */
             daemonize,          /* run as daemon */

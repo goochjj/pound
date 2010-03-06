@@ -1684,6 +1684,39 @@ DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength
         return get_dh1024();
 }
 
+#ifndef OPENSSL_NO_TLSEXT
+int
+SNI_servername_callback(SSL *ssl, int *al, LISTENER *lstn)
+{
+    const char *servername = SSL_get_servername(ssl,TLSEXT_NAMETYPE_host_name);
+    SNIMATCHER *m;
+    char buf[MAXBUF];
+
+    if (!servername) return SSL_TLSEXT_ERR_NOACK;
+    if (!lstn) return SSL_TLSEXT_ERR_NOACK;
+    if (logsni) addr2str(buf, MAXBUF - 1, &lstn->addr, 0);
+    if (logsni) logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
+
+    SSL_set_SSL_CTX(ssl, NULL);
+    if (lstn->sni) {
+        if (logsni) logmsg(LOG_WARNING,"Listener has SNI config");
+        for(m = lstn->sni; m; m = m->next) {
+            if (logsni) logmsg(LOG_WARNING,"Checking pattern against %s", servername);
+            if(!regexec(&m->pat, servername, 0, NULL, 0)) {
+                if (logsni) logmsg(LOG_WARNING,"Found cert for %s", servername);
+                SSL_set_SSL_CTX(ssl, m->ctx);
+                return SSL_TLSEXT_ERR_OK;
+            }
+        }
+    }
+    if (logsni) logmsg(LOG_WARNING,"Using default cert");
+    SSL_set_SSL_CTX(ssl, lstn->ctx);
+
+    return SSL_TLSEXT_ERR_OK;
+}
+#endif
+
+
 static time_t   last_RSA, last_rescale, last_alive, last_expire;
 
 /*
@@ -2043,3 +2076,4 @@ thr_control(void *arg)
         close(ctl);
     }
 }
+

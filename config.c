@@ -72,7 +72,7 @@ static CODE facilitynames[] = {
 #endif
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogRedirects, LogFacility, LogLevel, Alive, SSLEngine, Control;
-static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL, DefaultHost;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, HostCert, LogSNI, xHTTP, Client, CheckURL, DefaultHost;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
@@ -763,6 +763,7 @@ parse_HTTP(void)
     res->to = clnt_to;
     res->def_host = NULL;
     res->rewr_loc = 1;
+    res->sni = NULL;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
@@ -920,7 +921,8 @@ parse_HTTPS(void)
     LISTENER    *res;
     SERVICE     *svc;
     MATCHER     *m;
-    int         has_addr, has_port, has_cert;
+    SNIMATCHER  *snim;
+    int         has_addr, has_port, has_cert, had_ctxspec;
     int         ign_case;
     struct hostent      *host;
     struct sockaddr_in  in;
@@ -935,6 +937,7 @@ parse_HTTPS(void)
     res->to = clnt_to;
     res->def_host = NULL;
     res->rewr_loc = 1;
+    res->sni = NULL;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
@@ -943,6 +946,7 @@ parse_HTTPS(void)
     res->nossl_url = NULL;
     res->nossl_redir = 0;
     res->log_level = log_level;
+    had_ctxspec = 0;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
     has_addr = has_port = has_cert = 0;
@@ -1048,26 +1052,72 @@ parse_HTTPS(void)
             if(SSL_CTX_check_private_key(res->ctx) != 1)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
             has_cert = 1;
+        } else if(!regexec(&HostCert, lin, 4, matches, 0)) {
+            if(had_ctxspec)
+                conf_err("HostCert directives must preceed any Verification, Cipher, Or SSL specific directives");
+#ifndef OPENSSL_NO_TLSEXT
+            if((snim = (SNIMATCHER *)malloc(sizeof(SNIMATCHER))) == NULL)
+                conf_err("out of memory");
+            memset(snim, 0, sizeof(SNIMATCHER));
+            snim->next = res->sni;
+            res->sni = snim;
+            if((snim->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
+                conf_err("SSL_CTX_new failed - aborted");
+            lin[matches[2].rm_eo] = '\0';
+            if(regcomp(&snim->pat, lin + matches[2].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("bad pattern");
+
+            lin[matches[1].rm_eo] = '\0';
+            if(SSL_CTX_use_certificate_chain_file(snim->ctx, lin + matches[1].rm_so) != 1)
+                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
+            if(SSL_CTX_use_PrivateKey_file(snim->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
+                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
+            if(SSL_CTX_check_private_key(snim->ctx) != 1)
+                conf_err("SSL_CTX_check_private_key failed - aborted");
+            SSL_CTX_set_mode(snim->ctx, SSL_MODE_AUTO_RETRY);
+            SSL_CTX_set_options(snim->ctx, SSL_OP_ALL);
+            sprintf(lin, "%d-Pound-%ld", getpid(), random());
+            SSL_CTX_set_session_id_context(snim->ctx, (unsigned char *)lin, strlen(lin));
+            SSL_CTX_set_tmp_rsa_callback(snim->ctx, RSA_tmp_callback);
+            SSL_CTX_set_tmp_dh_callback(snim->ctx, DH_tmp_callback);
+#else
+            conf_err("your version of OpenSSL does not support SNI");
+#endif
         } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
+            had_ctxspec++;
             switch(res->clnt_check = atoi(lin + matches[1].rm_so)) {
             case 0:
                 /* don't ask */
                 SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
+                for(snim=res->sni; snim; snim=snim->next)
+                    SSL_CTX_set_verify(snim->ctx, SSL_VERIFY_NONE, NULL);
                 break;
             case 1:
                 /* ask but OK if no client certificate */
                 SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
                 SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                for(snim=res->sni; snim; snim=snim->next) {
+                    SSL_CTX_set_verify(snim->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
+                    SSL_CTX_set_verify_depth(snim->ctx, atoi(lin + matches[2].rm_so));
+                }
                 break;
             case 2:
                 /* ask and fail if no client certificate */
                 SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
                 SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                for(snim=res->sni; snim; snim=snim->next) {
+                    SSL_CTX_set_verify(snim->ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+                    SSL_CTX_set_verify_depth(snim->ctx, atoi(lin + matches[2].rm_so));
+                }
                 break;
             case 3:
                 /* ask but do not verify client certificate */
                 SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_OK);
                 SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                for(snim=res->sni; snim; snim=snim->next) {
+                    SSL_CTX_set_verify(snim->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_OK);
+                    SSL_CTX_set_verify_depth(snim->ctx, atoi(lin + matches[2].rm_so));
+                }
                 break;
             }
         } else if(!regexec(&AddHeader, lin, 4, matches, 0)) {
@@ -1075,20 +1125,27 @@ parse_HTTPS(void)
             if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("AddHeader config: out of memory - aborted");
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
+            had_ctxspec++;
             lin[matches[1].rm_eo] = '\0';
             SSL_CTX_set_cipher_list(res->ctx, lin + matches[1].rm_so);
         } else if(!regexec(&CAlist, lin, 4, matches, 0)) {
+            had_ctxspec++;
             STACK_OF(X509_NAME) *cert_names;
 
             lin[matches[1].rm_eo] = '\0';
             if((cert_names = SSL_load_client_CA_file(lin + matches[1].rm_so)) == NULL)
                 conf_err("SSL_load_client_CA_file failed - aborted");
             SSL_CTX_set_client_CA_list(res->ctx, cert_names);
+            for(snim=res->sni; snim; snim=snim->next)
+                SSL_CTX_set_client_CA_list(snim->ctx, cert_names);
         } else if(!regexec(&VerifyList, lin, 4, matches, 0)) {
+            had_ctxspec++;
             lin[matches[1].rm_eo] = '\0';
-            if(SSL_CTX_load_verify_locations(res->ctx, lin + matches[1].rm_so, NULL) != 1)
-                conf_err("SSL_CTX_load_verify_locations failed - aborted");
+            for(snim=res->sni; snim; snim=snim->next)
+                if(SSL_CTX_load_verify_locations(snim->ctx, lin + matches[1].rm_so, NULL) != 1)
+                    conf_err("SSL_CTX_load_verify_locations failed - aborted");
         } else if(!regexec(&CRLlist, lin, 4, matches, 0)) {
+            had_ctxspec++;
 #if HAVE_X509_STORE_SET_FLAGS
             X509_STORE *store;
             X509_LOOKUP *lookup;
@@ -1151,6 +1208,12 @@ parse_HTTPS(void)
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+#ifndef OPENSSL_NO_TLSEXT
+            if(res->sni)
+                if (!SSL_CTX_set_tlsext_servername_callback(res->ctx, SNI_servername_callback) ||
+                    !SSL_CTX_set_tlsext_servername_arg(res->ctx, res))
+                    conf_err("Unable to initialize SSL library for SNI feature");
+#endif
             return res;
         } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
             ign_case = atoi(lin + matches[1].rm_so);
@@ -1194,6 +1257,8 @@ parse_file(void)
                 conf_err("RootJail config: out of memory - aborted");
         } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
             daemonize = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogSNI, lin, 4, matches, 0)) {
+            logsni = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogThreads, lin, 4, matches, 0)) {
             logthreads = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogRedirects, lin, 4, matches, 0)) {
@@ -1340,6 +1405,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogSNI, "^[ \t]*LogSNI[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HostCert, "^[ \t]*HostCert[ \t]+\"(.+)\"[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CheckURL, "^[ \t]*CheckURL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1471,6 +1538,7 @@ config_parse(const int argc, char **const argv)
     alive_to = 30;
     daemonize = 1;
     logthreads = 0;
+    logsni = 0;
     logredirects = 0;
     grace = 30;
 
@@ -1512,6 +1580,8 @@ config_parse(const int argc, char **const argv)
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
+    regfree(&LogSNI);
+    regfree(&HostCert);
     regfree(&xHTTP);
     regfree(&Client);
     regfree(&CheckURL);
