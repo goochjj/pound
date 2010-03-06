@@ -505,6 +505,21 @@ for this server. This directive is
 .B mandatory
 for HTTPS listeners.
 .TP
+\fBHostCert\fR "certificate file" "Servername pattern to match against"
+Use Server Name Indication (SNI) protocol to choose a separate server certificate for
+a given hostname.  The
+.I certificate file
+is the file containing the certificate, possibly a certificate chain and the signature
+for this server.  The
+.I pattern
+is used to match against the host a browser specifies as its destination, so that an
+appropriate matching certificate can be used.
+Only modern browsers support this protocol, and only more modern OpenSSL libraries support
+the feature.
+If a matching \fBHostCert\fR directive cannot be found, the listener's certificate will
+be used.
+You may specify this directive multiple times.
+.TP
 \fBClientCert\fR 0|1|2|3 depth
 Ask for the client's HTTPS certificate: 0 - don't ask (default), 1 - ask,
 2 - ask and fail if no certificate was presented, 3 - ask but do not verify.

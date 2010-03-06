@@ -292,6 +292,13 @@ typedef struct _matcher {
     struct _matcher     *next;
 }   MATCHER;
 
+/* SNI/Multiple host specific SSL certificates support */
+typedef struct _snimatcher {
+    regex_t             pat;        /* servername pattern to match */
+    SSL_CTX             *ctx;
+    struct _snimatcher  *next;
+}   SNIMATCHER;
+
 /* back-end types */
 typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_URL, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
 
@@ -382,6 +389,7 @@ typedef struct _listener {
     char                *def_host;  /* Default Host: to use if not defined in the headers.  So we can
                                        use a DNS entry as a default instead of a guessed IP */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
+    SNIMATCHER          *sni;       /* Server Specific Certificates, SNI */
     int                 clnt_check; /* client verification mode */
     int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
     MATCHER		*forcehttp10;   /* User Agent Patterns to force HTTP 1.0 mode */
@@ -595,6 +603,11 @@ extern RSA  *RSA_tmp_callback(SSL *, int, int);
  * return a pre-generated RSA key
  */
 extern DH   *DH_tmp_callback(SSL *, int, int);
+
+/*
+ * SNI SSL support
+ */
+extern int  SNI_servername_callback(SSL *s, int *al, LISTENER *lstn);
 
 /*
  * expiration stuff
