@@ -26,9 +26,9 @@ set -e
 case "$1" in
     configure)
         # create the default file to prevent automatic startup unconfigured
-        if [ ! -f "/etc/default/pound" ]
+        if [ ! -f "/etc/default/sapphirepound19" ]
 	then
-	  cat > /etc/default/pound << _EOF_
+	  cat > /etc/default/sapphirepound19 << _EOF_
 # Defaults for pound initscript
 # sourced by /etc/init.d/pound
 # installed at /etc/default/pound by the maintainer scripts
