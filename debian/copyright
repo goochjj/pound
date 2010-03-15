@@ -1,0 +1,20 @@
+This package was debianized by Norbert Tretkowski <nobse@debian.org> on
+Thu, 29 May 2003 14:43:17 +0200.
+
+It was downloaded from http://www.apsis.ch/pound/
+
+Upstream Author: Robert Segall <roseg@apsis.ch>
+
+Copyright (C) 2002-2007 Apsis GmbH
+
+Pound is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+Pound is distributed under the GPL with the additional
+exemption that compiling, linking, and/or using OpenSSL is allowed.
+
+
+The GPLv3 is located at /usr/share/common-licenses/GPL-3 on your Debian
+system.

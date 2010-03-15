@@ -1,0 +1,104 @@
+sapphire-pound19 (1.9.1-1) unstable; urgency=low
+
+  * Rename sapphire-specific package to sapphire-pound
+  * Package K12 Systems modifications to pound in Debian format.
+    More information can be found at http://users.k12system.com/mrwizard/pound/
+  * This is for the older release of Pound, 1.9.1.  No new features have been added
+    in quite some time.
+  * ForeHTTP10 and SSLUncleanShutdown support
+  * ControlUser, ControlGroup, and ControlMode directives
+  * URL Rewrite changes - fixes for splitDNS, comparisons against global listeners and port checking
+  * Session management enhancements - track hits, users, url, etc.
+  * Base64 fixes for URL Escaping
+  * AuthType decoding, including Sapphire/CF authentication support
+  
+ -- Joseph Gooch <mrwizard@k12system.com>  Mon, 15 Mar 2010 16:23:12 -0500
+
+pound (1.9-1) unstable; urgency=low
+
+  * New upstream version, closes: #310646, #311548, #306649
+  * Ack security NMU, the fix is included upstream, closes: #307852
+  * Add myself to uploaders with ok from Sam.
+  * Clean up debian/:
+    - remove rules.old
+    - remove bogus comments and commands from rules
+    - remove config, debconf is not used
+  * debian/init.d:
+    - use pid file
+    - remove commented lines
+
+ -- Joerg Wendland <joergland@debian.org>  Mon, 11 Jul 2005 09:16:30 +0200
+
+pound (1.8.2-1.1) unstable; urgency=high
+
+  * Non-maintainer upload (tnx djpig).
+  * CAN-2005-1391: Fix possible buffer overflow in the add_port
+    function which could be triggered by a long Host: header
+    from a remote host (Closes: #307852)
+
+ -- Joey Hess <joeyh@debian.org>  Mon, 27 Jun 2005 14:13:42 -0400
+
+pound (1.8.2-1) unstable; urgency=low
+
+  * New upstream version, closes: #285357
+    - This supposedly also fixes some SSL issues and closes 263578
+  * Added myself to uploaders, I will try to look after the package as
+    long as Sam is too busy.
+  * Increased MAXBUF, closes: #293915
+
+ -- Michael Piefel <piefel@debian.org>  Tue, 22 Mar 2005 09:45:58 +0100
+
+pound (1.7-1) unstable; urgency=high
+
+  * New upstream *SECURITY* release
+  * Resolves bugtraq id 10267 (Input Validation Error)
+
+ -- Sam Johnston <samj@aos.net.au>  Wed, 19 May 2004 09:09:39 +1000
+
+pound (1.5-2) unstable; urgency=medium
+
+  * Removed --pidfile argument to start-stop-daemon in init script.
+    Closes: #222885.
+
+ -- Sam Johnston <samj@aos.net.au>  Thu,  5 Feb 2004 01:50:07 +1100
+
+pound (1.5-1) unstable; urgency=low
+
+  * New upstream release
+  * Changing priority from optional to extra.
+
+ -- Sam Johnston <samj@aos.net.au>  Fri, 24 Oct 2003 17:13:59 +1000
+
+pound (1.4-3) unstable; urgency=low
+
+  * Changing priority back to optional while waiting for override update.
+
+ -- Sam Johnston <samj@aos.net.au>  Mon, 13 Oct 2003 18:07:22 +1000
+
+pound (1.4-2) unstable; urgency=low
+
+  * New maintainer
+  * Changing priority from optional to extra.
+
+ -- Sam Johnston <samj@aos.net.au>  Mon, 13 Oct 2003 16:51:57 +1000
+
+pound (1.4-1.1) unstable; urgency=low
+
+  * Non-maintainer upload
+  * Removes templates file as debconf is not used. Closes: #208064, #208392.
+  * Adds init.d script. Closes: #207689.
+  * Added version (0.9.7) for libssl-dev to resolve engine related compile
+    errors.
+  * Sets default config file location to /etc/pound/pound.cfg
+  * Includes minimal example pound.cfg (courtesy gentoo-portage)
+  * Fixed broken paths in manpage.
+  * Adds /etc/default/pound file to prevent unconfigured startup.
+
+ -- Sam Johnston <samj@aos.net.au>  Sat, 11 Oct 2003 14:12:13 +1000
+
+pound (1.4-1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Norbert Tretkowski <nobse@debian.org>  Sun, 03 Aug 2003 12:20:27 +0200
+
