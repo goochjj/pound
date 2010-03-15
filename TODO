@@ -1,10 +1,10 @@
-Admin CGI (perhaps use XML from poundctl)
+-Admin CGI (perhaps use XML from poundctl)
 
 Deprecated?
   Log Files - HUP reopens log files, Access and Error logs
-  MagicValues - PoundCtl Structures/Error Handling
-  Perl Bindings (or use XML?)
-  Pound Admin CGI (perl)
+  -MagicValues - PoundCtl Structures/Error Handling
+  -Perl Bindings (or use XML?)
+  -Pound Admin CGI (perl)
 
 
 
