@@ -46,11 +46,11 @@ pound:	$(OBJS)
 $(OBJS):	pound.h
 
 install:	all
-		[ -d @sbindir@ ] || mkdir @sbindir@
-		@INSTALL@ -o bin -g bin -m 555 -s pound @sbindir@/pound
-		[ -d @mandir@ ] || mkdir @mandir@
-		[ -d @mandir@/man8 ] || mkdir @mandir@/man8
-		@INSTALL@ -o bin -g bin -m 644 pound.8 @mandir@/man8/pound.8
+		[ -d ${DESTDIR}@sbindir@ ] || mkdir ${DESTDIR}@sbindir@
+		@INSTALL@ -o bin -g bin -m 555 -s pound ${DESTDIR}@sbindir@/pound
+		[ -d ${DESTDIR}@mandir@ ] || mkdir ${DESTDIR}@mandir@
+		[ -d ${DESTDIR}@mandir@/man8 ] || mkdir ${DESTDIR}@mandir@/man8
+		@INSTALL@ -o bin -g bin -m 644 pound.8 ${DESTDIR}@mandir@/man8/pound.8
 
 clean:
 		rm -f pound $(OBJS)
