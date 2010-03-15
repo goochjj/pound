@@ -41,7 +41,7 @@ build: build-stamp
 
 build-stamp:  config.status
 	dh_testdir
-	$(MAKE) F_CONF=/etc/pound/sapphire.cfg
+	$(MAKE) F_CONF=/etc/pound/sapphire25.cfg
 	touch build-stamp
 
 clean:
