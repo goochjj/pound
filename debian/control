@@ -1,0 +1,16 @@
+Source: pound
+Section: net
+Priority: extra
+Maintainer: Martin Meredith <mez@debian.org>
+Build-Depends: debhelper (>= 7), libssl-dev (>= 0.9.7), autotools-dev, libpcre3-dev, openssl
+Standards-Version: 3.8.4
+Homepage: http://www.apsis.ch/pound/
+
+Package: pound
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: reverse proxy, load balancer and HTTPS front-end for Web servers
+ Pound was developed to enable distributing the load among several Web-servers
+ and to allow for a convenient SSL wrapper for those Web servers that do not
+ offer it natively.
+
