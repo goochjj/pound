@@ -15,9 +15,9 @@
 # pound	- reverse proxy, load-balancer and https front-end for web-servers
 
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
-DAEMON=/usr/sbin/pound
+DAEMON=/usr/sbin/sapphirepound25
 DESC="reverse proxy and load balancer"
-NAME=pound
+NAME=sapphirepound25
 
 # Exit if the daemon does not exist (anymore)
 test -f $DAEMON || exit 0
