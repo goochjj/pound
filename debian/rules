@@ -61,9 +61,7 @@ install: build
 	dh_installdirs
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/sapphire-pound19
 	mv debian/sapphire-pound19/usr/sbin/pound debian/sapphire-pound19/usr/sbin/sapphirepound19
-	mv debian/sapphire-pound19/usr/sbin/poundctl debian/sapphire-pound19/usr/sbin/sapphirepoundctl19
 	mv debian/sapphire-pound19/usr/share/man/man8/pound.8 debian/sapphire-pound19/usr/share/man/man8/sapphirepound19.8
-	mv debian/sapphire-pound19/usr/share/man/man8/poundctl.8 debian/sapphire-pound19/usr/share/man/man8/sapphirepoundctl19.8
 	install -m644 -D debian/pound.cfg debian/sapphire-pound19/etc/pound/sapphire19.sample
 
 # Build architecture-independent files here.
