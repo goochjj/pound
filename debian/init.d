@@ -1,6 +1,6 @@
 #! /bin/sh
 ### BEGIN INIT INFO
-# Provides:          pound
+# Provides:          sapphirepound25
 # Required-Start:    $remote_fs $syslog
 # Required-Stop:     $remote_fs $syslog
 # Should-Start:      $named
@@ -15,9 +15,9 @@
 # pound	- reverse proxy, load-balancer and https front-end for web-servers
 
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
-DAEMON=/usr/sbin/pound
+DAEMON=/usr/sbin/sapphirepound25
 DESC="reverse proxy and load balancer"
-NAME=pound
+NAME=sapphirepound25
 
 # Exit if the daemon does not exist (anymore)
 test -f $DAEMON || exit 0
@@ -25,17 +25,17 @@ test -f $DAEMON || exit 0
 . /lib/lsb/init-functions
 
 # Check if pound is configured or not
-if [ -f "/etc/default/pound" ]
+if [ -f "/etc/default/sapphirepound25" ]
 then
-  . /etc/default/pound
+  . /etc/default/sapphirepound25
   if [ "$startup" != "1" ]
   then
     log_warning_msg "$NAME will not start unconfigured."
-    log_warning_msg "Please configure; afterwards, set startup=1 in /etc/default/pound."
+    log_warning_msg "Please configure; afterwards, set startup=1 in /etc/default/sapphirepound25."
     exit 0
   fi
 else
-  log_failure_msg "/etc/default/pound not found"
+  log_failure_msg "/etc/default/sapphirepound25 not found"
   exit 1
 fi
 

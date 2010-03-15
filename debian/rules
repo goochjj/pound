@@ -32,7 +32,7 @@ config.status: configure
 	dh_testdir
 	mv config.sub config.sub.upstream && ln -s /usr/share/misc/config.sub
 	mv config.guess config.guess.upstream && ln -s /usr/share/misc/config.guess
-	env LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --sysconfdir=/etc/pound
+	env LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --sysconfdir=/etc/pound --disable-tcmalloc --disable-hoard
 	rm config.sub && mv config.sub.upstream config.sub
 	rm config.guess && mv config.guess.upstream config.guess
 
@@ -41,7 +41,7 @@ build: build-stamp
 
 build-stamp:  config.status
 	dh_testdir
-	$(MAKE)
+	$(MAKE) F_CONF=/etc/pound/sapphire25.cfg
 	touch build-stamp
 
 clean:
@@ -59,9 +59,12 @@ install: build
 	dh_testroot
 	dh_prep
 	dh_installdirs
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/pound
-
-	install -m644 -D debian/pound.cfg debian/pound/etc/pound/pound.cfg
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/sapphire-pound25
+	mv debian/sapphire-pound25/usr/sbin/pound debian/sapphire-pound25/usr/sbin/sapphirepound25
+	mv debian/sapphire-pound25/usr/sbin/poundctl debian/sapphire-pound25/usr/sbin/sapphirepoundctl25
+	mv debian/sapphire-pound25/usr/share/man/man8/pound.8 debian/sapphire-pound25/usr/share/man/man8/sapphirepound25.8
+	mv debian/sapphire-pound25/usr/share/man/man8/poundctl.8 debian/sapphire-pound25/usr/share/man/man8/sapphirepoundctl25.8
+	install -m644 -D debian/pound.cfg debian/sapphire-pound25/etc/pound/sapphire25.sample
 
 # Build architecture-independent files here.
 binary-indep: build install

@@ -1,3 +1,30 @@
+sapphire-pound25 (2.5-1) unstable; urgency=low
+
+  * Rename sapphire-specific package to sapphire-pound
+  * Package K12 Systems modifications to pound in Debian format.
+    More information can be found at http://users.k12system.com/mrwizard/pound/
+  * SSL Friendly errors from http://hg.openpanel.com/pound-sslpatched/rawrev/90a2b1ae6bf4
+  * NoSslRedirect directive to auto-redirect to a ssl host
+  * ForeHTTP10 and SSLUncleanShutdown support
+  * IncludeDir directive - include directories of *.conf files
+  * URLNoCase and CheckURLNoCase directives
+  * ControlUser, ControlGroup, and ControlMode directives
+  * URL Rewrite changes - fixes for splitDNS, comparisons against global listeners and port checking
+  * Logging of redirect handling and thread execution
+  * DefaultHost directive - for HTTP1.0 requests missing a Host: header
+  * Fix for disabled backends bringing down the entire service group for existing sessions
+  * Session management enhancements - track hits, users, url, etc.
+  * Base64 fixes for URL Escaping
+  * AuthType decoding, including Sapphire/CF authentication support
+  * LBInfo header support
+  * Implement dynamic redirection using PCRE rewriting
+  * Allow Priority 0 backends to disable them
+  * Fix session clearing bugs
+  * Cygwin compilation issues
+  * Implemented SNI support
+  
+ -- Joseph Gooch <mrwizard@k12system.com>  Mon, 15 Mar 2010 16:23:12 -0500
+
 pound (2.5-1) unstable; urgency=low
 
   * New upstream release
