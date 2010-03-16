@@ -1,7 +1,7 @@
 sapphire-pound25 (2.5-2) unstable; urgency=low
 
   * Include our sapphire sample configuration
-  * Fix issue with poundctl and fortify source, change order of printout
+  * Fix issue with poundctl %ld instead of %d
 
  -- Joseph Gooch <mrwizard@k12system.com>  Tue, 16 Mar 2010 09:19:12 -0500
 
