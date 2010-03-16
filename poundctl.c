@@ -126,8 +126,8 @@ be_prt(const int sock)
                     prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
                     be.disabled? "DISABLED": "active", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
             else
-                printf("    %3d. Backend %s %s (%d %ld %.3f sec) %s [%u/%u/%u/%u/%u]\n", n_be++, prt_addr(&be.addr),
-                    be.disabled? "DISABLED": "active", be.priority, be.n_requests, be.t_average / 1000000, be.alive? "alive": "DEAD", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
+                printf("    %3d. Backend %s %s (%ld %d %.3f sec) %s [%u/%u/%u/%u/%u]\n", n_be++, prt_addr(&be.addr),
+                    be.disabled? "DISABLED": "active", be.n_requests, be.priority, be.t_average / 1000000, be.alive? "alive": "DEAD", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
         } else {
             if(xml_out)
                 printf("<redirect index=\"%d\" redirect_code=\"%d\" url=\"%s\" type=\"%s\" status=\"%s\" />\n",
