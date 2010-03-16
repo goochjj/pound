@@ -1,3 +1,10 @@
+sapphire-pound25 (2.5-2) unstable; urgency=low
+
+  * Include our sapphire sample configuration
+  * Fix issue with poundctl and fortify source, change order of printout
+
+ -- Joseph Gooch <mrwizard@k12system.com>  Tue, 16 Mar 2010 09:19:12 -0500
+
 sapphire-pound25 (2.5-1) unstable; urgency=low
 
   * Rename sapphire-specific package to sapphire-pound
