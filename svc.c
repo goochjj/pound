@@ -1690,23 +1690,26 @@ SNI_servername_callback(SSL *ssl, int *al, LISTENER *lstn)
 {
     const char *servername = SSL_get_servername(ssl,TLSEXT_NAMETYPE_host_name);
     SNIMATCHER *m;
-    //char buf[MAXBUF];
+    char buf[MAXBUF];
 
-    //addr2str(buf, MAXBUF - 1, &lstn->addr, 0);
+    if (logsni) addr2str(buf, MAXBUF - 1, &lstn->addr, 0);
     if (!servername) return SSL_TLSEXT_ERR_NOACK;
 
-    //logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
+    if (logsni) logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
 
     SSL_set_SSL_CTX(ssl, NULL);
     if (lstn->sni) {
+	if (logsni) logmsg(LOG_WARNING,"Listener has SNI config");
         for(m = lstn->sni; m; m = m->next) {
-            if(regexec(&m->pat, servername, 0, NULL, 0)) {
-                //logmsg(LOG_WARNING,"Found cert for %s", servername);
+	    if (logsni) logmsg(LOG_WARNING,"Checking pattern against %s", servername);
+            if(!regexec(&m->pat, servername, 0, NULL, 0)) {
+                if (logsni) logmsg(LOG_WARNING,"Found cert for %s", servername);
                 SSL_set_SSL_CTX(ssl, m->ctx);
                 return SSL_TLSEXT_ERR_OK;
             }
         }
     }
+    if (logsni) logmsg(LOG_WARNING,"Using default cert");
     SSL_set_SSL_CTX(ssl, lstn->ctx);
 
     return SSL_TLSEXT_ERR_OK;

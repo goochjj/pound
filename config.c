@@ -72,7 +72,7 @@ static CODE facilitynames[] = {
 #endif
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogRedirects, LogFacility, LogLevel, Alive, SSLEngine, Control;
-static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, HostCert, xHTTP, Client, CheckURL, DefaultHost;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, HostCert, LogSNI, xHTTP, Client, CheckURL, DefaultHost;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
@@ -1256,6 +1256,8 @@ parse_file(void)
                 conf_err("RootJail config: out of memory - aborted");
         } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
             daemonize = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogSNI, lin, 4, matches, 0)) {
+            logsni = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogThreads, lin, 4, matches, 0)) {
             logthreads = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogRedirects, lin, 4, matches, 0)) {
@@ -1402,6 +1404,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogSNI, "^[ \t]*LogSNI[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HostCert, "^[ \t]*HostCert[ \t]+\"(.+)\"[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1534,6 +1537,7 @@ config_parse(const int argc, char **const argv)
     alive_to = 30;
     daemonize = 1;
     logthreads = 0;
+    logsni = 0;
     logredirects = 0;
     grace = 30;
 
@@ -1575,6 +1579,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
+    regfree(&LogSNI);
     regfree(&HostCert);
     regfree(&xHTTP);
     regfree(&Client);

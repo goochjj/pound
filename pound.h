@@ -251,6 +251,7 @@ extern char *user,              /* user to run as */
 extern char *control_user, *control_group; long control_mode;
 
 extern int  alive_to,           /* check interval for resurrection */
+            logsni,             /* do we log SNI debugging information? */
             logthreads,         /* do we log each time a background process runs? */
             logredirects,       /* enable additional redirects/rewriting logging */
             daemonize,          /* run as daemon */
