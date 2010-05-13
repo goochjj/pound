@@ -73,7 +73,7 @@ svc.o:		svc.c dh512.h dh1024.h
 .PHONY: version.c
 
 version.c:
-		git describe --tags --long | sed -e 's,^\(.*\)$$,static char POUND_VERSION[] = "\1";,' > $@
+		git describe --tags --long | sed -e 's,^\(.*\)$$,char *POUND_VERSION = "\1";,' > $@
 
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@
