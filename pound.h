@@ -642,3 +642,6 @@ extern void *thr_timer(void *);
  * listens to client requests and calls the appropriate functions
  */
 extern void *thr_control(void *);
+
+extern char * POUND_VERSION;
+

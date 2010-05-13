@@ -176,7 +176,7 @@ main(const int argc, char **argv)
     control_user=control_group=NULL;
     control_mode = -1;
     log_facility = -1;
-    logmsg(LOG_NOTICE, "starting...");
+    logmsg(LOG_NOTICE, "starting pound %s...", POUND_VERSION);
 
     signal(SIGHUP, h_shut);
     signal(SIGINT, h_shut);
