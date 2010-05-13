@@ -762,12 +762,12 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(svc->sess_type == SESS_HEADER || svc->sess_type == SESS_COOKIE) {
         if(ret_val = pthread_mutex_lock(&svc->mut))
             logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
-        if(find_EndSessionHeader(svc, resp_headers))
+        if(find_EndSessionHeader(svc, resp_headers)) {
             if(sess!=NULL) {
                 t_clean_be(svc, svc->sessions, sess, sizeof(sess));
                 sess = NULL;
             }
-        else if(get_HEADERS(key, svc, resp_headers)) {
+        } else if(get_HEADERS(key, svc, resp_headers)) {
             if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
             if(t_find(svc->sessions, key) == NULL) {
                 sess = new_session();
