@@ -2,4 +2,5 @@
 *.rej
 *~
 Thumbs.db
+*.bak
 
