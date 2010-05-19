@@ -30,7 +30,7 @@
 /*
  * Create new  session structure and initialize
  */
-static SESSION *new_session(void)
+static SESSION *new_session(char *key)
 {
     SESSION *sess;
 
@@ -42,6 +42,10 @@ static SESSION *new_session(void)
     sess->be = NULL;
     if (pthread_mutex_init(&sess->mut, NULL))
         logmsg(LOG_WARNING, "session mutex_init error %s", strerror(errno));
+    if (key!=NULL && (sess->key=strdup(key))==NULL) {
+        logmsg(LOG_WARNING, "new_session() strdup");
+        sess->key=NULL;
+    }
     sess->first_acc = time(NULL);
     sess->n_requests = 0;
     sess->last_ip = NULL;
@@ -87,6 +91,7 @@ static void delete_session(SERVICE *const svc, LHASH *const tab, TABNODE *t)
     if((res = (TABNODE *)lh_delete(tab, t)) != NULL) {
         memcpy(&sess, res->content, sizeof(sess));
         free(res->content);
+        free(res->key);
         free(res);
         if(try_clear_session(sess)) {
             /* lock in use... dump into pending delete state */
@@ -659,7 +664,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             else {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                sess = new_session();
+                sess = new_session(key);
                 sess->be = res;
                 t_add(svc->sessions, key, &sess, sizeof(sess));
                 svc->misses++;
@@ -682,7 +687,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
-                    sess = new_session();
+                    sess = new_session(key);
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
@@ -707,7 +712,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     res = rand_backend(svc->backends, random() % svc->tot_pri);
-                    sess = new_session();
+                    sess = new_session(key);
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
                     svc->misses++;
@@ -769,8 +774,8 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             }
         } else if(get_HEADERS(key, svc, resp_headers)) {
             if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
+                sess = new_session(key);
             if(t_find(svc->sessions, key) == NULL) {
-                sess = new_session();
                 sess->be = be;
                 t_add(svc->sessions, key, &sess, sizeof(sess));
                 svc->misses++;
@@ -2051,7 +2056,7 @@ thr_control(void *arg)
             }
             if(ret_val = pthread_mutex_lock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() add session lock: %s", strerror(ret_val));
-            sess = new_session();
+            sess = new_session(cmd.key);
             sess->be = be;
             t_add(svc->sessions, cmd.key, &sess, sizeof(sess));
             if(ret_val = pthread_mutex_unlock(&svc->mut))
