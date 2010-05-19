@@ -793,8 +793,7 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 if(resp_headers[i] && !regexec(&m->pat, resp_headers[i], 4, matches, 0)) {
                     if(ret_val = pthread_mutex_lock(&sess->mut))
                         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
-                    memcpy(sess->lb_info, resp_headers[i] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
-                    sess->lb_info[matches[1].rm_eo - matches[1].rm_so] = 0;
+                    strncpy(sess->lb_info, resp_headers[i] + matches[1].rm_so, sizeof(sess->lb_info)-1);
                     if (save_sess_copy) memcpy(save_sess_copy, sess, sizeof(*sess));
                     if(ret_val = pthread_mutex_unlock(&sess->mut))
                         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
