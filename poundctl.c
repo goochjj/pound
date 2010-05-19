@@ -274,6 +274,8 @@ main(const int argc, char **argv)
     SERVICE     svc;
     BACKEND     be;
     TABNODE     sess;
+    char        version[MAXBUF+1];
+    int         sz;
     struct  sockaddr_storage    a;
 
     arg0 = *argv;
@@ -393,11 +395,21 @@ main(const int argc, char **argv)
 
     sock = get_sock(sock_name);
     write(sock, &cmd, sizeof(cmd));
+		
 
     if (!is_set) {
         n_lstn = 0;
+        read(sock, &sz, sizeof(sz));
+        if(sz) read(sock, version, sz);
+        version[sz]='\0';
+        if (strcmp(version, POUND_VERSION)) {
+            fprintf(stderr, "Must use a matched pair of pound and poundctl versions.  Pound is version %s, poundctl is version %s.", version, POUND_VERSION);
+            exit(-1);
+        }
         if(xml_out)
-            printf("<pound>\n");
+            printf("<pound version=\"%s\">\n", version);
+        else
+            printf("Pound Version %s\n\n", version);
         while(read(sock, (void *)&lstn, sizeof(LISTENER)) == sizeof(LISTENER)) {
             if(lstn.disabled < 0)
                 break;
