@@ -192,6 +192,7 @@ typedef struct  {
     SERVICE *svc;
     LHASH   *tab;
     time_t  lim;
+    time_t  lim2;
     void    *content;
     int     cont_len;
 }   ALL_ARG;
@@ -204,7 +205,7 @@ t_old(TABNODE *t, void *arg)
     SESSION *sess;
 
     a = (ALL_ARG *)arg;
-    if(t->last_acc < a->lim)
+    if(t->last_acc < ((*((SESSION**)t->content))->delete_pending?a->lim2:a->lim))
         delete_session(a->svc, a->tab, t);
     return;
 }
@@ -214,7 +215,7 @@ IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
  * Expire all old nodes
  */
 static void
-t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim)
+t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim, const time_t del_lim)
 {
     ALL_ARG a;
     int down_load;
@@ -222,6 +223,7 @@ t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim)
     a.svc = svc;
     a.tab = tab;
     a.lim = lim;
+    a.lim2 = del_lim;
     down_load = tab->down_load;
     tab->down_load = 0;
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_old), &a);
@@ -750,7 +752,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, char **const resp_headers, char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
+upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, char **const resp_headers, char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy, int *end_of_session_forced)
 {
     MATCHER         *m;
     SESSION         *sess;
@@ -768,10 +770,13 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
         if(ret_val = pthread_mutex_lock(&svc->mut))
             logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
         if(sess!=NULL && find_EndSessionHeader(svc, resp_headers)) {
-            logmsg(LOG_INFO, "EndOfSession found, clearing session %s", sess->key);
-            if (sess->key!=NULL) t_remove(svc, svc->sessions, sess->key);
-            else t_clean(svc, svc->sessions, sess, sizeof(sess));
-            sess = NULL;
+            sess->delete_pending++;
+            if (end_of_session_forced != NULL) (*end_of_session_forced)++;
+            if (svc->death_ttl<=0) {
+                if (sess->key!=NULL) t_remove(svc, svc->sessions, sess->key);
+                else t_clean(svc, svc->sessions, sess, sizeof(sess));
+                sess = NULL;
+            }
         } else if(get_HEADERS(key, svc, resp_headers)) {
             if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
             if(t_find(svc->sessions, key) == NULL) {
@@ -1472,7 +1477,7 @@ do_expire(void)
                 logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
                 continue;
             }
-            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl);
+            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl, cur_time - svc->death_ttl);
             del_pending(&svc->del_sessions);
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
@@ -1484,7 +1489,7 @@ do_expire(void)
                 logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
                 continue;
             }
-            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl);
+            t_expire(svc, svc->sessions, cur_time - svc->sess_ttl, cur_time - svc->death_ttl);
             del_pending(&svc->del_sessions);
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));

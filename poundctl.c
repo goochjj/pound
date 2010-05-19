@@ -204,10 +204,10 @@ sess_prt(const int sock, SERVICE *svc)
                 } else
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
-            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL),
+            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" deletepending=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), sess.delete_pending,
 		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
         } else
-            printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+svc->sess_ttl)-time(NULL), svc->sess_ttl,
+            printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), svc->sess_ttl,
 		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
     }
     return;

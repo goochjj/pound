@@ -75,7 +75,7 @@ static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogThreads, LogRe
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, HostCert, LogSNI, xHTTP, Client, CheckURL, DefaultHost;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
-static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
+static regex_t  Redirect, TimeOut, Session, Type, TTL, DeathTTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
@@ -436,6 +436,8 @@ parse_sess(SERVICE *const svc)
                 conf_err("Unknown Session type");
         } else if(!regexec(&TTL, lin, 4, matches, 0)) {
             svc->sess_ttl = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&DeathTTL, lin, 4, matches, 0)) {
+            svc->death_ttl = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&EndSessionHeader, lin, 4, matches, 0)) {
             if(svc->sess_end_hdr>0)
                 conf_err("Can only have one EndSessionHeader per session type");
@@ -1442,6 +1444,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&EndSessionHeader, "^[ \t]*EndOnHeaderMatch[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DeathTTL, "^[ \t]*EndOfLifeTTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&DynScale, "^[ \t]*DynScale[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1617,6 +1620,7 @@ config_parse(const int argc, char **const argv)
     regfree(&EndSessionHeader);
     regfree(&Type);
     regfree(&TTL);
+    regfree(&DeathTTL);
     regfree(&ID);
     regfree(&DynScale);
     regfree(&ClientCert);

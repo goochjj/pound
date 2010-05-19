@@ -359,6 +359,7 @@ typedef struct _service {
     pthread_mutex_t     mut;        /* mutex for this service */
     SESS_TYPE           sess_type;
     int                 sess_ttl;   /* session time-to-live */
+    int                 death_ttl;  /* session time-to-live when pending deletion */
     regex_t             sess_start; /* pattern to identify the session data */
     regex_t             sess_pat;   /* pattern to match the session data */
     int                 sess_end_hdr; /* 1 if session end header is set */
@@ -431,6 +432,7 @@ typedef struct _session {
     pthread_mutex_t     mut;                            /* mutex for this session - used to update last_ip et al */
     time_t              first_acc;                      /* Time session was created */
     int                 last_ip_family;                 /* Last IP Address's family type */
+    char                delete_pending;                 /* If >0, then we have received an end of session header, and we have a shorter timeout */
     socklen_t           last_ip_len;                    /* Length of the IP Address */
     socklen_t           last_ip_alloc;                  /* Memory allocated for IP address */
     struct sockaddr     *last_ip;                       /* Actual address */
@@ -540,7 +542,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, char **const, char *const, BACKEND *const, char *, SESSION **, SESSION *);
+extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, char **const, char *const, BACKEND *const, char *, SESSION **, SESSION *, int *);
 
 /*
  * Parse a header
