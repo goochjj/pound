@@ -427,7 +427,7 @@ extern LISTENER         *listeners; /* all available listeners */
 
 typedef struct _session {
     BACKEND             *be;                            /* Backend this session is attached to */
-    char                *key;                           /* link this back to the session key... shared with tabnode */
+    char                *key;                           /* link this back to the session key */
     pthread_mutex_t     mut;                            /* mutex for this session - used to update last_ip et al */
     time_t              first_acc;                      /* Time session was created */
     int                 last_ip_family;                 /* Last IP Address's family type */
