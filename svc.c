@@ -1951,6 +1951,9 @@ thr_control(void *arg)
         switch(cmd.cmd) {
         case CTRL_LST:
             /* logmsg(LOG_INFO, "thr_control() list"); */
+            sz = POUND_VERSION?strlen(POUND_VERSION):0;
+            write(ctl, &sz, sizeof(sz));
+            if (sz>0) write(ctl, POUND_VERSION, sz);
             for(lstn = listeners; lstn; lstn = lstn->next) {
                 write(ctl, (void *)lstn, sizeof(LISTENER));
                 write(ctl, lstn->addr.ai_addr, lstn->addr.ai_addrlen);
