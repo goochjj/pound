@@ -496,6 +496,7 @@ thr_http(void *arg)
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
                         caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], sess_key[KEY_SIZE+1], *mh;
+    int                 end_of_session_forced;
     SESSION             *sess, sess_copy;
     SSL                 *ssl, *be_ssl;
     long                cont, res_bytes;
@@ -514,6 +515,7 @@ thr_http(void *arg)
     sess = NULL;
     memset(&sess_copy, 0x00, sizeof(sess_copy));
 
+    end_of_session_forced = 0;
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
     l.l_onoff = 1;
@@ -1312,7 +1314,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies/header) */
-            upd_session(svc, &from_host, url, response, &headers[1], u_name, cur_backend, sess_key, &sess, &sess_copy);
+            upd_session(svc, &from_host, url, response, &headers[1], u_name, cur_backend, sess_key, &sess, &sess_copy, &end_of_session_forced);
 
             /* send the response */
             if(!skip)
@@ -1468,11 +1470,11 @@ thr_http(void *arg)
                 (end_req - start_req) / 1000000.0);
             break;
         case 6:
-            logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s) %.3f sec %s [%s]",
+            logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s) %.3f sec %s%s [%s]",
                 v_host[0]? v_host: "-",
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
                 response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
-                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
+                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", (end_of_session_forced||sess_copy.delete_pending)?"*":"", sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
             break;
         }
 
