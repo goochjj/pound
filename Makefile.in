@@ -55,8 +55,8 @@ all:	pound poundctl pound.8
 pound:	$(OBJS)
 		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
 
-poundctl:	poundctl.o 
-		${CC} @LDFLAGS@ -o poundctl poundctl.o $(LIBS)
+poundctl:	poundctl.o version.o
+		${CC} @LDFLAGS@ -o poundctl $^ $(LIBS)
 
 dh512.h:
 		openssl dhparam -5 -C -noout 512 > dh512.h
