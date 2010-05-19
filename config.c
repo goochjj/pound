@@ -946,6 +946,7 @@ parse_HTTPS(void)
     res->nossl_url = NULL;
     res->nossl_redir = 0;
     res->log_level = log_level;
+    had_ctxspec = 0;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
     has_addr = has_port = has_cert = 0;
