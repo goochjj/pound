@@ -563,17 +563,12 @@ get_HEADERS(char *res, const SERVICE *svc, char **const headers)
 static int
 find_EndSessionHeader(const SERVICE *svc, char **const headers)
 {
-    int         i, n, s;
-    regmatch_t  matches[4];
+    int         i;
 
     if (svc->sess_end_hdr == 0) return 0;
-    /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
-    for(i = 0; i < (MAXHEADERS - 1); i++) {
-        if(headers[i] == NULL)
-            continue;
-        if(!regexec(&svc->sess_end, headers[i], 4, matches, 0))
+    for(i = 0; i < (MAXHEADERS - 1) && headers[i]; i++)
+        if(!regexec(&svc->sess_end, headers[i], 0, NULL, 0))
             return 1;
-    }
     return 0;
 }
 
@@ -767,15 +762,15 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(svc->sess_type == SESS_HEADER || svc->sess_type == SESS_COOKIE) {
         if(ret_val = pthread_mutex_lock(&svc->mut))
             logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
-        if(find_EndSessionHeader(svc, resp_headers)) {
-            if(sess!=NULL) {
-                t_clean_be(svc, svc->sessions, sess, sizeof(sess));
-                sess = NULL;
-            }
+        if(sess!=NULL && find_EndSessionHeader(svc, resp_headers)) {
+            logmsg(LOG_INFO, "EndOfSession found, clearing session %s", sess->key);
+            if (sess->key!=NULL) t_remove(svc, svc->sessions, sess->key);
+            else t_clean(svc, svc->sessions, sess, sizeof(sess));
+            sess = NULL;
         } else if(get_HEADERS(key, svc, resp_headers)) {
             if (save_sess_key) memcpy(save_sess_key, key, KEY_SIZE+1);
-                sess = new_session(key);
             if(t_find(svc->sessions, key) == NULL) {
+                sess = new_session(key);
                 sess->be = be;
                 t_add(svc->sessions, key, &sess, sizeof(sess));
                 svc->misses++;
