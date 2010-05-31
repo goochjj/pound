@@ -278,51 +278,30 @@ cpURL(char *res, char *src, int len)
     int state;
 
     for(state = 0; len > 0; len--)
-        switch(state) {
-        case 1:
-            if(*src >= '0' && *src <= '9') {
-                *res = *src++ - '0';
-                state = 2;
-            } else if(*src >= 'A' && *src <= 'F') {
-                *res = *src++ - 'A' + 10;
-                state = 2;
-            } else if(*src >= 'a' && *src <= 'f') {
-                *res = *src++ - 'a' + 10;
-                state = 2;
-            } else {
+	if (state>0) {
+            if(*src >= '0' && *src <= '9')
+                *res |= *src++ - '0';
+            else if(*src >= 'A' && *src <= 'F')
+                *res |= *src++ - 'A' + 10;
+            else if(*src >= 'a' && *src <= 'f')
+                *res |= *src++ - 'a' + 10;
+            else {
                 *res++ = '%';
+                if (state==2) *res++ = *(src - 1);
                 *res++ = *src++;
-                state = 0;
+		state = 0;
+		continue;
             }
-            break;
-        case 2:
-            if(*src >= '0' && *src <= '9') {
-                *res = *res * 16 + *src++ - '0';
-                res++;
-                state = 0;
-            } else if(*src >= 'A' && *src <= 'F') {
-                *res = *res * 16 + *src++ - 'A' + 10;
-                res++;
-                state = 0;
-            } else if(*src >= 'a' && *src <= 'f') {
-                *res = *res * 16 + *src++ - 'a' + 10;
-                res++;
-                state = 0;
-            } else {
-                *res++ = '%';
-                *res++ = *(src - 1);
-                *res++ = *src++;
-                state = 0;
-            }
-            break;
-        default:
+            if (state==1) { *res<<=4; state++; }
+            else if (state==2) { res++; state = 0; }
+	} else {
             if(*src != '%')
                 *res++ = *src++;
             else {
+		*res = 0;
                 src++;
                 state = 1;
             }
-            break;
         }
     if (state>0) *res++='%';
     if (state>1) *res++=*(src - 1);
