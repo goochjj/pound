@@ -65,6 +65,9 @@ $(OBJS):	pound.h config.h
 svc.o:		svc.c dh512.h dh1024.h
 		${CC} ${CFLAGS} -c -o svc.o svc.c
 
+tst_cpurl:	tst_cpurl.o svc.o 
+		${CC}  -g -pthread -o $@ $^ $(LIBS)
+
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@
 		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 555 pound ${DESTDIR}@sbindir@/pound
