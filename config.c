@@ -772,7 +772,7 @@ verify_OK(int pre_ok, X509_STORE_CTX *ctx)
 static int
 SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
 {
-    char        *server_name;
+    const char  *server_name;
     POUND_CTX   *pc;
 
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
@@ -916,7 +916,7 @@ parse_HTTPS(void)
             }
             if((pc->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
-            res->server_name = NULL;
+            pc->server_name = NULL;
             pc->next = NULL;
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_use_certificate_chain_file(pc->ctx, lin + matches[1].rm_so) != 1)
@@ -927,11 +927,11 @@ parse_HTTPS(void)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
             if((fcert = fopen(lin + matches[1].rm_so, "r")) == NULL)
                 conf_err("ListenHTTPS: could not open certificate file");
-            if((x509 = PEM_read_X509(fin, NULL, NULL, NULL)) == NULL)
+            if((x509 = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL)
                 conf_err("ListenHTTPS: could not get certificate subject");
             X509_NAME_oneline(X509_get_subject_name(x509), server_name, 1024);
             X509_free(x509);
-            if((pc->sever_name = strdup(server_name)) == NULL)
+            if((pc->server_name = strdup(server_name)) == NULL)
                 conf_err("ListenHTTPS: could not set certificate subject");
 #else
             /* no SNI support */
