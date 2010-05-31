@@ -210,6 +210,7 @@ get_sock(const char *sock_name)
     return res;
 }
 
+int
 main(const int argc, char **argv)
 {
     CTRL_CMD    cmd;

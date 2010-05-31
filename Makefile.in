@@ -63,7 +63,7 @@ dh1024.h:
 $(OBJS):	pound.h config.h
 
 svc.o:		svc.c dh512.h dh1024.h
-		gcc ${CFLAGS} -c -o svc.o svc.c
+		${CC} ${CFLAGS} -c -o svc.o svc.c
 
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@

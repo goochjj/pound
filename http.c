@@ -109,7 +109,7 @@ copy_bin(BIO *const cl, BIO *const be, long cont, long *res_bytes, const int no_
  * The result buffer is NULL terminated
  * Return 0 on success
  */
-static
+static int
 get_line(BIO *const in, char *const buf, const int bufsize)
 {
     char    tmp;
@@ -148,7 +148,7 @@ get_line(BIO *const in, char *const buf, const int bufsize)
 /*
  * Strip trailing CRLF
  */
-static
+static int
 strip_eol(char *lin)
 {
     while(*lin)
@@ -537,7 +537,7 @@ thr_http(void *arg)
     }
 
     if(lstn->ctx != NULL) {
-        if((ssl = SSL_new(lstn->ctx)) == NULL) {
+        if((ssl = SSL_new(lstn->ctx->ctx)) == NULL) {
             logmsg(LOG_WARNING, "(%lx) SSL_new: failed", pthread_self());
             BIO_reset(cl);
             BIO_free_all(cl);
@@ -622,8 +622,7 @@ thr_http(void *arg)
             pthread_exit(NULL);
         }
         cl_11 = (request[strlen(request) - 1] == '1');
-        strncpy(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
-        url[matches[2].rm_eo - matches[2].rm_so] = '\0';
+        cpURL(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
         if(lstn->has_pat && regexec(&lstn->url_pat,  url, 0, NULL, 0)) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e501 bad URL \"%s\" from %s", pthread_self(), url, caddr);
