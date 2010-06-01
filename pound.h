@@ -454,7 +454,7 @@ extern void logmsg(const int, const char *, ...);
 /*
  * Parse a URL, possibly decoding hexadecimal-encoded characters
  */
-extern void cpURL(char *, char *, int);
+extern int cpURL(char *, char *, int);
 
 /*
  * Translate inet/inet6 address into a string

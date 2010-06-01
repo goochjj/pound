@@ -271,12 +271,16 @@ addr2str(char *const res, const int res_len, const struct addrinfo *addr, const 
 
 /*
  * Parse a URL, possibly decoding hexadecimal-encoded characters
+ * Returns length of final string in res
+ * String will always be equal to or less than the length provided.
  */
-void
+int
 cpURL(char *res, char *src, int len)
 {
+    char *origres;
     int state;
 
+    origres = res;
     for(state = 0; len > 0; len--)
         switch(state) {
         case 1:
@@ -329,7 +333,7 @@ cpURL(char *res, char *src, int len)
     if(state > 1)
         *res++ = *(src - 1);
     *res = '\0';
-    return;
+    return (origres-res);
 }
 
 /*
