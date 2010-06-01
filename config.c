@@ -135,6 +135,7 @@ conf_fgets(char *buf, const int max)
     for(;;) {
         if(fgets(buf, max, f_in[cur_fin]) == NULL) {
             fclose(f_in[cur_fin]);
+            free(f_name[cur_fin]);
             if(cur_fin > 0) {
                 cur_fin--;
                 continue;
