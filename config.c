@@ -933,6 +933,7 @@ parse_HTTPS(void)
             X509_free(x509);
             if((pc->server_name = strdup(server_name)) == NULL)
                 conf_err("ListenHTTPS: could not set certificate subject");
+            fclose(fcert);
 #else
             /* no SNI support */
             if(res->ctx)
