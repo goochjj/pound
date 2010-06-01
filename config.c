@@ -778,12 +778,12 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
 
-    //logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
+    logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s", server_name);
 
     SSL_set_SSL_CTX(ssl, NULL);
     for(pc = ctx; pc; pc = pc->next)
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
-            //logmsg(LOG_WARNING,"Found cert for %s", servername);
+            logmsg(LOG_WARNING,"Found cert for %s", server_name);
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
@@ -900,39 +900,64 @@ parse_HTTPS(void)
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
             /* we have support for SNI */
             FILE        *fcert;
+            SSL_CTX *sctx;
             char        server_name[MAXBUF];
             X509        *x509;
+            X509_NAME   *name;
+            X509_NAME_ENTRY *e;
+            ASN1_STRING *asn;
+            int pos;
+            int len;
+            int found;
+            unsigned char *cp;
 
-            if(res->ctx) {
-                for(pc = res->ctx; res->next; res = res->next)
-                    ;
-                if((pc->next = malloc(sizeof(POUND_CTX))) == NULL)
-                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
-                pc = pc->next;
-            } else {
-                if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
-                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
-                pc = res->ctx;
-            }
-            if((pc->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
+            if((sctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
-            pc->server_name = NULL;
-            pc->next = NULL;
             lin[matches[1].rm_eo] = '\0';
-            if(SSL_CTX_use_certificate_chain_file(pc->ctx, lin + matches[1].rm_so) != 1)
+            if(SSL_CTX_use_certificate_chain_file(sctx, lin + matches[1].rm_so) != 1)
                 conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
-            if(SSL_CTX_use_PrivateKey_file(pc->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
+            if(SSL_CTX_use_PrivateKey_file(sctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
                 conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
-            if(SSL_CTX_check_private_key(pc->ctx) != 1)
+            if(SSL_CTX_check_private_key(sctx) != 1)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
             if((fcert = fopen(lin + matches[1].rm_so, "r")) == NULL)
                 conf_err("ListenHTTPS: could not open certificate file");
             if((x509 = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL)
                 conf_err("ListenHTTPS: could not get certificate subject");
-            X509_NAME_oneline(X509_get_subject_name(x509), server_name, 1024);
+            name = X509_get_subject_name(x509);
+            for(pos=-1, found=0;;found++) {
+                pos = X509_NAME_get_index_by_NID(name, NID_commonName, pos);
+                if (pos == -1) break;
+                logmsg(LOG_WARNING,"Found CN at position %d",pos);
+                asn = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(name, pos));
+                len = 0;
+                if (asn && ASN1_STRING_type(asn) == V_ASN1_UTF8STRING) {
+                    len = ASN1_STRING_length(asn);
+                    memcpy(server_name, ASN1_STRING_data(asn), len);
+                } else {
+                    len = ASN1_STRING_to_UTF8(&cp, asn);
+                    memcpy(server_name, cp, len); 
+                }
+                server_name[len] = '\0';
+                logmsg(LOG_WARNING,"Found cert name %s", server_name);
+                if(res->ctx) {
+                    for(pc = res->ctx; res->next; res = res->next)
+                        ;
+                    if((pc->next = malloc(sizeof(POUND_CTX))) == NULL)
+                        conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
+                    pc = pc->next;
+                } else {
+                    if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
+                        conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
+                    pc = res->ctx;
+                }
+                pc->ctx = sctx;
+                if((pc->server_name = strdup(server_name)) == NULL)
+                    conf_err("ListenHTTPS: could not set certificate subject");
+                pc->next = NULL;
+            }
+            if (found<1) conf_err("ListenHTTPS: certificate has 0 common names");
             X509_free(x509);
-            if((pc->server_name = strdup(server_name)) == NULL)
-                conf_err("ListenHTTPS: could not set certificate subject");
             fclose(fcert);
 #else
             /* no SNI support */
