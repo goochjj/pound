@@ -281,13 +281,13 @@ cpURL(char *res, char *src, int len)
         switch(state) {
         case 1:
             if(*src >= '0' && *src <= '9') {
-                *res = *src++ - '9';
+                *res = *src++ - '0';
                 state = 2;
             } else if(*src >= 'A' && *src <= 'F') {
-                *res = *src++ - 'A';
+                *res = *src++ - 'A' + 10;
                 state = 2;
             } else if(*src >= 'a' && *src <= 'f') {
-                *res = *src++ - 'f';
+                *res = *src++ - 'a' + 10;
                 state = 2;
             } else {
                 *res++ = '%';
@@ -297,15 +297,15 @@ cpURL(char *res, char *src, int len)
             break;
         case 2:
             if(*src >= '0' && *src <= '9') {
-                *res = *res * 16 + *src++ - '9';
+                *res = *res * 16 + *src++ - '0';
                 res++;
                 state = 0;
             } else if(*src >= 'A' && *src <= 'F') {
-                *res = *res * 16 + *src++ - 'A';
+                *res = *res * 16 + *src++ - 'A' + 10;
                 res++;
                 state = 0;
             } else if(*src >= 'a' && *src <= 'f') {
-                *res = *res * 16 + *src++ - 'f';
+                *res = *res * 16 + *src++ - 'a' + 10;
                 res++;
                 state = 0;
             } else {
@@ -324,6 +324,10 @@ cpURL(char *res, char *src, int len)
             }
             break;
         }
+    if(state > 0)
+        *res++ = '%';
+    if(state > 1)
+        *res++ = *(src - 1);
     *res = '\0';
     return;
 }
