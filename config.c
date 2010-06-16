@@ -805,7 +805,7 @@ parse_HTTPS(void)
     LISTENER    *res;
     SERVICE     *svc;
     MATCHER     *m;
-    int         has_addr, has_port;
+    int         has_addr, has_port, has_ssl_modifier;
     struct hostent      *host;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
@@ -824,7 +824,7 @@ parse_HTTPS(void)
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
-    has_addr = has_port = 0;
+    has_addr = has_port = has_ssl_modifier = 0;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -905,6 +905,8 @@ parse_HTTPS(void)
             char        server_name[MAXBUF], *cp;
             X509        *x509;
 
+            if(has_ssl_modifier)
+                conf_err("ListenHTTPS: All Cert directives must appear before other directives - aborted");
             if(res->ctx) {
                 for(pc = res->ctx; res->next; res = res->next)
                     ;
@@ -961,6 +963,7 @@ parse_HTTPS(void)
         } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
             if(res->ctx == NULL)
                 conf_err("ClientCert may only be used after Cert - aborted");
+            has_ssl_modifier++;
             switch(res->clnt_check = atoi(lin + matches[1].rm_so)) {
             case 0:
                 /* don't ask */
@@ -996,6 +999,7 @@ parse_HTTPS(void)
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
             if(res->ctx == NULL)
                 conf_err("Ciphers may only be used after Cert - aborted");
+            has_ssl_modifier++;
             lin[matches[1].rm_eo] = '\0';
             for(pc = res->ctx; pc; pc = pc->next)
                 SSL_CTX_set_cipher_list(pc->ctx, lin + matches[1].rm_so);
@@ -1004,6 +1008,7 @@ parse_HTTPS(void)
 
             if(res->ctx == NULL)
                 conf_err("CAList may only be used after Cert - aborted");
+            has_ssl_modifier++;
             lin[matches[1].rm_eo] = '\0';
             if((cert_names = SSL_load_client_CA_file(lin + matches[1].rm_so)) == NULL)
                 conf_err("SSL_load_client_CA_file failed - aborted");
@@ -1012,6 +1017,7 @@ parse_HTTPS(void)
         } else if(!regexec(&VerifyList, lin, 4, matches, 0)) {
             if(res->ctx == NULL)
                 conf_err("VerifyList may only be used after Cert - aborted");
+            has_ssl_modifier++;
             lin[matches[1].rm_eo] = '\0';
             for(pc = res->ctx; pc; pc = pc->next)
                 if(SSL_CTX_load_verify_locations(pc->ctx, lin + matches[1].rm_so, NULL) != 1)
@@ -1023,6 +1029,7 @@ parse_HTTPS(void)
 
             if(res->ctx == NULL)
                 conf_err("CRLlist may only be used after Cert - aborted");
+            has_ssl_modifier++;
             lin[matches[1].rm_eo] = '\0';
             for(pc = res->ctx; pc; pc = pc->next) {
                 store = SSL_CTX_get_cert_store(pc->ctx);
