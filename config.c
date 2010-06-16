@@ -779,16 +779,17 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
 
-    //logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
+    //logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s", server_name);
 
     SSL_set_SSL_CTX(ssl, NULL);
     for(pc = ctx; pc; pc = pc->next)
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
-            //logmsg(LOG_WARNING,"Found cert for %s", servername);
+            //logmsg(LOG_WARNING,"Found cert %s for %s", pc->server_name, server_name);
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
-        }
-
+        //} else {
+            //logmsg(LOG_WARNING,"NoMatch cert %s for %s", pc->server_name, server_name);
+	}
     SSL_set_SSL_CTX(ssl, ctx->ctx);
     return SSL_TLSEXT_ERR_OK;
 }
@@ -934,10 +935,10 @@ parse_HTTPS(void)
             memset(server_name, '\0', MAXBUF);
             X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
             X509_free(x509);
-            if((cp = strrchr(server_name, '=')) == NULL)
+            if((cp = strrchr(server_name, '=')) == NULL || strlen(cp+1)<3)
                 conf_err("ListenHTTPS: could not get certificate CN");
             else
-                if((pc->server_name = strdup(cp)) == NULL)
+                if((pc->server_name = strdup(cp+1)) == NULL)
                     conf_err("ListenHTTPS: could not set certificate subject");
 #else
             /* no SNI support */
