@@ -461,8 +461,9 @@ for HTTPS listeners.
 Please note that multiple
 .I Cert
 directives are allowed if your OpenSSL version supports SNI. In such cases,
-the first directive is the default certificate, with additional certificates
-used if the client requests them.
+the first directive is the default certificate.  Additional certificates
+will be used if the client requests them.  Order is significant; the first
+certificate whose CommonName matches the SNI header will be selected.
 .TP
 \fBClientCert\fR 0|1|2|3 depth
 Ask for the client's HTTPS certificate: 0 - don't ask (default), 1 - ask,
