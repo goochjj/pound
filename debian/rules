@@ -41,6 +41,7 @@ build: build-stamp
 
 build-stamp:  config.status
 	dh_testdir
+	sh generate_version.sh
 	$(MAKE) F_CONF=/etc/pound/sapphire25.cfg
 	touch build-stamp
 
@@ -59,7 +60,6 @@ install: build
 	dh_testroot
 	dh_prep
 	dh_installdirs
-	sh generate_version.sh
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/sapphire-pound25
 	mv debian/sapphire-pound25/usr/sbin/pound debian/sapphire-pound25/usr/sbin/sapphirepound25
 	mv debian/sapphire-pound25/usr/sbin/poundctl debian/sapphire-pound25/usr/sbin/sapphirepoundctl25
