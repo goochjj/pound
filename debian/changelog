@@ -1,3 +1,11 @@
+sapphire-pound25 (2.5-3) unstable; urgency=high
+
+  * Fix session looping issues
+  * Implement/Fix SNI
+  * Add version to binary
+
+ -- Joseph Gooch <mrwizard@k12system.com>  Tue, 17 Jun 2010 10:19:12 -0500
+
 sapphire-pound25 (2.5-2) unstable; urgency=low
 
   * Include our sapphire sample configuration
