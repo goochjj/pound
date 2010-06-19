@@ -778,16 +778,17 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
 
-    //logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
+    /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
 
     SSL_set_SSL_CTX(ssl, NULL);
     for(pc = ctx; pc; pc = pc->next)
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
-            //logmsg(LOG_WARNING,"Found cert for %s", servername);
+            /* logmsg(LOG_DEBUG, "Found cert for %s", servername); */
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
 
+    /* logmsg(LOG_DEBUG, "No match for %s, default used", server_name); */
     SSL_set_SSL_CTX(ssl, ctx->ctx);
     return SSL_TLSEXT_ERR_OK;
 }
@@ -803,7 +804,7 @@ parse_HTTPS(void)
     LISTENER    *res;
     SERVICE     *svc;
     MATCHER     *m;
-    int         has_addr, has_port;
+    int         has_addr, has_port, has_other;
     struct hostent      *host;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
@@ -822,7 +823,7 @@ parse_HTTPS(void)
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
-    has_addr = has_port = 0;
+    has_addr = has_port = has_other = 0;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -903,6 +904,8 @@ parse_HTTPS(void)
             char        server_name[MAXBUF], *cp;
             X509        *x509;
 
+            if(has_other)
+                conf_err("Cert directives MUST precede othe SSL-specific directives - aborted");
             if(res->ctx) {
                 for(pc = res->ctx; res->next; res = res->next)
                     ;
@@ -936,10 +939,12 @@ parse_HTTPS(void)
             if((cp = strrchr(server_name, '=')) == NULL)
                 conf_err("ListenHTTPS: could not get certificate CN");
             else
-                if((pc->server_name = strdup(cp)) == NULL)
+                if((pc->server_name = strdup(++cp)) == NULL)
                     conf_err("ListenHTTPS: could not set certificate subject");
 #else
             /* no SNI support */
+            if(has_other)
+                conf_err("Cert directives MUST precede othe SSL-specific directives - aborted");
             if(res->ctx)
                 conf_err("ListenHTTPS: multiple certificates not supported - aborted");
             if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
@@ -957,6 +962,7 @@ parse_HTTPS(void)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
 #endif
         } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
+            has_other = 1;
             if(res->ctx == NULL)
                 conf_err("ClientCert may only be used after Cert - aborted");
             switch(res->clnt_check = atoi(lin + matches[1].rm_so)) {
@@ -992,6 +998,7 @@ parse_HTTPS(void)
             if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("AddHeader config: out of memory - aborted");
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
+            has_other = 1;
             if(res->ctx == NULL)
                 conf_err("Ciphers may only be used after Cert - aborted");
             lin[matches[1].rm_eo] = '\0';
@@ -1000,6 +1007,7 @@ parse_HTTPS(void)
         } else if(!regexec(&CAlist, lin, 4, matches, 0)) {
             STACK_OF(X509_NAME) *cert_names;
 
+            has_other = 1;
             if(res->ctx == NULL)
                 conf_err("CAList may only be used after Cert - aborted");
             lin[matches[1].rm_eo] = '\0';
@@ -1008,6 +1016,7 @@ parse_HTTPS(void)
             for(pc = res->ctx; pc; pc = pc->next)
                 SSL_CTX_set_client_CA_list(pc->ctx, cert_names);
         } else if(!regexec(&VerifyList, lin, 4, matches, 0)) {
+            has_other = 1;
             if(res->ctx == NULL)
                 conf_err("VerifyList may only be used after Cert - aborted");
             lin[matches[1].rm_eo] = '\0';
@@ -1019,6 +1028,7 @@ parse_HTTPS(void)
             X509_STORE *store;
             X509_LOOKUP *lookup;
 
+            has_other = 1;
             if(res->ctx == NULL)
                 conf_err("CRLlist may only be used after Cert - aborted");
             lin[matches[1].rm_eo] = '\0';
