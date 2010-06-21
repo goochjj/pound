@@ -272,12 +272,13 @@ addr2str(char *const res, const int res_len, const struct addrinfo *addr, const 
 /*
  * Parse a URL, possibly decoding hexadecimal-encoded characters
  */
-void
+int
 cpURL(char *res, char *src, int len)
 {
-    int state;
+    int     state;
+    char    *kp_res;
 
-    for(state = 0; len > 0; len--)
+    for(kp_res = res, state = 0; len > 0; len--)
         switch(state) {
         case 1:
             if(*src >= '0' && *src <= '9') {
@@ -329,7 +330,7 @@ cpURL(char *res, char *src, int len)
     if(state > 1)
         *res++ = *(src - 1);
     *res = '\0';
-    return;
+    return res - kp_res;
 }
 
 /*

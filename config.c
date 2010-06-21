@@ -135,6 +135,7 @@ conf_fgets(char *buf, const int max)
     for(;;) {
         if(fgets(buf, max, f_in[cur_fin]) == NULL) {
             fclose(f_in[cur_fin]);
+            free(f_name[cur_fin]);
             if(cur_fin > 0) {
                 cur_fin--;
                 continue;
@@ -905,7 +906,7 @@ parse_HTTPS(void)
             X509        *x509;
 
             if(has_other)
-                conf_err("Cert directives MUST precede othe SSL-specific directives - aborted");
+                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
             if(res->ctx) {
                 for(pc = res->ctx; res->next; res = res->next)
                     ;
@@ -944,7 +945,7 @@ parse_HTTPS(void)
 #else
             /* no SNI support */
             if(has_other)
-                conf_err("Cert directives MUST precede othe SSL-specific directives - aborted");
+                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
             if(res->ctx)
                 conf_err("ListenHTTPS: multiple certificates not supported - aborted");
             if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)

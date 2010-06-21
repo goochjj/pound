@@ -622,7 +622,16 @@ thr_http(void *arg)
             pthread_exit(NULL);
         }
         cl_11 = (request[strlen(request) - 1] == '1');
-        cpURL(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+        n = cpURL(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+        if(n != strlen(url)) {
+            /* the URL probably contained a %00 aka NULL - which we don't allow */
+            addr2str(caddr, MAXBUF - 1, &from_host, 1);
+            logmsg(LOG_NOTICE, "(%lx) e501 URL \"%s\" (contains NULL) from %s", pthread_self(), url, caddr);
+            err_reply(cl, h501, lstn->err501);
+            free_headers(headers);
+            clean_all();
+            pthread_exit(NULL);
+        }
         if(lstn->has_pat && regexec(&lstn->url_pat,  url, 0, NULL, 0)) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e501 bad URL \"%s\" from %s", pthread_self(), url, caddr);
