@@ -271,7 +271,7 @@ main(const int argc, char **argv)
     CTRL_CMD    cmd;
     int         sock, n_lstn, n_svc, n_be, n_sess, i;
     char        *arg0, *sock_name, buf[KEY_SIZE + 1];
-    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, is_set;
+    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, is_set, force;
     LISTENER    lstn;
     SERVICE     svc;
     BACKEND     be;
@@ -282,17 +282,20 @@ main(const int argc, char **argv)
 
     arg0 = *argv;
     sock_name = NULL;
-    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = 0;
+    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = force = 0;
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
     i = 0;
-    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNnXH")) > 0)
+    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNnXHf")) > 0)
         switch(c_opt) {
         case 'c':
             sock_name = optarg;
             break;
         case 'X':
             xml_out = 1;
+            break;
+        case 'f':
+            force = 1;
             break;
         case 'L':
             if(is_set)
@@ -405,8 +408,10 @@ main(const int argc, char **argv)
         if(sz) read(sock, version, sz);
         version[sz]='\0';
         if (strcmp(version, POUND_VERSION)) {
-            fprintf(stderr, "Must use a matched pair of pound and poundctl versions.  Pound is version %s, poundctl is version %s.", version, POUND_VERSION);
-            exit(-1);
+            if (!force) {
+                fprintf(stderr, "Must use a matched pair of pound and poundctl versions.  Pound is version %s, poundctl is version %s.", version, POUND_VERSION);
+                exit(-1);
+            }
         }
         if(xml_out)
             printf("<pound version=\"%s\">\n", version);
