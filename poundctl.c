@@ -151,7 +151,7 @@ escape_url(char *buf, int maxsize)
     char *cp = buf, *cpy;
     char *ep = buf+strlen(buf);
     char *mp = buf + maxsize;
-    while (cp < (ep-4) && (cp=strchr(cp, '&'))!=NULL) {
+    while (cp < (mp-4) && (cp=strchr(cp, '&'))!=NULL) {
       for(cpy=ep; cpy>=cp; cpy--) cpy[4] = cpy[0];
       ep+=4;
       cp++;
