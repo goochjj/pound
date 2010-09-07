@@ -189,6 +189,7 @@ sess_prt(const int sock, SERVICE *svc)
             read(sock, addrbuf, sess.last_ip_len);
         }
 	escape_url(sess.last_url, sizeof(sess.last_url));
+	escape_url(sess.lb_info, sizeof(sess.lb_info));
         last_ip.ai_family = sess.last_ip_family;
         last_ip.ai_addrlen = sess.last_ip_len;
         last_ip.ai_addr = sess.last_ip;
