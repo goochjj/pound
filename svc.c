@@ -1711,9 +1711,9 @@ SNI_servername_callback(SSL *ssl, int *al, LISTENER *lstn)
     SNIMATCHER *m;
     char buf[MAXBUF];
 
-    if (logsni) addr2str(buf, MAXBUF - 1, &lstn->addr, 0);
     if (!servername) return SSL_TLSEXT_ERR_NOACK;
-
+    if (!lstn) return SSL_TLSEXT_ERR_NOACK;
+    if (logsni) addr2str(buf, MAXBUF - 1, &lstn->addr, 0);
     if (logsni) logmsg(LOG_WARNING,"Received SSL SNI Header for servername %s Listener on %s", servername, buf);
 
     SSL_set_SSL_CTX(ssl, NULL);
