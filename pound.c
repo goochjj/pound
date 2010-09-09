@@ -372,11 +372,13 @@ main(const int argc, char **argv)
         }
 
     /* split off into monitor and working process if necessary */
+    logmsg(LOG_NOTICE, "started pound %s pid %d", POUND_VERSION, getpid());
     for(;;) {
 #ifdef  UPER
         if((son = fork()) > 0) {
             int status;
 
+            logmsg(LOG_NOTICE, "started pound worker process %d", son);
             (void)wait(&status);
             if(WIFEXITED(status))
                 logmsg(LOG_ERR, "MONITOR: worker exited normally %d, restarting...", WEXITSTATUS(status));
