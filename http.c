@@ -1474,7 +1474,7 @@ thr_http(void *arg)
                 v_host[0]? v_host: "-",
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
                 response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
-                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", (end_of_session_forced||sess_copy.delete_pending)?"*":(sess_copy.n_requests<2?"+":""), sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
+                (end_req - start_req) / 1000000.0, sess_key[0]>0?sess_key:"-", (end_of_session_forced||sess_copy.delete_pending)?"*":(sess_key[0]&&sess_copy.n_requests==1?"+":""), sess_copy.lb_info[0]>0?sess_copy.lb_info:"");
             break;
         }
 
