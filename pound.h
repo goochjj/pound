@@ -525,7 +525,7 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const, char *const, char *, SESSION **, SESSION *);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, const char **const, const char *const, char *, SESSION **, SESSION *);
 
 /*
  * Search for a host name, return the addrinfo for it
@@ -542,7 +542,7 @@ extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, 
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, char **const, char *const, BACKEND *const, char *, SESSION **, SESSION *, int *);
+extern void upd_session(SERVICE *const, const struct addrinfo *, const char *, const char *, const char **const, const char *const, BACKEND *const, char *, SESSION **, SESSION *, int *);
 
 /*
  * Parse a header
