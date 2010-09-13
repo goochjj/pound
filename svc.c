@@ -539,7 +539,7 @@ get_REQUEST(char *res, const SERVICE *svc, const char *request)
 }
 
 static int
-get_HEADERS(char *res, const SERVICE *svc, char **const headers)
+get_HEADERS(char *res, const SERVICE *svc, const char **const headers)
 {
     int         i, n, s;
     regmatch_t  matches[4];
@@ -563,7 +563,7 @@ get_HEADERS(char *res, const SERVICE *svc, char **const headers)
 }
 
 static int
-find_EndSessionHeader(const SERVICE *svc, char **const headers)
+find_EndSessionHeader(const SERVICE *svc, const char **const headers)
 {
     int         i;
 
@@ -632,7 +632,7 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
  * If save_ssss_key or save_sess are specified, we will write the session key and/or session pointer to the given pointer pointer.
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, char **const headers, char *const u_name, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
+get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char **const headers, const char *const u_name, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
 {
     BACKEND     *res;
     SESSION     *sess;
@@ -747,7 +747,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, char **const resp_headers, char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy, int *end_of_session_forced)
+upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, const char **const resp_headers, const char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy, int *end_of_session_forced)
 {
     MATCHER         *m;
     SESSION         *sess;
