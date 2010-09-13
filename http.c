@@ -343,8 +343,9 @@ is_readable(BIO *const bio, const int to_wait)
 }
 
 static void
-free_headers(char **headers)
+free_headers(char ***headersvar)
 {
+    char ** headers = *headersvar;
     int     i;
 
     for(i = MAXHEADERS-1; i >= 0; i--)
@@ -353,6 +354,7 @@ free_headers(char **headers)
 	    headers[i] = NULL;
 	}
     free(headers);
+    *headersvar = NULL;
     return;
 }
 
@@ -387,7 +389,7 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
     }
     /* calloc() zeroes the memory */
     if((headers[0] = (char *)malloc(MAXBUF)) == NULL) {
-        free_headers(headers);
+        free_headers(&headers);
         logmsg(LOG_WARNING, "(%lx) e500 header: out of memory", pthread_self());
         err_reply(cl, h500, lstn->err500);
         return NULL;
@@ -397,7 +399,7 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
 
     for(n = 1; n < MAXHEADERS; n++) {
         if(get_line(in, buf, MAXBUF)) {
-            free_headers(headers);
+            free_headers(&headers);
             logmsg(LOG_WARNING, "(%lx) e500 can't read header", pthread_self());
             err_reply(cl, h500, lstn->err500);
             return NULL;
@@ -405,7 +407,7 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
         if(!buf[0])
             return headers;
         if((headers[n] = (char *)malloc(MAXBUF)) == NULL) {
-            free_headers(headers);
+            free_headers(&headers);
             logmsg(LOG_WARNING, "(%lx) e500 header: out of memory", pthread_self());
             err_reply(cl, h500, lstn->err500);
             return NULL;
@@ -414,7 +416,7 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
         strncpy(headers[n], buf, MAXBUF - 1);
     }
 
-    free_headers(headers);
+    free_headers(&headers);
     logmsg(LOG_NOTICE, "(%lx) e500 too many headers", pthread_self());
     err_reply(cl, h500, lstn->err500);
     return NULL;
@@ -635,7 +637,7 @@ thr_http(void *arg)
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_WARNING, "(%lx) e501 bad request \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h501, lstn->err501);
-            free_headers(headers);
+            free_headers(&headers);
             clean_all();
             pthread_exit(NULL);
         }
@@ -646,7 +648,7 @@ thr_http(void *arg)
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e501 bad URL \"%s\" from %s", pthread_self(), url, caddr);
             err_reply(cl, h501, lstn->err501);
-            free_headers(headers);
+            free_headers(&headers);
             clean_all();
             pthread_exit(NULL);
         }
@@ -706,7 +708,7 @@ thr_http(void *arg)
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e501 request too large (%ld) from %s", pthread_self(), cont, caddr);
             err_reply(cl, h501, lstn->err501);
-            free_headers(headers);
+            free_headers(&headers);
             clean_all();
             pthread_exit(NULL);
         }
@@ -725,7 +727,7 @@ thr_http(void *arg)
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no service \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
-            free_headers(headers);
+            free_headers(&headers);
             clean_all();
             pthread_exit(NULL);
         }
@@ -769,7 +771,7 @@ thr_http(void *arg)
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
-            free_headers(headers);
+            free_headers(&headers);
             clean_all();
             pthread_exit(NULL);
         }
@@ -793,7 +795,7 @@ thr_http(void *arg)
             default:
                 logmsg(LOG_WARNING, "(%lx) e503 backend: unknown family %d", pthread_self(), backend->addr.ai_family);
                 err_reply(cl, h503, lstn->err503);
-                free_headers(headers);
+                free_headers(&headers);
                 clean_all();
                 pthread_exit(NULL);
                 break;
@@ -802,7 +804,7 @@ thr_http(void *arg)
                 str_be(buf, MAXBUF - 1, backend);
                 logmsg(LOG_WARNING, "(%lx) e503 backend %s socket create: %s", pthread_self(), buf, strerror(errno));
                 err_reply(cl, h503, lstn->err503);
-                free_headers(headers);
+                free_headers(&headers);
                 clean_all();
                 pthread_exit(NULL);
             }
@@ -826,7 +828,7 @@ thr_http(void *arg)
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -850,7 +852,7 @@ thr_http(void *arg)
                 shutdown(sock, 2);
                 close(sock);
                 err_reply(cl, h503, lstn->err503);
-                free_headers(headers);
+                free_headers(&headers);
                 clean_all();
                 pthread_exit(NULL);
             }
@@ -863,7 +865,7 @@ thr_http(void *arg)
                 if((be_ssl = SSL_new(backend->ctx)) == NULL) {
                     logmsg(LOG_WARNING, "(%lx) be SSL_new: failed", pthread_self());
                     err_reply(cl, h503, lstn->err503);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -871,7 +873,7 @@ thr_http(void *arg)
                 if((bb = BIO_new(BIO_f_ssl())) == NULL) {
                     logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());
                     err_reply(cl, h503, lstn->err503);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -883,7 +885,7 @@ thr_http(void *arg)
                     logmsg(LOG_NOTICE, "BIO_do_handshake with %s failed: %s", buf,
                         ERR_error_string(ERR_get_error(), NULL));
                     err_reply(cl, h503, lstn->err503);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -891,7 +893,7 @@ thr_http(void *arg)
             if((bb = BIO_new(BIO_f_buffer())) == NULL) {
                 logmsg(LOG_WARNING, "(%lx) e503 BIO_new(buffer) server failed", pthread_self());
                 err_reply(cl, h503, lstn->err503);
-                free_headers(headers);
+                free_headers(&headers);
                 clean_all();
                 pthread_exit(NULL);
             }
@@ -926,7 +928,7 @@ thr_http(void *arg)
                     if((headers[n] = strdup(buf)) == NULL) {
                         logmsg(LOG_WARNING, "(%lx) rewrite Destination - out of memory: %s",
                             pthread_self(), strerror(errno));
-                        free_headers(headers);
+                        free_headers(&headers);
                         clean_all();
                         pthread_exit(NULL);
                     }
@@ -938,7 +940,7 @@ thr_http(void *arg)
                         pthread_self(), buf, request, strerror(errno),
                         (end_req - start_req) / 1000000.0);
                     err_reply(cl, h500, lstn->err500);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -951,12 +953,12 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "(%lx) e500 error write HTTPSHeader to %s: %s (%.3f sec)",
                         pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
                     err_reply(cl, h500, lstn->err500);
-                    free_headers(headers);
+                    free_headers(&headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
         }
-        free_headers(headers);
+        free_headers(&headers);
 
         /* if SSL put additional headers for client certificate */
         if(cur_backend->be_type == 0 && ssl != NULL) {
@@ -1292,7 +1294,7 @@ thr_http(void *arg)
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Location - out of memory: %s",
                                 pthread_self(), strerror(errno));
-                            free_headers(headers);
+                            free_headers(&headers);
                             clean_all();
                             pthread_exit(NULL);
                         }
@@ -1308,7 +1310,7 @@ thr_http(void *arg)
                         if((headers[n] = strdup(buf)) == NULL) {
                             logmsg(LOG_WARNING, "(%lx) rewrite Content-location - out of memory: %s",
                                 pthread_self(), strerror(errno));
-                            free_headers(headers);
+                            free_headers(&headers);
                             clean_all();
                             pthread_exit(NULL);
                         }
@@ -1328,12 +1330,12 @@ thr_http(void *arg)
                             addr2str(caddr, MAXBUF - 1, &from_host, 1);
                             logmsg(LOG_NOTICE, "(%lx) error write to %s: %s", pthread_self(), caddr, strerror(errno));
                         }
-                        free_headers(headers);
+                        free_headers(&headers);
                         clean_all();
                         pthread_exit(NULL);
                     }
                 }
-            free_headers(headers);
+            free_headers(&headers);
 
             /* final CRLF */
             if(!skip)
