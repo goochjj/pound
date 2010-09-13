@@ -455,7 +455,7 @@ check_header(const char *header, char *const content)
 }
 
 static int
-match_service(const SERVICE *svc, const char *request, char **const headers)
+match_service(const SERVICE *svc, const char *request, const char *const *const headers)
 {
     MATCHER *m;
     int     i, found;
@@ -467,7 +467,7 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
 
     /* check for required headers */
     for(m = svc->req_head; m; m = m->next) {
-        for(found = i = 0; i < (MAXHEADERS - 1) && headers[i] && !found; i++)
+        for(found = 0, i = 1; i < MAXHEADERS && headers[i] && !found; i++)
             if(!regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(!found)
@@ -476,7 +476,7 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
 
     /* check for forbidden headers */
     for(m = svc->deny_head; m; m = m->next) {
-        for(found = i = 0; i < (MAXHEADERS - 1) && headers[i] && !found; i++)
+        for(found = 0, i = 1; i < MAXHEADERS && headers[i] && !found; i++)
             if(!regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(found)
@@ -490,7 +490,7 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
  * Find the right service for a request
  */
 SERVICE *
-get_service(const LISTENER *lstn, const char *request, char **const headers)
+get_service(const LISTENER *lstn, const char *request, const char *const *const headers)
 {
     SERVICE *svc;
 
@@ -539,14 +539,14 @@ get_REQUEST(char *res, const SERVICE *svc, const char *request)
 }
 
 static int
-get_HEADERS(char *res, const SERVICE *svc, const char **const headers)
+get_HEADERS(char *res, const SERVICE *svc, const char *const *const headers)
 {
     int         i, n, s;
     regmatch_t  matches[4];
 
     /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
     res[0] = '\0';
-    for(i = 0; i < (MAXHEADERS - 1) && headers[i]; i++) {
+    for(i = 1; i < MAXHEADERS && headers[i]; i++) {
         if(regexec(&svc->sess_start, headers[i], 4, matches, 0))
             continue;
         s = matches[0].rm_eo;
@@ -561,12 +561,12 @@ get_HEADERS(char *res, const SERVICE *svc, const char **const headers)
 }
 
 static int
-find_EndSessionHeader(const SERVICE *svc, const char **const headers)
+find_EndSessionHeader(const SERVICE *svc, const char *const *const headers)
 {
     int         i;
 
     if (svc->sess_end_hdr == 0) return 0;
-    for(i = 0; i < (MAXHEADERS - 1) && headers[i]; i++)
+    for(i = 1; i < MAXHEADERS && headers[i]; i++)
         if(!regexec(&svc->sess_end, headers[i], 0, NULL, 0))
             return 1;
     return 0;
@@ -630,7 +630,7 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
  * If save_ssss_key or save_sess are specified, we will write the session key and/or session pointer to the given pointer pointer.
  */
 BACKEND *
-get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char **const headers, const char *const u_name, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
+get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *const *const headers, const char *const u_name, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy)
 {
     BACKEND     *res;
     SESSION     *sess;
@@ -745,7 +745,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
  * (for cookies/header only) possibly create session based on response headers
  */
 void
-upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, const char **const resp_headers, const char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy, int *end_of_session_forced)
+upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *request, const char *response, const char *const *const resp_headers, const char *const u_name, BACKEND *be, char *save_sess_key, SESSION **save_sess, SESSION *save_sess_copy, int *end_of_session_forced)
 {
     MATCHER         *m;
     SESSION         *sess;
@@ -792,7 +792,7 @@ upd_session(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     if(sess!=NULL) {
         /* check for LBInfo headers */
         for(m = svc->lbinfo; m; m = m->next)
-            for(i = 0; i < (MAXHEADERS - 1); i++)
+            for(i = 1; i < MAXHEADERS; i++)
                 if(resp_headers[i] && !regexec(&m->pat, resp_headers[i], 4, matches, 0)) {
                     if(ret_val = pthread_mutex_lock(&sess->mut))
                         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
