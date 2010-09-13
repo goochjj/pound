@@ -467,8 +467,8 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
 
     /* check for required headers */
     for(m = svc->req_head; m; m = m->next) {
-        for(found = i = 0; i < (MAXHEADERS - 1) && !found; i++)
-            if(headers[i] && !regexec(&m->pat, headers[i], 0, NULL, 0))
+        for(found = i = 0; i < (MAXHEADERS - 1) && headers[i] && !found; i++)
+            if(!regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(!found)
             return 0;
@@ -476,8 +476,8 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
 
     /* check for forbidden headers */
     for(m = svc->deny_head; m; m = m->next) {
-        for(found = i = 0; i < (MAXHEADERS - 1) && !found; i++)
-            if(headers[i] && !regexec(&m->pat, headers[i], 0, NULL, 0))
+        for(found = i = 0; i < (MAXHEADERS - 1) && headers[i] && !found; i++)
+            if(!regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(found)
             return 0;
@@ -546,9 +546,7 @@ get_HEADERS(char *res, const SERVICE *svc, const char **const headers)
 
     /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
     res[0] = '\0';
-    for(i = 0; i < (MAXHEADERS - 1); i++) {
-        if(headers[i] == NULL)
-            continue;
+    for(i = 0; i < (MAXHEADERS - 1) && headers[i]; i++) {
         if(regexec(&svc->sess_start, headers[i], 4, matches, 0))
             continue;
         s = matches[0].rm_eo;
