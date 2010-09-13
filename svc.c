@@ -565,17 +565,12 @@ get_HEADERS(char *res, const SERVICE *svc, const char **const headers)
 static int
 find_EndSessionHeader(const SERVICE *svc, const char **const headers)
 {
-    int         i, n, s;
-    regmatch_t  matches[4];
+    int         i;
 
     if (svc->sess_end_hdr == 0) return 0;
-    /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
-    for(i = 0; i < (MAXHEADERS - 1); i++) {
-        if(headers[i] == NULL)
-            continue;
-        if(!regexec(&svc->sess_end, headers[i], 4, matches, 0))
+    for(i = 0; i < (MAXHEADERS - 1) && headers[i]; i++)
+        if(!regexec(&svc->sess_end, headers[i], 0, NULL, 0))
             return 1;
-    }
     return 0;
 }
 
