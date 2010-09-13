@@ -110,7 +110,7 @@ copy_bin(BIO *const cl, BIO *const be, long cont, long *res_bytes, const int no_
  * The result buffer is NULL terminated
  * Return 0 on success
  */
-static
+static int
 get_line(BIO *const in, char *const buf, const int bufsize)
 {
     char    tmp;
@@ -149,7 +149,7 @@ get_line(BIO *const in, char *const buf, const int bufsize)
 /*
  * Strip trailing CRLF
  */
-static
+static int
 strip_eol(char *lin)
 {
     while(*lin)

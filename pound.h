@@ -183,7 +183,7 @@
 #if HAVE_LIBPCREPOSIX
 #if HAVE_PCREPOSIX_H
 #include    <pcreposix.h>
-#elif HAVE_PCRE_PCREPOSIX
+#elif HAVE_PCRE_PCREPOSIX_H
 #include    <pcre/pcreposix.h>
 #else
 #error "You have libpcreposix, but the header files are missing. Use --disable-pcreposix"
