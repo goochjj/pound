@@ -347,9 +347,11 @@ free_headers(char **headers)
 {
     int     i;
 
-    for(i = 0; i < MAXHEADERS; i++)
-        if(headers[i])
+    for(i = MAXHEADERS-1; i >= 0; i--)
+        if(headers[i]) {
             free(headers[i]);
+	    headers[i] = NULL;
+	}
     free(headers);
     return;
 }
