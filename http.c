@@ -383,6 +383,7 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
         err_reply(cl, h500, lstn->err500);
         return NULL;
     }
+    /* calloc() zeroes the memory */
     if((headers[0] = (char *)malloc(MAXBUF)) == NULL) {
         free_headers(headers);
         logmsg(LOG_WARNING, "(%lx) e500 header: out of memory", pthread_self());
@@ -751,6 +752,7 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "(%lx) Unknown authentication", pthread_self());
                     continue;
                 }
+                /* Cannot overflow - we b64 decoded into a MAXBUF buffer, which was smaller than the header which was also in a MAXBUF buffer.  */
                 if(svc->user_type==UserCFAUTHToken)
                     strcpy(u_name, mh+1);
                 else {
