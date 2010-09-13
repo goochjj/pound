@@ -719,7 +719,7 @@ thr_http(void *arg)
         }
 
         /* check that the requested URL still fits the old back-end (if any) */
-        if((svc = get_service(lstn, url, &headers[1])) == NULL) {
+        if((svc = get_service(lstn, url, headers)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no service \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -763,7 +763,7 @@ thr_http(void *arg)
         }
         /* Find backend information */
 
-        if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess, &sess_copy)) == NULL) {
+        if((backend = get_backend(svc, &from_host, url, headers, u_name, sess_key, &sess, &sess_copy)) == NULL) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e503 no back-end1 \"%s\" from %s", pthread_self(), request, caddr);
             err_reply(cl, h503, lstn->err503);
@@ -820,7 +820,7 @@ thr_http(void *arg)
                  * ...but make sure we don't get into a loop with the same back-end
                  */
                 old_backend = backend;
-                if((backend = get_backend(svc, &from_host, url, &headers[1], u_name, sess_key, &sess, &sess_copy)) == NULL || backend == old_backend) {
+                if((backend = get_backend(svc, &from_host, url, headers, u_name, sess_key, &sess, &sess_copy)) == NULL || backend == old_backend) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
@@ -1316,7 +1316,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies/header) */
-            upd_session(svc, &from_host, url, response, &headers[1], u_name, cur_backend, sess_key, &sess, &sess_copy, &end_of_session_forced);
+            upd_session(svc, &from_host, url, response, headers, u_name, cur_backend, sess_key, &sess, &sess_copy, &end_of_session_forced);
 
             /* send the response */
             if(!skip)
