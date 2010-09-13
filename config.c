@@ -111,7 +111,7 @@ static char *f_name[MAX_FIN];
 static int  n_lin[MAX_FIN];
 static int  cur_fin;
 
-static
+static int
 conf_init(const char *name)
 {
     if((f_name[0] = strdup(name)) == NULL) {
@@ -634,7 +634,7 @@ parse_service(const char *svc_name, int global)
                 be->be_type = atoi(lin + matches[2].rm_so);
             be->priority = 1;
             be->alive = 1;
-            pthread_mutex_init(&be->mut, NULL);
+            pthread_mutex_init(& be->mut, NULL);
             lin[matches[3].rm_eo] = '\0';
             if((be->url = strdup(lin + matches[3].rm_so)) == NULL)
                 conf_err("Redirector config: out of memory - aborted");
