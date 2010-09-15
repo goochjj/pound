@@ -156,22 +156,26 @@ static char ampbufs[10][MAXBUF];
 */
 
 static char *
-escape_amp(char *buf, int bufnum)
+escape_xml(char *buf, int bufnum)
 {
     char *src = buf;
-    char *cp = src;
+    char *ent;
     char *dst = ampbufs[bufnum];
-    char *dep = dst+sizeof(ampbufs[0])-1;
+    char *dep = dst+sizeof(*ampbufs)-1;
 
-    while(*cp && dst<dep && (cp=strchr(cp, '&'))!=NULL) {
-      while(src<=cp && dst<dep) *dst++ = *src++;
-      cp++;
-      if (dst<dep) *dst++ = 'a';
-      if (dst<dep) *dst++ = 'm';
-      if (dst<dep) *dst++ = 'p';
-      if (dst<dep) *dst++ = ';';
+    while(*src && dst<dep) {
+      switch(*src) {
+        case '&': ent = "&amp;"; break;
+        case '<': ent = "&lt;"; break;
+        case '>': ent = "&gt;"; break;
+        case '\'': ent = "&apos;"; break;
+        case '\"': ent = "&quot;"; break;
+        default: ent=""; break;
+      }
+      if (*ent) while (*ent && dst<dep) *dst++ = *ent++; 
+      else if (dst<dep) *dst++ = *src;
+      src++;
     }
-    while(*cp && dst<dep) *dst++ = *cp++;
     *dst++ = '\0';
     *dep='\0';
     return ampbufs[bufnum];
@@ -219,10 +223,10 @@ sess_prt(const int sock, SERVICE *svc)
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
             printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" deletepending=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), sess.delete_pending,
-		prt_addr(&last_ip), escape_amp(sess.last_user,0), escape_amp(sess.last_url,1), escape_amp(sess.lb_info,2));
+		prt_addr(&last_ip), escape_xml(sess.last_user,0), escape_xml(sess.last_url,1), escape_xml(sess.lb_info,2));
         } else
             printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), svc->sess_ttl,
-		prt_addr(&last_ip), escape_amp(sess.last_user,0), escape_amp(sess.last_url,1), escape_amp(sess.lb_info,2));
+		prt_addr(&last_ip), escape_xml(sess.last_user,0), escape_xml(sess.last_url,1), escape_xml(sess.lb_info,2));
     }
     return;
 }
