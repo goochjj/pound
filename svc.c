@@ -1972,6 +1972,9 @@ thr_control(void *arg)
                         sz = be->url?strlen(be->url):0;
                         write(ctl, &sz, sizeof(sz));
                         if(sz>0) write(ctl, be->url, sz);
+                        sz = be->bekey?strlen(be->bekey):0;
+                        write(ctl, &sz, sizeof(sz));
+                        if(sz>0) write(ctl, be->bekey, sz);
                         write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         if(be->ha_addr.ai_addrlen > 0)
                             write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
@@ -1996,6 +1999,9 @@ thr_control(void *arg)
                     sz = be->url?strlen(be->url):0;
                     write(ctl, &sz, sizeof(sz));
                     if(sz>0) write(ctl, be->url, sz);
+                    sz = be->bekey?strlen(be->bekey):0;
+                    write(ctl, &sz, sizeof(sz));
+                    if(sz>0) write(ctl, be->bekey, sz);
                     write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     if(be->ha_addr.ai_addrlen > 0)
                         write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);

@@ -657,6 +657,7 @@ parse_service(const char *svc_name, int global)
                 be->be_type = atoi(lin + matches[2].rm_so);
             be->priority = 1;
             be->alive = 1;
+            be->bekey = NULL;
             pthread_mutex_init(& be->mut, NULL);
             lin[matches[3].rm_eo] = '\0';
             if((be->url = strdup(lin + matches[3].rm_so)) == NULL)
