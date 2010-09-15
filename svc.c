@@ -561,6 +561,25 @@ get_HEADERS(char *res, const SERVICE *svc, const char *const *const headers)
 }
 
 static int
+get_bekey_from_HEADERS(char *res, const SERVICE *svc, const char *const *const headers)
+{
+    int         i, n, s;
+    regmatch_t  matches[4];
+
+    res[0] = '\0';
+    if (!svc->becookie) return res[0] != '\0';
+    for(i = 1; i < MAXHEADERS && headers[i]; i++) {
+        if(regexec(&svc->becookie_match, headers[i], 4, matches, 0))
+            continue;
+        if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
+            n = KEY_SIZE;
+        strncpy(res, headers[i] + matches[1].rm_so, n);
+        res[n] = '\0';
+    }
+    return res[0] != '\0';
+}
+
+static int
 find_EndSessionHeader(const SERVICE *svc, const char *const *const headers)
 {
     int         i;
@@ -589,6 +608,17 @@ rand_backend(BACKEND *be, int pri)
     }
     return be;
 }
+
+static BACKEND *
+get_backend_by_key(BACKEND *be, const char *bekey) {
+    if (!bekey || !*bekey) return NULL;
+    while(be) {
+        if(be->bekey && strcmp(be->bekey, bekey)==0) return be;
+        be = be->next;
+    }
+    return NULL;
+}
+
 
 /*
  * return a back-end based on a fixed hash value
@@ -637,28 +667,39 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     void        *vp;
     int         ret_val, no_be;
     char        key[KEY_SIZE+1];
+    char        bekey[KEY_SIZE+1];
 
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
     no_be = (svc->tot_pri <= 0);
     sess = NULL;
     key[0]='\0';
+    bekey[0]='\0';
     svc->requests++;
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
-        res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
+        if (no_be) res = svc->emergency;
+        else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+            printf("Found BEKEY %s\n",bekey);
+            res = get_backend_by_key(svc->backends, bekey);
+            if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+        } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host, 1);
-        if(svc->sess_ttl < 0)
+        if(svc->sess_ttl < 0) {
             res = no_be? svc->emergency: hash_backend(svc->backends, svc->abs_pri, key);
-        else if((vp = t_find(svc->sessions, key)) == NULL) {
+        } else if((vp = t_find(svc->sessions, key)) == NULL) {
             if(no_be)
                 res = svc->emergency;
             else {
                 /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                    printf("Found BEKEY %s\n",bekey);
+                    res = get_backend_by_key(svc->backends, bekey);
+                    if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                 sess = new_session(key);
                 sess->be = res;
                 t_add(svc->sessions, key, &sess, sizeof(sess));
@@ -681,7 +722,11 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 if (no_be)
                     res = svc->emergency;
                 else {
-                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                        printf("Found BEKEY %s\n",bekey);
+                        res = get_backend_by_key(svc->backends, bekey);
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                    } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session(key);
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
@@ -706,7 +751,11 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 if(no_be)
                     res = svc->emergency;
                 else {
-                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                        printf("Found BEKEY %s\n",bekey);
+                        res = get_backend_by_key(svc->backends, bekey);
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                    } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session(key);
                     sess->be = res;
                     t_add(svc->sessions, key, &sess, sizeof(sess));
@@ -718,7 +767,12 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                 svc->hits++;
             }
         } else {
-            res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
+            if (no_be) res = svc->emergency;
+            else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                printf("Found BEKEY %s\n",bekey);
+                res = get_backend_by_key(svc->backends, bekey);
+                if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+            } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     }

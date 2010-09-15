@@ -368,6 +368,11 @@ typedef struct _service {
     regex_t             sess_end;   /* Pattern to explicitly end a session */
     LHASH               *sessions;  /* currently active sessions */
     struct _session     *del_sessions;  /* Sessions pending deletion */
+    regex_t             becookie_match; /* Regexs to find backend cookies */
+    char                *becookie,  /* Backend Cookie Name */
+                        *becdomain, /* Backend Cookie domain */
+                        *becpath;   /* Backend cookie path */
+    int                 becage;     /* Backend cookie age */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     int			global;     /* true if this service is global rather than attached to a specific listener */
