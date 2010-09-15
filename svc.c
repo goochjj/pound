@@ -681,9 +681,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
         /* choose one back-end randomly */
         if (no_be) res = svc->emergency;
         else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
-            printf("Found BEKEY %s\n",bekey);
+            logmsg(LOG_DEBUG, "Found BEKEY %s in headers\n",bekey);
             res = get_backend_by_key(svc->backends, bekey);
-            if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+            if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey\n");
         } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         break;
     case SESS_IP:
@@ -696,9 +696,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
             else {
                 /* no session yet - create one */
                 if (get_bekey_from_HEADERS(bekey, svc, headers)) {
-                    printf("Found BEKEY %s\n",bekey);
+                    logmsg(LOG_DEBUG, "Found BEKEY %s in headers\n",bekey);
                     res = get_backend_by_key(svc->backends, bekey);
-                    if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                    if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey\n");
                 } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                 sess = new_session(key);
                 sess->be = res;
@@ -723,9 +723,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     if (get_bekey_from_HEADERS(bekey, svc, headers)) {
-                        printf("Found BEKEY %s\n",bekey);
+                        logmsg(LOG_DEBUG,"Found BEKEY %s in headers\n",bekey);
                         res = get_backend_by_key(svc->backends, bekey);
-                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey\n");
                     } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session(key);
                     sess->be = res;
@@ -752,9 +752,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     if (get_bekey_from_HEADERS(bekey, svc, headers)) {
-                        printf("Found BEKEY %s\n",bekey);
+                        logmsg(LOG_DEBUG, "Found BEKEY %s in headers\n",bekey);
                         res = get_backend_by_key(svc->backends, bekey);
-                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found matching backend by bekey\n");
                     } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     sess = new_session(key);
                     sess->be = res;
@@ -769,9 +769,9 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
         } else {
             if (no_be) res = svc->emergency;
             else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
-                printf("Found BEKEY %s\n",bekey);
+                logmsg(LOG_DEBUG, "Found BEKEY %s in headers\n",bekey);
                 res = get_backend_by_key(svc->backends, bekey);
-                if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found by bekey\n");
+                if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey\n");
             } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
