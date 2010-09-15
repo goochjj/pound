@@ -145,22 +145,36 @@ be_prt(const int sock)
     return;
 }
 
-static void
-escape_url(char *buf, int maxsize)
+static char ampbufs[10][MAXBUF];
+
+/*
+  For the purposes of this code, we have 10 static buffers.  We return a reference to the
+  static buffer.  Similar to inet_ntoa.  This means it's not reentrant or thread safe, and
+  kinda poor practice... Except we're a standalone, single threaded process.  This pre-
+  allocates memory and is mainly just used for printing, so it's ok.  Plus, we're never
+  passing in MAXBUF buffers, so we don't have to worry so much about overflow.
+*/
+
+static char *
+escape_amp(char *buf, int bufnum)
 {
-    char *cp = buf, *cpy;
-    char *ep = buf+strlen(buf);
-    char *mp = buf + maxsize;
-    while (cp < (mp-4) && (cp=strchr(cp, '&'))!=NULL) {
-      for(cpy=ep; cpy>=cp; cpy--) if (cpy<(mp-4)) cpy[4] = cpy[0];
-      ep+=4;
+    char *src = buf;
+    char *cp = src;
+    char *dst = ampbufs[bufnum];
+    char *dep = dst+sizeof(ampbufs[0])-1;
+
+    while(*cp && dst<dep && (cp=strchr(cp, '&'))!=NULL) {
+      while(src<=cp && dst<dep) *dst++ = *src++;
       cp++;
-      *cp++ = 'a';
-      *cp++ = 'm';
-      *cp++ = 'p';
-      *cp++ = ';';
+      if (dst<dep) *dst++ = 'a';
+      if (dst<dep) *dst++ = 'm';
+      if (dst<dep) *dst++ = 'p';
+      if (dst<dep) *dst++ = ';';
     }
-    *(mp-1) = '\0';
+    while(*cp && dst<dep) *dst++ = *cp++;
+    *dst++ = '\0';
+    *dep='\0';
+    return ampbufs[bufnum];
 }
 
 static void
@@ -189,8 +203,6 @@ sess_prt(const int sock, SERVICE *svc)
 	    sess.last_ip = (struct sockaddr *)addrbuf;
             read(sock, addrbuf, sess.last_ip_len);
         }
-	escape_url(sess.last_url, sizeof(sess.last_url));
-	escape_url(sess.lb_info, sizeof(sess.lb_info));
         last_ip.ai_family = sess.last_ip_family;
         last_ip.ai_addrlen = sess.last_ip_len;
         last_ip.ai_addr = sess.last_ip;
@@ -207,10 +219,10 @@ sess_prt(const int sock, SERVICE *svc)
                     escaped[j++] = buf[i];
             escaped[j] = '\0';
             printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" requests=\"%u\" lastaccess=\"%d\" timeleft=\"%d\" deletepending=\"%d\" lastip=\"%s\" lastuser=\"%s\" lasturl=\"%s\" lbinfo=\"%s\" />\n", n_sess++, escaped, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), sess.delete_pending,
-		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
+		prt_addr(&last_ip), escape_amp(sess.last_user,0), escape_amp(sess.last_url,1), escape_amp(sess.lb_info,2));
         } else
             printf("    %3d. Session %s -> %d (%u) la %d ttl %d/%d [%s] [%s] [%s] [%s]\n", n_sess++, buf, n_be, sess.n_requests, tsess.last_acc, (tsess.last_acc+(sess.delete_pending?svc->death_ttl:svc->sess_ttl))-time(NULL), svc->sess_ttl,
-		prt_addr(&last_ip), sess.last_user, sess.last_url, sess.lb_info);
+		prt_addr(&last_ip), escape_amp(sess.last_user,0), escape_amp(sess.last_url,1), escape_amp(sess.lb_info,2));
     }
     return;
 }
