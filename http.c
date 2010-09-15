@@ -507,6 +507,8 @@ thr_http(void *arg)
     long                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
+    struct tm           expires;
+    time_t              exptime;
     double              start_req, end_req;
 
     from_host = ((thr_arg *)arg)->from_host;
@@ -1336,6 +1338,42 @@ thr_http(void *arg)
                     }
                 }
             free_headers(&headers);
+            if(!skip && cur_backend->be_type == 0 && svc->becookie && cur_backend->bekey) {
+                char *cp = buf;
+                char *ep = buf + sizeof(buf) - 1;
+                buf[0] = '\0';
+                snprintf(cp, (ep-cp-1), "Set-Cookie: %s=%s", svc->becookie, cur_backend->bekey);
+                cp += strlen(cp);
+                if(svc->becage!=0) {
+                    strncat(cp, "; expires=", ep-cp-1);
+                    cp += strlen(cp);
+                    exptime = time(NULL);
+                    /* Explicit age?  Or match session timer? (-1) */
+                    if (svc->becage>0)
+                        exptime += svc->becage;
+                    else if (end_of_session_forced||sess_copy.delete_pending) {
+                        if (svc->death_ttl<=0) exptime -= 365 * 86400; /* 365 days past, expire immediate */
+                        else exptime += svc->death_ttl;
+                    } else
+                        exptime += svc->sess_ttl;
+                    strftime(cp, ep-cp-1, "%a, %e-%b-%Y %H:%M:%S GMT", gmtime(&exptime));
+                    cp += strlen(cp);
+                }
+                if(svc->becpath) {
+                    strncat(cp, "; path=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becpath, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                if(svc->becdomain) {
+                    strncat(cp, "; domain=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becdomain, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                /*logmsg(LOG_DEBUG, "%s", buf);*/
+                BIO_printf(cl, "%s\r\n", buf);
+            }
 
             /* final CRLF */
             if(!skip)

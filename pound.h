@@ -314,6 +314,7 @@ typedef struct _backend {
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* 0 - redirect is absolute, 1 - the redirect should include the request path, or 2 if it should use perl dynamic replacement */
+    char                *bekey;     /* Backend Key for Cookie */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
     unsigned int        n_requests; /* number of requests seen */
@@ -367,6 +368,11 @@ typedef struct _service {
     regex_t             sess_end;   /* Pattern to explicitly end a session */
     LHASH               *sessions;  /* currently active sessions */
     struct _session     *del_sessions;  /* Sessions pending deletion */
+    regex_t             becookie_match; /* Regexs to find backend cookies */
+    char                *becookie,  /* Backend Cookie Name */
+                        *becdomain, /* Backend Cookie domain */
+                        *becpath;   /* Backend cookie path */
+    int                 becage;     /* Backend cookie age */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     int                 global;     /* true if this service is global rather than attached to a specific listener */

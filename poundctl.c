@@ -102,6 +102,7 @@ be_prt(const int sock)
     BACKEND be;
     struct  sockaddr_storage    a, h;
     char    url[MAXBUF+1];
+    char    bekey[MAXBUF+1];
     int     n_be,sz;
 
     n_be = 0;
@@ -112,6 +113,10 @@ be_prt(const int sock)
         if(sz) read(sock, url, sz);
         url[sz]='\0';
         be.url=url;
+        read(sock, &sz, sizeof(sz));
+        if(sz) read(sock, bekey, sz);
+        bekey[sz]='\0';
+        be.bekey=bekey;
 
         read(sock, &a, be.addr.ai_addrlen);
         be.addr.ai_addr = (struct sockaddr *)&a;
@@ -121,8 +126,8 @@ be_prt(const int sock)
         }
         if(!be.be_type) {
             if(xml_out)
-                printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\" />\n",
-                    n_be++,
+                printf("<backend index=\"%d\" key=\"%s\" address=\"%s\" avg=\"%.3f\" requests=\"%ld\" priority=\"%d\" alive=\"%s\" status=\"%s\" http1xx=\"%u\" http2xx=\"%u\" http3xx=\"%u\" http4xx=\"%u\" http5xx=\"%u\" />\n",
+                    n_be++, be.bekey,
                     prt_addr(&be.addr), be.t_average / 1000000, be.n_requests, be.priority, be.alive? "yes": "DEAD",
                     be.disabled? "DISABLED": "active", be.http1xx, be.http2xx, be.http3xx, be.http4xx, be.http5xx);
             else

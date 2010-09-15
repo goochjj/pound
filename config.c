@@ -88,6 +88,8 @@ static regex_t  InitScript;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
+static regex_t  BackendKey, BackendCookie;
+
 static regmatch_t   matches[5];
 
 static char *xhttp[] = {
@@ -245,6 +247,7 @@ static BACKEND *
 parse_be(const int is_emergency)
 {
     char        lin[MAXBUF];
+    char        *cp;
     BACKEND     *res;
     int         has_addr, has_port;
     struct hostent      *host;
@@ -263,6 +266,7 @@ parse_be(const int is_emergency)
     res->priority = 5;
     memset(&res->ha_addr, 0, sizeof(res->ha_addr));
     res->url = NULL;
+    res->bekey = NULL;
     res->next = NULL;
     res->ctx = NULL;
     has_addr = has_port = 0;
@@ -303,6 +307,10 @@ parse_be(const int is_emergency)
                 conf_err("Port is supported only for INET/INET6 back-ends");
             }
             has_port = 1;
+        } else if(!regexec(&BackendKey, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((res->bekey = strdup(lin + matches[1].rm_so))==NULL)
+                conf_err("out of memory");
         } else if(!regexec(&Priority, lin, 4, matches, 0)) {
             if(is_emergency)
                 conf_err("Priority is not supported for Emergency back-ends");
@@ -396,6 +404,19 @@ parse_be(const int is_emergency)
                 conf_err("BackEnd missing Port - aborted");
             if(!res->priority)
                 return NULL;
+            if(!res->bekey) {
+                if (res->addr.ai_family == AF_INET)
+                    snprintf(lin, MAXBUF-1, "4-%08x-%x",htonl(((struct sockaddr_in *)(res->addr.ai_addr))->sin_addr.s_addr), htons(((struct sockaddr_in *)(res->addr.ai_addr))->sin_port));
+                else if (res->addr.ai_family == AF_INET6) {
+                    cp = (char*) &(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_addr);
+                    snprintf(lin, MAXBUF-1, "6-%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x-%x",cp[0],cp[1],cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8],cp[9],cp[10],cp[11],cp[12],cp[13],cp[14],cp[15],htons(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_port));
+                } else
+                    conf_err("cannot autogenerate backendkey, please specify one");
+
+                if ((res->bekey = strdup(lin))==NULL)
+                    conf_err("out of memory autogenerating backendkey");
+            }
+            printf("Key %s\n",res->bekey);
             return res;
         } else {
             conf_err("unknown directive");
@@ -556,6 +577,8 @@ parse_service(const char *svc_name, int global)
     if((res->sessions = lh_new(LHASH_HASH_FN(t_hash), LHASH_COMP_FN(t_cmp))) == NULL)
         conf_err("lh_new failed - aborted");
     res->del_sessions = NULL;
+    res->becookie = res->becdomain = res->becpath = NULL;
+    res->becage = 0;
     ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
@@ -636,6 +659,7 @@ parse_service(const char *svc_name, int global)
                 be->be_type = atoi(lin + matches[2].rm_so);
             be->priority = 1;
             be->alive = 1;
+            be->bekey = NULL;
             pthread_mutex_init(& be->mut, NULL);
             lin[matches[3].rm_eo] = '\0';
             if((be->url = strdup(lin + matches[3].rm_so)) == NULL)
@@ -661,6 +685,26 @@ parse_service(const char *svc_name, int global)
 
             // This is the default and the regexp is compiled in the End case
             res->user_type = UserBasic;
+        } else if(!regexec(&BackendCookie, lin, 5, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            lin[matches[2].rm_eo] = '\0';
+            lin[matches[3].rm_eo] = '\0';
+            lin[matches[4].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "Cookie[^:]*:.*[; \t]%s=\"?([^\";]*)\"?", lin + matches[1].rm_so);
+            if(matches[1].rm_so==matches[1].rm_eo)
+                conf_err("Backend cookie must have a name");
+            if((res->becookie=strdup(lin+matches[1].rm_so))==NULL)
+                conf_err("out of memory");
+            if(regcomp(&res->becookie_match, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("AuthType Coldfusion pattern failed - aborted");
+            if(matches[2].rm_so!=matches[2].rm_eo && (res->becdomain=strdup(lin+matches[2].rm_so))==NULL)
+                conf_err("out of memory");
+            if(matches[3].rm_so!=matches[3].rm_eo && (res->becpath=strdup(lin+matches[3].rm_so))==NULL)
+                conf_err("out of memory");
+            if ((lin[matches[4].rm_so]&~0x20)=='S')
+                res->becage = -1;
+            else
+                res->becage = atoi(lin+matches[4].rm_so);
         } else if(!regexec(&AuthTypeColdfusion, lin, 4, matches, 0)) {
             if (res->user_type!=UserBasic)
                 conf_err("Multiple authtypes defined");
@@ -1414,6 +1458,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendKey, "^[ \t]*Key[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1439,6 +1484,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeCFAuthToken, "^[ \t]*AuthType[ \t]+(AuthToken|Token|CFAuthToken)[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+|Session)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LBInfoHeader, "^[ \t]*LBInfoHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1591,6 +1637,7 @@ config_parse(const int argc, char **const argv)
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&End);
+    regfree(&BackendKey);
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
@@ -1617,6 +1664,7 @@ config_parse(const int argc, char **const argv)
     regfree(&AuthTypeColdfusion);
     regfree(&AuthTypeCFAuthToken);
     regfree(&LBInfoHeader);
+    regfree(&BackendCookie);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
