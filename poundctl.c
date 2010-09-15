@@ -152,7 +152,7 @@ escape_url(char *buf, int maxsize)
     char *ep = buf+strlen(buf);
     char *mp = buf + maxsize;
     while (cp < (mp-4) && (cp=strchr(cp, '&'))!=NULL) {
-      for(cpy=ep; cpy>=cp; cpy--) cpy[4] = cpy[0];
+      for(cpy=ep; cpy>=cp; cpy--) if (cpy<(mp-4)) cpy[4] = cpy[0];
       ep+=4;
       cp++;
       *cp++ = 'a';
@@ -160,6 +160,7 @@ escape_url(char *buf, int maxsize)
       *cp++ = 'p';
       *cp++ = ';';
     }
+    *(mp-1) = '\0';
 }
 
 static void
