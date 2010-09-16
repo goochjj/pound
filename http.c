@@ -1344,11 +1344,18 @@ thr_http(void *arg)
                 buf[0] = '\0';
                 snprintf(cp, (ep-cp-1), "Set-Cookie: %s=%s", svc->becookie, cur_backend->bekey);
                 cp += strlen(cp);
-                if(svc->becage>0) {
+                if(svc->becage!=0) {
                     strncat(cp, "; expires=", ep-cp-1);
                     cp += strlen(cp);
                     exptime = time(NULL);
-                    exptime += svc->becage;
+                    /* Explicit age?  Or match session timer? (-1) */
+                    if (svc->becage>0)
+                        exptime += svc->becage;
+                    else if (end_of_session_forced||sess_copy.delete_pending) {
+                        if (svc->death_ttl<=0) exptime -= 365 * 86400; /* 365 days past, expire immediate */
+                        else exptime += svc->death_ttl;
+                    } else
+                        exptime += svc->sess_ttl;
                     strftime(cp, ep-cp-1, "%a, %e-%b-%y %H:%M:%S GMT", gmtime(&exptime));
                     cp += strlen(cp);
                 }
@@ -1364,6 +1371,7 @@ thr_http(void *arg)
                     strncat(cp, svc->becdomain, ep-cp-1);
                     cp += strlen(cp);
                 }
+                /*logmsg(LOG_DEBUG, "%s", buf);*/
                 BIO_printf(cl, "%s\r\n", buf);
             }
 

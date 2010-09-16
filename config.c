@@ -701,7 +701,10 @@ parse_service(const char *svc_name, int global)
                 conf_err("out of memory");
             if(matches[3].rm_so!=matches[3].rm_eo && (res->becpath=strdup(lin+matches[3].rm_so))==NULL)
                 conf_err("out of memory");
-            res->becage = atoi(lin+matches[4].rm_so);
+            if ((lin[matches[4].rm_so]&~0x20)=='S')
+                res->becage = -1;
+            else
+                res->becage = atoi(lin+matches[4].rm_so);
         } else if(!regexec(&AuthTypeColdfusion, lin, 4, matches, 0)) {
             if (res->user_type!=UserBasic)
                 conf_err("Multiple authtypes defined");
@@ -1481,7 +1484,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AuthTypeCFAuthToken, "^[ \t]*AuthType[ \t]+(AuthToken|Token|CFAuthToken)[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+|Session)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LBInfoHeader, "^[ \t]*LBInfoHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)

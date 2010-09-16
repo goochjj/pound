@@ -618,11 +618,13 @@ Parse Coldfusion <cflogin> authentication for the given application name, to ret
 \fBAuthType AuthToken "CookieName"\fR
 Parse Custom Sapphire AuthToken authentication for the given cookie name, to retrieve the user name
 .TP
-\fBBackendCookie\fR "cookiename" "domain" "path" age
+\fBBackendCookie\fR "cookiename" "domain" "path" age|Session
 If defined, Pound will inject a cookie in each response with the appropriate backend's key, so that
 even if the session table is flushed or sessions are disabled, the proper backend can be chosen.
 This allows for session databases to be offloaded to the client side via browser cookies.
-See \fBKey\fR in the backend definition.
+See \fBKey\fR in the backend definition.  The given age will be how many seconds the cookie will
+persist for.  If set to 0, it will be a so-called "memory" cookie which will expire when the browser
+closes.  If set to "Session", it will mimick the session TTL behavior.
 .TP
 \fBIgnoreCase\fR 0|1
 Override the global
