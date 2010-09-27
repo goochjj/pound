@@ -4,29 +4,40 @@ DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 DEB_HOST_GNU_CPU   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_CPU)
 
+OURLIBS=
+
 ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
   CONFFLAGS += --build $(DEB_HOST_GNU_TYPE)
 else
   CONFFLAGS += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
 endif
 
-ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+#ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
   CFLAGS += -g
-endif
-ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+#endif
+#ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 	CFLAGS += -O0
-else
-	CFLAGS += -O2
+
+#TCMalloc
+OURLIBS += /usr/lib/libtcmalloc_minimal.so.0
+CFLAGS += -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+
+	CFLAGS += -fno-omit-frame-pointer
+#else
+#	CFLAGS += -O2
 	CFLAGS += -D_FORTIFY_SOURCE=2 
-endif
+#endif
 ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
-ifneq ($(DEB_HOST_GNU_CPU),arm)
-	CFLAGS += -fstack-protector
-endif
+#ifneq ($(DEB_HOST_GNU_CPU),arm)
+#	CFLAGS += -fstack-protector
+#endif
 CFLAGS += -fPIE
-LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
+#LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
+
+OURLIBS += -Wl,-Bstatic -lpcreposix -lssl -lcrypto -Wl,-Bdynamic -lresolv -ldl -Wl,-Bstatic -lz -lpcre -Wl,-Bdynamic -lc -lm
+
 
 config.status: configure
 	dh_testdir
@@ -35,7 +46,7 @@ config.status: configure
 	env LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --sysconfdir=/etc/pound --disable-tcmalloc --disable-hoard
 	rm config.sub && mv config.sub.upstream config.sub
 	rm config.guess && mv config.guess.upstream config.guess
-
+	perl -pi -e 's|^LIBS=.*|LIBS=$(OURLIBS)|g' Makefile
 
 build: build-stamp
 
