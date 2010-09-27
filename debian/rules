@@ -4,6 +4,8 @@ DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 DEB_HOST_GNU_CPU   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_CPU)
 
+OURLIBS=
+
 ifeq ($(DEB_BUILD_GNU_TYPE), $(DEB_HOST_GNU_TYPE))
   CONFFLAGS += --build $(DEB_HOST_GNU_TYPE)
 else
@@ -15,6 +17,11 @@ endif
 #endif
 #ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 	CFLAGS += -O0
+
+#TCMalloc
+OURLIBS += /usr/lib/libtcmalloc_minimal.so.0
+CFLAGS += -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+
 	CFLAGS += -fno-omit-frame-pointer
 #else
 #	CFLAGS += -O2
@@ -29,6 +36,9 @@ endif
 CFLAGS += -fPIE
 #LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
 
+OURLIBS += /usr/lib/libpcreposix.a /usr/lib/libssl.a /usr/lib/libcrypto.a -lresolv -ldl /usr/lib/libz.a /usr/lib/libpcre.a -lc -lm
+
+
 config.status: configure
 	dh_testdir
 	mv config.sub config.sub.upstream && ln -s /usr/share/misc/config.sub
@@ -36,7 +46,7 @@ config.status: configure
 	env LDFLAGS="$(LDFLAGS)" CFLAGS="$(CFLAGS)" ./configure --prefix=/usr --mandir=\$${prefix}/share/man --infodir=\$${prefix}/share/info --sysconfdir=/etc/pound --disable-tcmalloc --disable-hoard
 	rm config.sub && mv config.sub.upstream config.sub
 	rm config.guess && mv config.guess.upstream config.guess
-
+	perl -pi -e 's|^LIBS=.*|LIBS=$(OURLIBS)|g' Makefile
 
 build: build-stamp
 
