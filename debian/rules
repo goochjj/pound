@@ -10,23 +10,24 @@ else
   CONFFLAGS += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
 endif
 
-ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
+#ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
   CFLAGS += -g
-endif
-ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+#endif
+#ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 	CFLAGS += -O0
-else
-	CFLAGS += -O2
+	CFLAGS += -fno-omit-frame-pointer
+#else
+#	CFLAGS += -O2
 	CFLAGS += -D_FORTIFY_SOURCE=2 
-endif
+#endif
 ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
-ifneq ($(DEB_HOST_GNU_CPU),arm)
-	CFLAGS += -fstack-protector
-endif
+#ifneq ($(DEB_HOST_GNU_CPU),arm)
+#	CFLAGS += -fstack-protector
+#endif
 CFLAGS += -fPIE
-LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
+#LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
 
 config.status: configure
 	dh_testdir
