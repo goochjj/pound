@@ -1356,7 +1356,7 @@ thr_http(void *arg)
                         else exptime += svc->death_ttl;
                     } else
                         exptime += svc->sess_ttl;
-                    strftime(cp, ep-cp-1, "%a, %e-%b-%y %H:%M:%S GMT", gmtime(&exptime));
+                    strftime(cp, ep-cp-1, "%a, %e-%b-%Y %H:%M:%S GMT", gmtime(&exptime));
                     cp += strlen(cp);
                 }
                 if(svc->becpath) {
