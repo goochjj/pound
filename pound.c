@@ -32,6 +32,7 @@ char        *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
+            *init_script,       /* Initialization script to execute */
             *ctrl_name;         /* control socket name */
 
 int         alive_to,           /* check interval for resurrection */
@@ -62,6 +63,8 @@ int     SOL_TCP;
 /* worker pid */
 static  pid_t               son = 0;
 
+/* init script pid */
+static  pid_t               son2 = 0;
 /*
  * OpenSSL thread support stuff
  */
@@ -113,6 +116,8 @@ h_term(const int sig)
     logmsg(LOG_NOTICE, "received signal %d - exiting...", sig);
     if(son > 0)
         kill(son, sig);
+    if(son2 > 0)
+        kill(son, sig);
     if(ctrl_name != NULL)
         (void)unlink(ctrl_name);
     exit(0);
@@ -128,6 +133,9 @@ h_shut(const int sig)
     LISTENER    *lstn;
 
     logmsg(LOG_NOTICE, "received signal %d - shutting down...", sig);
+    if(son2 > 0)
+      kill(son2, sig);
+
     if(son > 0) {
         for(lstn = listeners; lstn; lstn = lstn->next)
             close(lstn->sock);
@@ -168,6 +176,7 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
+    init_script = NULL;
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
@@ -377,6 +386,31 @@ main(const int argc, char **argv)
 
             /* pause to make sure the service threads were started */
             sleep(2);
+
+            /* Run the init script to initialize our state, if we can */
+            if(init_script) {
+                if((son2 = fork()) > 0) {
+                    /* Parent */
+                    int status;
+
+	            logmsg(LOG_NOTICE, "started pound init script as pid %d from worker process %d", son2, getpid());
+                    (void)wait(&status);
+                    if(WIFEXITED(status))
+                        logmsg(LOG_ERR, "MONITOR: init script exited normally %d", WEXITSTATUS(status));
+                    else if(WIFSIGNALED(status))
+                        logmsg(LOG_ERR, "MONITOR: init script exited on signal %d", WTERMSIG(status));
+                    else
+                        logmsg(LOG_ERR, "MONITOR: init script exited (stopped?) %d", status);
+                    son2 = 0;
+                } else if (son2 == 0) {
+                    /* Child */
+                    logmsg(LOG_NOTICE, "Running script %s in pid %d", init_script, getpid());
+                    execl(init_script, getcwd(tmp, MAXBUF-1), control_sock>=0 ? ctrl_name : "", 0);
+                } else {
+                    /* failed to spawn son */
+                    logmsg(LOG_ERR, "Can't fork initscript (%s) - skipping", strerror(errno));
+                }
+            }
 
             /* and start working */
             for(;;) {

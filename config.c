@@ -79,6 +79,8 @@ static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 
+static regex_t  InitScript;
+
 static regmatch_t   matches[5];
 
 static char *xhttp[] = {
@@ -1054,6 +1056,12 @@ parse_file(void)
                 conf_err("Control multiply defined - aborted");
             lin[matches[1].rm_eo] = '\0';
             ctrl_name = strdup(lin + matches[1].rm_so);
+        } else if(!regexec(&InitScript, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((init_script = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "line %d: InitScript config: out of memory - aborted", n_lin);
+                exit(1);
+            }
         } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
             if(listeners == NULL)
                 listeners = parse_HTTP();
@@ -1115,6 +1123,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Grace, "^[ \t]*Grace[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&InitScript, "^[ \t]*InitScript[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1269,6 +1278,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Grace);
     regfree(&Alive);
     regfree(&SSLEngine);
+    regfree(&InitScript);
     regfree(&Control);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);

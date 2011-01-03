@@ -244,6 +244,7 @@ extern char *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
+            *init_script,       /* Initialization script to execute */
             *ctrl_name;         /* control socket name */
 
 extern int  alive_to,           /* check interval for resurrection */
