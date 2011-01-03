@@ -320,6 +320,12 @@ program.
 .TP
 \fBInclude\fR "/path/to/file"
 Include the file as though it were part of the configuration file.
+\fBInitScript\fR "path/to/script/file"
+This script will be executed when the worker thread starts.  This would be
+after the control socket is created, but before listeners are started.
+Possible uses for this feature would be to preload the sessions table with
+a list of sessions that should be honored.  Whether using a monitoring thread
+or not, the script will be executed.
 .SH "HTTP Listener"
 An HTTP listener defines an address and port that
 .B Pound
