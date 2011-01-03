@@ -79,7 +79,7 @@ static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 
-static regex_t  BackendKey;
+static regex_t  BackendKey, BackendCookie;
 
 static regmatch_t   matches[5];
 
@@ -483,6 +483,8 @@ parse_service(const char *svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
     if((res->sessions = lh_new(LHASH_HASH_FN(t_hash), LHASH_COMP_FN(t_cmp))) == NULL)
         conf_err("lh_new failed - aborted");
+    res->becookie = res->becdomain = res->becpath = NULL;
+    res->becage = 0;
     ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
@@ -597,6 +599,23 @@ parse_service(const char *svc_name)
                 res->backends = parse_be(0);
         } else if(!regexec(&Emergency, lin, 4, matches, 0)) {
             res->emergency = parse_be(1);
+        } else if(!regexec(&BackendCookie, lin, 5, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            lin[matches[2].rm_eo] = '\0';
+            lin[matches[3].rm_eo] = '\0';
+            lin[matches[4].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "Cookie[^:]*:.*[; \t]%s=\"?([^\";]*)\"?", lin + matches[1].rm_so);
+            if(matches[1].rm_so==matches[1].rm_eo)
+                conf_err("Backend cookie must have a name");
+            if((res->becookie=strdup(lin+matches[1].rm_so))==NULL)
+                conf_err("out of memory");
+            if(regcomp(&res->becookie_match, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("Backend Cookie pattern failed - aborted");
+            if(matches[2].rm_so!=matches[2].rm_eo && (res->becdomain=strdup(lin+matches[2].rm_so))==NULL)
+                conf_err("out of memory");
+            if(matches[3].rm_so!=matches[3].rm_eo && (res->becpath=strdup(lin+matches[3].rm_so))==NULL)
+                conf_err("out of memory");
+            res->becage = atoi(lin+matches[4].rm_so);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
@@ -1159,6 +1178,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1314,6 +1334,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&BackendCookie);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
