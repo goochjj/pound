@@ -307,6 +307,7 @@ typedef struct _backend {
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */
+    char                *bekey;     /* Backend Key for Cookie */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
     int                 n_requests; /* number of requests seen */
