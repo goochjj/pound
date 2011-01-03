@@ -79,6 +79,8 @@ static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 
+static regex_t  BackendKey;
+
 static regmatch_t   matches[5];
 
 static char *xhttp[] = {
@@ -173,6 +175,7 @@ static BACKEND *
 parse_be(const int is_emergency)
 {
     char        lin[MAXBUF];
+    char        *cp;
     BACKEND     *res;
     int         has_addr, has_port;
     struct hostent      *host;
@@ -191,6 +194,7 @@ parse_be(const int is_emergency)
     res->priority = 5;
     memset(&res->ha_addr, 0, sizeof(res->ha_addr));
     res->url = NULL;
+    res->bekey = NULL;
     res->next = NULL;
     res->ctx = NULL;
     has_addr = has_port = 0;
@@ -231,6 +235,10 @@ parse_be(const int is_emergency)
                 conf_err("Port is supported only for INET/INET6 back-ends");
             }
             has_port = 1;
+        } else if(!regexec(&BackendKey, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((res->bekey = strdup(lin + matches[1].rm_so))==NULL)
+                conf_err("out of memory");
         } else if(!regexec(&Priority, lin, 4, matches, 0)) {
             if(is_emergency)
                 conf_err("Priority is not supported for Emergency back-ends");
@@ -318,6 +326,19 @@ parse_be(const int is_emergency)
                 conf_err("BackEnd missing Address - aborted");
             if((res->addr.ai_family == AF_INET || res->addr.ai_family == AF_INET6) && !has_port)
                 conf_err("BackEnd missing Port - aborted");
+            if(!res->bekey) {
+                if (res->addr.ai_family == AF_INET)
+                    snprintf(lin, MAXBUF-1, "4-%08x-%x",htonl(((struct sockaddr_in *)(res->addr.ai_addr))->sin_addr.s_addr), htons(((struct sockaddr_in *)(res->addr.ai_addr))->sin_port));
+                else if (res->addr.ai_family == AF_INET6) {
+                    cp = (char*) &(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_addr);
+                    snprintf(lin, MAXBUF-1, "6-%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x-%x",cp[0],cp[1],cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8],cp[9],cp[10],cp[11],cp[12],cp[13],cp[14],cp[15],htons(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_port));
+                } else
+                    conf_err("cannot autogenerate backendkey, please specify one");
+
+                if ((res->bekey = strdup(lin))==NULL)
+                    conf_err("out of memory autogenerating backendkey");
+            }
+            //printf("Key %s\n",res->bekey);
             return res;
         } else {
             conf_err("unknown directive");
@@ -556,6 +577,7 @@ parse_service(const char *svc_name)
             be->be_type = atoi(lin + matches[1].rm_so);
             be->priority = 1;
             be->alive = 1;
+            be->bekey = NULL;
             pthread_mutex_init(&res->mut, NULL);
             lin[matches[2].rm_eo] = '\0';
             if((be->url = strdup(lin + matches[2].rm_so)) == NULL)
@@ -1119,6 +1141,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendKey, "^[ \t]*Key[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1273,6 +1296,7 @@ config_parse(const int argc, char **const argv)
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&End);
+    regfree(&BackendKey);
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
