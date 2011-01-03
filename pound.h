@@ -354,6 +354,11 @@ typedef struct _service {
 #else
     LHASH               *sessions;  /* currently active sessions */
 #endif
+    regex_t             becookie_match; /* Regexs to find backend cookies */
+    char                *becookie,  /* Backend Cookie Name */
+                        *becdomain, /* Backend Cookie domain */
+                        *becpath;   /* Backend cookie path */
+    int                 becage;     /* Backend cookie age */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
