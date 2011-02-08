@@ -1,4 +1,17 @@
 ------------------------------------------------------------------------
+r63 | roseg | 2009-08-19 17:44:07 +0200 (Wed, 19 Aug 2009) | 10 lines
+
+Release 2.5b
+
+Enhancements:
+  - support for ConnTO directive
+  - support for IgnoreCase directive
+
+Bug fixes:
+  - fixed problem in conf_fgets (\n confuses the regexp)
+  - changed RSA ephemeral keys regeneration default time (every 30 minutes)
+
+------------------------------------------------------------------------
 r62 | roseg | 2009-08-06 17:23:30 +0200 (Thu, 06 Aug 2009) | 9 lines
 
 Release 2.5a

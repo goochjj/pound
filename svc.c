@@ -897,7 +897,7 @@ do_resurect(void)
         default:
             continue;
         }
-        if(connect_nb(sock, &be->ha_addr, be->to) != 0) {
+        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0) {
             kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
@@ -933,7 +933,7 @@ do_resurect(void)
         default:
             continue;
         }
-        if(connect_nb(sock, &be->ha_addr, be->to) != 0) {
+        if(connect_nb(sock, &be->ha_addr, be->conn_to) != 0) {
             kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
@@ -988,7 +988,7 @@ do_resurect(void)
                 }
                 addr = &be->ha_addr;
             }
-            if(connect_nb(sock, addr, be->to) == 0) {
+            if(connect_nb(sock, addr, be->conn_to) == 0) {
                 be->resurrect = 1;
                 modified = 1;
             }
@@ -1057,7 +1057,7 @@ do_resurect(void)
                 }
                 addr = &be->ha_addr;
             }
-            if(connect_nb(sock, addr, be->to) == 0) {
+            if(connect_nb(sock, addr, be->conn_to) == 0) {
                 be->resurrect = 1;
                 modified = 1;
             }

@@ -243,6 +243,10 @@ and
 used).
 This value can be overridden for specific listeners.
 .TP
+\fBIgnoreCase\fR 0|1
+Ignore case when matching URLs (default: 0). This value can be
+overridden for specific services.
+.TP
 \fBDynScale\fR 0|1
 Enable or disable the dynamic rescaling code (default: 0). If enabled
 .B Pound
@@ -274,6 +278,13 @@ How long should
 .B Pound
 wait for a response from the back-end (in seconds). Default: 15 seconds.
 This value can be overridden for specific back-ends.
+.TP
+\fBConnTO\fR value
+How long should
+.B Pound
+wait for a connection to the back-end (in seconds). Default: the
+.B TimeOut
+value. This value can be overridden for specific back-ends.
 .TP
 \fBGrace\fR value
 How long should
@@ -506,7 +517,14 @@ returns an error. You may define multiple
 .I URL
 conditions per service. If no
 .I URL
-was defined then all requests match.
+was defined then all requests match. The matching is by default case-sensitive,
+but this can be overridden by specifying
+.B IgnoreCase 1
+.TP
+\fBIgnoreCase\fR 0|1
+Override the global
+.B IgnoreCase
+setting.
 .TP
 \fBHeadRequire\fR "pattern"
 The request must contain at least on header matching the given pattern.
@@ -644,6 +662,11 @@ define higher priorities for more capable servers.
 \fBTimeOut\fR val
 Override the global
 .I TimeOut
+value.
+.TP
+\fBConnTO\fR val
+Override the global
+.I ConnTO
 value.
 .TP
 \fBHAport\fR [ address ] port

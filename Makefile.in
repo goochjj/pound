@@ -47,6 +47,14 @@ F_CONF=@sysconfdir@/pound.cfg
 
 OBJS=pound.o http.o config.o svc.o
 
+all:	pound poundctl pound.8
+
+pound:	$(OBJS)
+		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
+
+poundctl:	poundctl.o
+		${CC} @LDFLAGS@ -o poundctl poundctl.o $(LIBS)
+
 dh512.h:
 		openssl dhparam -5 -C -noout 512 > dh512.h
 
@@ -57,14 +65,6 @@ $(OBJS):	pound.h
 
 svc.o:		dh512.h dh1024.h
 		gcc ${CFLAGS} -c -o svc.o svc.c
-
-all:	pound poundctl pound.8
-
-pound:	$(OBJS)
-		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
-
-poundctl:	poundctl.o
-		${CC} @LDFLAGS@ -o poundctl poundctl.o $(LIBS)
 
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@

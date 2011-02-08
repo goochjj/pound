@@ -292,7 +292,8 @@ typedef struct _backend {
     int                 be_type;    /* 0 if real back-end, otherwise code (301, 302/default, 307) */
     struct addrinfo     addr;       /* IPv4/6 address */
     int                 priority;   /* priority */
-    int                 to;
+    int                 to;         /* read/write time-out */
+    int                 conn_to;    /* connection time-out */
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */

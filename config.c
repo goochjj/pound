@@ -94,7 +94,9 @@ static int  log_level = 1;
 static int  def_facility = LOG_DAEMON;
 static int  clnt_to = 10;
 static int  be_to = 15;
+static int  be_connto = 15;
 static int  dynscale = 0;
+static int  ignore_case = 0;
 
 #define MAX_FIN 8
 
@@ -129,6 +131,8 @@ conf_err(const char *msg)
 static char *
 conf_fgets(char *buf, const int max)
 {
+    int i;
+
     for(;;) {
         if(fgets(buf, max, f_in[cur_fin]) == NULL) {
             fclose(f_in[cur_fin]);
@@ -139,6 +143,11 @@ conf_fgets(char *buf, const int max)
                 return NULL;
         }
         n_lin[cur_fin]++;
+        for(i = 0; i < max; i++)
+            if(buf[i] == '\n' || buf[i] == '\r') {
+                buf[i] = '\0';
+                break;
+            }
         if(!regexec(&Empty, buf, 4, matches, 0) || !regexec(&Comment, buf, 4, matches, 0))
             /* comment or empty line */
             continue;
@@ -177,6 +186,7 @@ parse_be(const int is_emergency)
     res->be_type = 0;
     res->addr.ai_socktype = SOCK_STREAM;
     res->to = is_emergency? 120: be_to;
+    res->conn_to = is_emergency? 120: be_connto;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
     res->priority = 5;
@@ -227,6 +237,8 @@ parse_be(const int is_emergency)
             res->priority = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ConnTO, lin, 4, matches, 0)) {
+            res->conn_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&HAport, lin, 4, matches, 0)) {
             if(is_emergency)
                 conf_err("HAport is not supported for Emergency back-ends");
@@ -400,6 +412,7 @@ parse_service(const char *svc_name)
     SERVICE     *res;
     BACKEND     *be;
     MATCHER     *m;
+    int         ign_case;
 
     if((res = (SERVICE *)malloc(sizeof(SERVICE))) == NULL)
         conf_err("Service config: out of memory - aborted");
@@ -411,6 +424,7 @@ parse_service(const char *svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
     if((res->sessions = lh_new(LHASH_HASH_FN(t_hash), LHASH_COMP_FN(t_cmp))) == NULL)
         conf_err("lh_new failed - aborted");
+    ign_case = ignore_case;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -428,7 +442,7 @@ parse_service(const char *svc_name)
             }
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED))
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case? REG_ICASE: 0)))
                 conf_err("URL bad pattern - aborted");
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
             if(res->req_head) {
@@ -534,6 +548,8 @@ parse_service(const char *svc_name)
             return res;
         } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
             res->dynscale = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
+            ign_case = atoi(lin + matches[1].rm_so);
         } else {
             conf_err("unknown directive");
         }
@@ -974,6 +990,10 @@ parse_file(void)
             dynscale = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             be_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ConnTO, lin, 4, matches, 0)) {
+            be_connto = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
+            ignore_case = atoi(lin + matches[1].rm_so);
 #if HAVE_OPENSSL_ENGINE_H
         } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
