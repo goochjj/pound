@@ -1509,11 +1509,11 @@ t_dump(TABNODE *t, void *arg)
     if(!be)
         /* should NEVER happen */
         n_be = 0;
-    write(a->control_sock, t, sizeof(TABNODE));
-    write(a->control_sock, &n_be, sizeof(n_be));
+    (void)write(a->control_sock, t, sizeof(TABNODE));
+    (void)write(a->control_sock, &n_be, sizeof(n_be));
     sz = strlen(t->key);
-    write(a->control_sock, &sz, sizeof(sz));
-    write(a->control_sock, t->key, sz);
+    (void)write(a->control_sock, &sz, sizeof(sz));
+    (void)write(a->control_sock, t->key, sz);
     return;
 }
 
@@ -1636,17 +1636,17 @@ thr_control(void *arg)
         case CTRL_LST:
             /* logmsg(LOG_INFO, "thr_control() list"); */
             for(lstn = listeners; lstn; lstn = lstn->next) {
-                write(ctl, (void *)lstn, sizeof(LISTENER));
-                write(ctl, lstn->addr.ai_addr, lstn->addr.ai_addrlen);
+                (void)write(ctl, (void *)lstn, sizeof(LISTENER));
+                (void)write(ctl, lstn->addr.ai_addr, lstn->addr.ai_addrlen);
                 for(svc = lstn->services; svc; svc = svc->next) {
-                    write(ctl, (void *)svc, sizeof(SERVICE));
+                    (void)write(ctl, (void *)svc, sizeof(SERVICE));
                     for(be = svc->backends; be; be = be->next) {
-                        write(ctl, (void *)be, sizeof(BACKEND));
-                        write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
+                        (void)write(ctl, (void *)be, sizeof(BACKEND));
+                        (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         if(be->ha_addr.ai_addrlen > 0)
-                            write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
+                            (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
                     }
-                    write(ctl, (void *)&dummy_be, sizeof(BACKEND));
+                    (void)write(ctl, (void *)&dummy_be, sizeof(BACKEND));
                     if(dummy = pthread_mutex_lock(&svc->mut))
                         logmsg(LOG_WARNING, "thr_control() lock: %s", strerror(dummy));
                     else {
@@ -1654,20 +1654,20 @@ thr_control(void *arg)
                         if(dummy = pthread_mutex_unlock(&svc->mut))
                             logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                     }
-                    write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
+                    (void)write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
                 }
-                write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
+                (void)write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             }
-            write(ctl, (void *)&dummy_lstn, sizeof(LISTENER));
+            (void)write(ctl, (void *)&dummy_lstn, sizeof(LISTENER));
             for(svc = services; svc; svc = svc->next) {
-                write(ctl, (void *)svc, sizeof(SERVICE));
+                (void)write(ctl, (void *)svc, sizeof(SERVICE));
                 for(be = svc->backends; be; be = be->next) {
-                    write(ctl, (void *)be, sizeof(BACKEND));
-                    write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
+                    (void)write(ctl, (void *)be, sizeof(BACKEND));
+                    (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     if(be->ha_addr.ai_addrlen > 0)
-                        write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
+                        (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
                 }
-                write(ctl, (void *)&dummy_be, sizeof(BACKEND));
+                (void)write(ctl, (void *)&dummy_be, sizeof(BACKEND));
                 if(dummy = pthread_mutex_lock(&svc->mut))
                     logmsg(LOG_WARNING, "thr_control() lock: %s", strerror(dummy));
                 else {
@@ -1675,9 +1675,9 @@ thr_control(void *arg)
                     if(dummy = pthread_mutex_unlock(&svc->mut))
                         logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                 }
-                write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
+                (void)write(ctl, (void *)&dummy_sess, sizeof(TABNODE));
             }
-            write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
+            (void)write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             break;
         case CTRL_EN_LSTN:
             if((lstn = sel_lstn(&cmd)) == NULL)

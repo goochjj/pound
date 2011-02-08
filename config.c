@@ -77,7 +77,7 @@ static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteL
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
-static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled;
+static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads;
 
 static regmatch_t   matches[5];
 
@@ -1122,6 +1122,8 @@ parse_file(void)
                 conf_err("RootJail config: out of memory - aborted");
         } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
             daemonize = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Threads, lin, 4, matches, 0)) {
+            numthreads = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(lin[matches[1].rm_so] == '-')
@@ -1228,6 +1230,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Group, "^[ \t]*Group[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Threads, "^[ \t]*Threads[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-5])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Grace, "^[ \t]*Grace[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1358,6 +1361,7 @@ config_parse(const int argc, char **const argv)
     root_jail = NULL;
     ctrl_name = NULL;
 
+    numthreads = 128;
     alive_to = 30;
     daemonize = 1;
     grace = 30;
@@ -1383,6 +1387,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Group);
     regfree(&RootJail);
     regfree(&Daemon);
+    regfree(&Threads);
     regfree(&LogFacility);
     regfree(&LogLevel);
     regfree(&Grace);

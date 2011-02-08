@@ -1,4 +1,14 @@
 ------------------------------------------------------------------------
+r69 | roseg | 2010-09-25 16:49:49 +0200 (Sat, 25 Sep 2010) | 7 lines
+
+Release 2.6b
+
+Enhancements:
+    - pre-defined number of threads for better performance on small hardware
+
+Bug fixes:
+
+------------------------------------------------------------------------
 r68 | roseg | 2010-06-23 19:18:39 +0200 (Wed, 23 Jun 2010) | 15 lines
 
 Release 2.6a

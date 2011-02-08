@@ -222,6 +222,16 @@ puts itself in the background). By specifying this option you can force
 to work like a regular process. Useful for debugging or if you want to
 use something like \fIdaemontools\fR.
 .TP
+\fBThreads\fR nnn
+How many worker threads
+.B Pound
+should use. Default: 128. Tune this parameter to improve performance.
+If you set it too high,
+.B Pound
+will use a lot memory, and some CPU will be wasted on context switches.
+If you set it too low requests may be served with some delay. Experiment
+to find the optimal value for your installation.
+.TP
 \fBLogFacility\fR value
 Specify the log facility to use.
 .I value

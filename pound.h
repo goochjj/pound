@@ -252,7 +252,8 @@ extern char *user,              /* user to run as */
             *pid_name,          /* file to record pid in */
             *ctrl_name;         /* control socket name */
 
-extern int  alive_to,           /* check interval for resurrection */
+extern int  numthreads,         /* number of worker threads */
+            alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */
@@ -389,10 +390,11 @@ typedef struct _listener {
 extern LISTENER         *listeners; /* all available listeners */
 #endif /* NO_EXTERNALS */
 
-typedef struct  {
+typedef struct _thr_arg {
     int             sock;
     LISTENER        *lstn;
     struct addrinfo from_host;
+    struct _thr_arg *next;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
 /* Header types */
@@ -440,6 +442,16 @@ typedef u_int16_t   in_port_t;
 /* for oldish Unices - normally this is in /usr/include/time.h */
 typedef u_int32_t   time_t;
 #endif
+
+/*
+ * add a request to the queue
+ */
+extern int  put_thr_arg(thr_arg *);
+
+/*
+ * get a request from the queue
+ */
+extern thr_arg  *get_thr_arg(void);
 
 /*
  * handle an HTTP request
