@@ -1353,19 +1353,19 @@ thr_timer(void *arg)
         if((n_remain = n_wait - (cur_time - last_time)) > 0)
             sleep(n_remain);
         last_time = time(NULL);
-        if((last_time - last_RSA) > T_RSA_KEYS) {
+        if((last_time - last_RSA) >= T_RSA_KEYS) {
             last_RSA = time(NULL);
             do_RSAgen();
         }
-        if((last_time - last_rescale) > RESCALE_TO) {
+        if((last_time - last_rescale) >= RESCALE_TO) {
             last_rescale = time(NULL);
             do_rescale();
         }
-        if((last_time - last_alive) > alive_to) {
+        if((last_time - last_alive) >= alive_to) {
             last_alive = time(NULL);
             do_resurect();
         }
-        if((last_time - last_expire) > EXPIRE_TO) {
+        if((last_time - last_expire) >= EXPIRE_TO) {
             last_expire = time(NULL);
             do_expire();
         }

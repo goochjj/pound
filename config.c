@@ -86,8 +86,8 @@ static char *xhttp[] = {
     "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$",
     "^(GET|POST|HEAD|PUT|DELETE) ([^ ]+) HTTP/1.[01]$",
     "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|CONNECT) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
 };
 
 static int  log_level = 1;
@@ -140,11 +140,14 @@ parse_be(FILE *const f_conf, const int is_emergency)
                 res->addr.ai_socktype = SOCK_STREAM;
                 res->addr.ai_family = AF_UNIX;
                 res->addr.ai_protocol = 0;
-                if((res->addr.ai_addr = (struct sockaddr *)strdup(lin + matches[1].rm_so)) == NULL) {
+                if((res->addr.ai_addr = (struct sockaddr_un *)malloc(sizeof(struct sockaddr_un))) == NULL) {
                     logmsg(LOG_ERR, "line %d: out of memory", n_lin);
                     exit(1);
                 }
                 res->addr.ai_addrlen = strlen(lin + matches[1].rm_so) + 1;
+                res->addr.ai_addr->sa_family = AF_UNIX;
+                strcpy(res->addr.ai_addr->sa_data, lin + matches[1].rm_so);
+                res->addr.ai_addrlen = sizeof( struct sockaddr_un );
             }
             has_addr = 1;
         } else if(!regexec(&Port, lin, 4, matches, 0)) {

@@ -128,7 +128,7 @@ INSTALLATION
         --disable-super -- disable supervisor process (default: enabled)
 
         --with-t_rsa=nnn   -- timeout of the RSA ephemeral keys regeneration
-        (default: 300 seconds).
+        (default: 1800 seconds).
 
         --with-owner=owner -- name of installed binaries owner (default is
         system-dependent).

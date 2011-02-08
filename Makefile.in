@@ -24,7 +24,7 @@
 # Tel: +41-44-920 4904
 # EMail: roseg@apsis.ch
 
-CC="@PTHREAD_CC@"
+CC=@PTHREAD_CC@
 VERSION="@PACKAGE_VERSION@"
 C_SSL="@C_SSL@"
 C_T_RSA="@C_T_RSA@"

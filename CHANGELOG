@@ -1,4 +1,25 @@
 ------------------------------------------------------------------------
+r60 | roseg | 2009-01-14 17:39:52 +0100 (Wed, 14 Jan 2009) | 18 lines
+
+Release 2.4.4
+
+Stable release 2.4.4
+
+Enhancements:
+    - added support for UNSUBSCRIBE and NOTIFY in xHTTP 3 and 4
+    - added support for BPROPFIND in xHTTP 4
+    - on SSL connections always pass the cipher used to the back-end (thanks to Magnus Sandin)
+
+Bug fixes:
+    - save and restore errno value in cur_time() (thanks to Albert)
+    - fixed problem in timer thread (thanks to Albert)
+    - added shutdown for failed socket connection (thanks to Albert)
+    - fixed problem with CC containing spaces in Makefile.in (thanks to Elan Ruusamäe)
+    - increased MAXBUF to default 4096
+    - increased T_RSA default to 30 minutes
+    - fixed a problem with Unix sockets back-ends (thanks to Ricardo Gameiro)
+
+------------------------------------------------------------------------
 r59 | roseg | 2008-05-31 12:25:41 +0200 (Sat, 31 May 2008) | 11 lines
 
 Release 2.4.3

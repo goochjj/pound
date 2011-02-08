@@ -260,7 +260,7 @@ extern int  SOL_TCP;
 #endif /* NO_EXTERNALS */
 
 #ifndef MAXBUF
-#define MAXBUF      1024
+#define MAXBUF      4096
 #endif
 
 #define MAXHEADERS  128
@@ -516,7 +516,7 @@ extern void config_parse(const int, char **const);
  */
 #define N_RSA_KEYS  11
 #ifndef T_RSA_KEYS
-#define T_RSA_KEYS  300
+#define T_RSA_KEYS  1800
 #endif
 
 /*

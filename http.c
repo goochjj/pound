@@ -443,8 +443,11 @@ cur_time(void)
 #ifdef  HAVE_GETTIMEOFDAY
     struct timeval  tv;
     struct timezone tz;
+    int             sv_errno;
 
+    sv_errno = errno;
     gettimeofday(&tv, &tz);
+    errno = sv_errno;
     return tv.tv_sec * 1000000.0 + tv.tv_usec;
 #else
     return time(NULL) * 1000000.0;
@@ -782,6 +785,7 @@ thr_http(void *arg)
             if(connect_nb(sock, &backend->addr, backend->to) < 0) {
                 str_be(buf, MAXBUF - 1, backend);
                 logmsg(LOG_WARNING, "(%lx) backend %s connect: %s", pthread_self(), buf, strerror(errno));
+                shutdown(sock, 2);
                 close(sock);
                 kill_be(svc, backend, BE_KILL);
                 if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
@@ -893,6 +897,20 @@ thr_http(void *arg)
         /* if SSL put additional headers for client certificate */
         if(cur_backend->be_type == 0 && ssl != NULL) {
             SSL_CIPHER  *cipher;
+
+            if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
+                SSL_CIPHER_description(cipher, buf, MAXBUF - 1);
+                strip_eol(buf);
+                if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
+                    str_be(buf, MAXBUF - 1, cur_backend);
+                    end_req = cur_time();
+                    logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-cipher to %s: %s (%.3f sec)",
+                        pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
+                    err_reply(cl, h500, lstn->err500);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+            }
 
             if(lstn->clnt_check > 0 && x509 != NULL && (bb = BIO_new(BIO_s_mem())) != NULL) {
                 X509_NAME_print_ex(bb, X509_get_subject_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
@@ -1017,19 +1035,6 @@ thr_http(void *arg)
                     }
                 }
 #endif
-                if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
-                    SSL_CIPHER_description(cipher, buf, MAXBUF - 1);
-                    strip_eol(buf);
-                    if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
-                        str_be(buf, MAXBUF - 1, cur_backend);
-                        end_req = cur_time();
-                        logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-cipher to %s: %s (%.3f sec)",
-                            pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
-                        err_reply(cl, h500, lstn->err500);
-                        clean_all();
-                        pthread_exit(NULL);
-                    }
-                }
                 BIO_free_all(bb);
             }
         }
