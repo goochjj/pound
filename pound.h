@@ -248,6 +248,12 @@ extern regex_t  HEADER,     /* Allowed header */
                 /* RESP_REDIR, /* responses for which we rewrite Location */
                 LOCATION,   /* the host we are redirected to */
                 AUTHORIZATION;  /* the Authorisation header */
+
+#ifndef  SOL_TCP
+/* for systems without the definition */
+extern int  SOL_TCP;
+#endif
+
 #endif /* NO_EXTERNALS */
 
 #define MAXBUF      2048
@@ -436,6 +442,11 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
  * Find the right back-end for a request
  */
 extern BACKEND  *get_backend(SERVICE *const, const struct in_addr *, const char *, char **const);
+
+/*
+ * init the gethostbyname protection mutex
+ */
+extern void init_host_mut(void);
 
 /*
  * Find if a redirect needs rewriting

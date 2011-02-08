@@ -55,7 +55,7 @@ STATUS
 
     Quite a few people have reported using Pound successfully in production
     environments. The largest volume reported to date is a site with an
-    average of about 5M requests per day, peaking at over 400 requests/sec.
+    average of about 30M requests per day, peaking at over 600 requests/sec.
 
     Pound was successfully used in production with a variety of Web servers,
     including Apache, IIS, Zope, WebLogic, Jakarta/Tomcat, iPlanet, etc. In
@@ -85,6 +85,18 @@ STATUS
 
 
 INSTALLATION
+
+    Probably the easiest way to install Pound is to use a pre-compiled package
+    if you can find one. While Apsis offers no such packages, they are available
+    for quite a few systems (Suse, Debian and derivatives such as Ubuntu), as
+    well as some private packages:
+
+    - RPMs for RedHat are available at http://www.invoca.ch/pub/packages/pound/
+
+    - A nice FreeBSD live-CD distribution is available at http://www.targeted.org as
+    http://www.targeted.org/files/fbsd411_pound21.iso.gz, including a Pound binary.
+
+    Failing that you should install from sources:
 
     1.  Pound was tested on Linux, Solaris and OpenBSD, but
         it should work unchanged on just about any modern
@@ -407,7 +419,7 @@ SESSIONS
       Put the lines
 
       Session
-        Type    URL
+        Type    PARM
         ID      "id"
         TTL     300
       End
@@ -781,8 +793,26 @@ OTHER ISSUES
 
       (Thanks to Andi Roedl for the tip).
 
+    - Linux-specific: some people use various redundant Pound solutions for
+      Linux which require Pound instances on separate machines to bind to the
+      same address. The default configuration of Linux does not allow a
+      program to bind() to non-local addresses, which may cause a problem.
+      Solution: add
+      
+        echo 1 > /proc/sys/net/ipv4/ip_nonlocal_bind
+
+      in your start-up script, or just set
+
+        net.ipv4.ip_nonlocal_bind = 1
+
+      in /etc/sysctl.conf (if you have one).
+
+      (Thanks to RUne Saetre for the suggestion).
+
 
 ACKNOWLEDGMENTS
+
+    Albert (of Alacra) for investigating and writing the TCP_NODELAY code.
 
     Luuk de Boer did some serious testing and debugging of the WebDAV
     code for Microsoft servers.
@@ -794,6 +824,9 @@ ACKNOWLEDGMENTS
     some serious testing on big hardware.
 
     Frank Denis contributed a few excellent code patches and some good ideas.
+
+    Dmitriy Dvoinikov makes available a live-CD FreeBSD distribution that
+    includes a Pound binary.
 
     Abner G. Jacobsen did a lot of testing in a production environment
     and contributed some very nice ideas.

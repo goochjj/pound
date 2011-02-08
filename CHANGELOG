@@ -1,4 +1,74 @@
 ------------------------------------------------------------------------
+r37 | roseg | 2006-12-16 10:18:38 +0100 (Sat, 16 Dec 2006) | 45 lines
+
+Release 2.2
+
+Enhancements:
+  - added the host to LogLevel 2 (if available)
+  - added support for tcmalloc (from the Google perftools package)
+
+Bug fixes:
+  - fixed problem with the initialisation of host_mut
+
+*****************************
+Cumulative changes since 2.1:
+*****************************
+
+Enhancements:
+  - added dynamic rescaling of back-end priorities, compile-time flag to enable/disable it
+  - added support for emergency back-ends
+  - the program poundctl(8) is now available, added the Control configuration directive
+  - SESS_IP now behaves like other session types (no longer sticky)
+  - added RewriteLocation 2: rewrite location if it points to same address, but ignore port
+  - Redirect uses the original request path
+  - added RewriteDestination configuration flag to enable rewriting the Destination header
+  - removed msdav compile-time configuration flag and MSDAV configuration flag, extended xHTTP to allow for
+    WebDAV, MS-DAV and MS-RPC
+  - added CRLlist directive, split CRL from CA
+  - Error replies are sent as pure HTML
+  - split error messages into:
+    - LOG_ERR: errors (mostly fatal)
+    - LOG_WARNING: errors (non-fatal)
+    - LOG_NOTICE: problems
+    - LOG_INFO: extra information
+  - time to serve the requests is logged in LogLevel 2
+  - added the (virtual) host to LogLevel 2 (if available)
+  - added line numbers to config error messages
+  - added TCP_NODELAY for faster response times
+  - added support for tcmalloc (from the Google perftools package)
+
+Bug fixes:
+  - fixed problem in str_be (evident mostly in LogLevel 2)
+  - added 'const' wherever necessary
+  - check for errors in mutex handling
+  - fixed the verb pattern in HTTPS listeners
+  - content is now ignored only on HEAD requests
+  - fixed problems with autoconf on some systems
+  - fixed problem with the initialisation of host_mut
+
+------------------------------------------------------------------------
+r36 | roseg | 2006-12-09 09:39:23 +0100 (Sat, 09 Dec 2006) | 6 lines
+
+Release 2.1.8
+
+Bug fixes:
+  - fixed another small problem with autoconf on some systems
+  - added support for systems that don't define SOL_TCP
+
+------------------------------------------------------------------------
+r35 | roseg | 2006-12-06 18:32:16 +0100 (Wed, 06 Dec 2006) | 10 lines
+
+Release 2.1.7
+
+Enhancements:
+  - added TCP_NODELAY for faster response times
+  - added compile-time flag to enable/disable dynamic priorities rescaling
+
+Bug fixes:
+  - fixed problems with autoconf on some systems
+  - fixed error in control function (be instead of svc)
+
+------------------------------------------------------------------------
 r34 | roseg | 2006-11-04 11:28:53 +0100 (Sat, 04 Nov 2006) | 9 lines
 
 Release 2.1.6

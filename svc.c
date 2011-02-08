@@ -583,6 +583,7 @@ kill_be(SERVICE *const svc, const BACKEND *be)
 void
 upd_be(BACKEND *const be, const double elapsed)
 {
+#ifndef NO_DYNSCALE
     int     ret_val;
 
     if(ret_val = pthread_mutex_lock(&be->mut))
@@ -596,6 +597,7 @@ upd_be(BACKEND *const be, const double elapsed)
     be->t_average = be->t_requests / be->n_requests;
     if(ret_val = pthread_mutex_unlock(&be->mut))
         logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
+#endif  /* NO_DYNSCALE */
     return;
 }
 
@@ -623,6 +625,14 @@ disable_be(SERVICE *const svc, const BACKEND *be)
 }
 
 static pthread_mutex_t  host_mut;       /* mutex to protect gethostbyname */
+
+void
+init_host_mut(void)
+{
+    /* pthread_mutex_init() always returns 0 */
+    pthread_mutex_init(&host_mut, NULL);
+    return;
+}
 
 /*
  * Find if a redirect needs rewriting
@@ -931,6 +941,7 @@ thr_resurect(void *arg)
                 logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
         }
 
+#ifndef NO_DYNSCALE
         /* scale the back-end priorities */
         for(lstn = listeners; lstn; lstn = lstn->next)
         for(svc = lstn->services; svc; svc = svc->next) {
@@ -1010,6 +1021,7 @@ thr_resurect(void *arg)
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
         }
+#endif  /* NO_DYNSCALE */
     }
 }
 
@@ -1263,13 +1275,13 @@ thr_control(void *arg)
             if((be = sel_be(&cmd)) == NULL)
                 logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
             else
-                svc->disabled = 0;
+                be->disabled = 0;
             break;
         case CTRL_DE_BE:
             if((be = sel_be(&cmd)) == NULL)
                 logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
             else
-                svc->disabled = 1;
+                be->disabled = 1;
             break;
         default:
             logmsg(LOG_WARNING, "thr_control() unknown command");

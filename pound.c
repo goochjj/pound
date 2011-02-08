@@ -54,6 +54,11 @@ regex_t HEADER,             /* Allowed header */
         LOCATION,           /* the host we are redirected to */
         AUTHORIZATION;      /* the Authorisation header */
 
+#ifndef  SOL_TCP
+/* for systems without the definition */
+int     SOL_TCP;
+#endif
+
 /* worker pid */
 static  pid_t               son = 0;
 
@@ -131,6 +136,9 @@ main(const int argc, char **argv)
     FILE                *fpid;
     struct sockaddr_in  clnt_addr;
     char                tmp[MAXBUF];
+#ifndef SOL_TCP
+    struct protoent     *pe;
+#endif
 
     print_log = 0;
     (void)umask(077);
@@ -154,6 +162,7 @@ main(const int argc, char **argv)
     l_init();
     CRYPTO_set_id_callback(l_id);
     CRYPTO_set_locking_callback(l_lock);
+    init_host_mut();
     init_RSAgen();
 
     /* prepare regular expressions */
@@ -168,6 +177,15 @@ main(const int argc, char **argv)
         logmsg(LOG_ERR, "bad essential Regex - aborted");
         exit(1);
     }
+
+#ifndef SOL_TCP
+    /* for systems without the definition */
+    if((pe = getprotobyname("tcp")) == NULL) {
+        logmsg(LOG_ERR, "missing TCP protocol");
+        exit(1);
+    }
+    SOL_TCP = pe->p_proto;
+#endif
 
     /* read config */
     config_parse(argc, argv);
@@ -305,7 +323,6 @@ main(const int argc, char **argv)
                 exit(1);
             }
 #endif
-
             /* start resurector */
             if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
                 logmsg(LOG_ERR, "create thr_resurect: %s - aborted", strerror(errno));

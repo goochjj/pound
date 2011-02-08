@@ -429,11 +429,12 @@ thr_http(void *arg)
     l.l_onoff = 1;
     l.l_linger = 10;
     setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
-
 #ifdef  TCP_LINGER2
     n = 5;
     setsockopt(sock, SOL_TCP, TCP_LINGER2, (void *)&n, sizeof(n));
 #endif
+    n = 1;
+    setsockopt(sock, SOL_TCP, TCP_NODELAY, (void *)&n, sizeof(n));
 
     cl = NULL;
     be = NULL;
@@ -722,6 +723,12 @@ thr_http(void *arg)
                 l.l_onoff = 1;
                 l.l_linger = 10;
                 setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
+#ifdef  TCP_LINGER2
+                n = 5;
+                setsockopt(sock, SOL_TCP, TCP_LINGER2, (void *)&n, sizeof(n));
+#endif
+                n = 1;
+                setsockopt(sock, SOL_TCP, TCP_NODELAY, (void *)&n, sizeof(n));
             }
             if((be = BIO_new_socket(sock, 1)) == NULL) {
                 logmsg(LOG_WARNING, "BIO_new_socket server failed");
@@ -1172,8 +1179,12 @@ thr_http(void *arg)
         case 2:
             str_be(buf, MAXBUF - 1, cur_backend);
             addr2str(caddr, MAXBUF - 1, &from_host);
-            logmsg(LOG_INFO, "%s %s - %s (%s) %.3f sec", caddr, request, response, buf,
-                (end_req - start_req) / 1000000.0);
+            if(v_host[0])
+                logmsg(LOG_INFO, "%s %s - %s (%s -> %s) %.3f sec", caddr, request, response, v_host, buf,
+                    (end_req - start_req) / 1000000.0);
+            else
+                logmsg(LOG_INFO, "%s %s - %s (%s) %.3f sec", caddr, request, response, buf,
+                    (end_req - start_req) / 1000000.0);
             break;
         case 3:
             addr2str(caddr, MAXBUF - 1, &from_host);
