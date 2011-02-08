@@ -9,7 +9,7 @@
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  * 
- * Foobar is distributed in the hope that it will be useful,
+ * Pound is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
@@ -180,10 +180,14 @@
 #error "Pound needs signal.h"
 #endif
 
+#if HAVE_LIBPCREPOSIX
 #if HAVE_PCREPOSIX_H
 #include    <pcreposix.h>
 #elif HAVE_PCRE_PCREPOSIX
 #include    <pcre/pcreposix.h>
+#else
+#error "You have libpcreposix, but the header files are missing. Use --disable-pcreposix"
+#endif
 #elif HAVE_REGEX_H
 #include    <regex.h>
 #else

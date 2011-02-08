@@ -9,7 +9,7 @@
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  * 
- * Foobar is distributed in the hope that it will be useful,
+ * Pound is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
@@ -126,16 +126,11 @@ get_line(BIO *const in, char *const buf, const int bufsize)
         case -1:
             return 1;
         default:
-            for(i = n_read; i < bufsize; i++) {
+            for(i = n_read; i < bufsize && buf[i]; i++)
                 if(buf[i] == '\n' || buf[i] == '\r') {
                     buf[i] = '\0';
                     return 0;
                 }
-                if(buf[i] == '\0') {
-                    n_read = i;
-                    continue;
-                }
-            }
             if(i < bufsize) {
                 n_read = i;
                 continue;
