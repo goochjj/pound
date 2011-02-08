@@ -500,7 +500,7 @@ thr_http(void *arg)
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
                         caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], *mh;
-    SSL                 *ssl;
+    SSL                 *ssl, *be_ssl;
     long                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
@@ -839,6 +839,35 @@ thr_http(void *arg)
             if(backend->to > 0) {
                 BIO_set_callback_arg(be, (char *)&backend->to);
                 BIO_set_callback(be, bio_callback);
+            }
+            if(backend->ctx != NULL) {
+                if((be_ssl = SSL_new(backend->ctx)) == NULL) {
+                    logmsg(LOG_WARNING, "(%lx) be SSL_new: failed", pthread_self());
+                    err_reply(cl, h503, lstn->err503);
+                    free_headers(headers);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+                SSL_set_bio(be_ssl, be, be);
+                if((bb = BIO_new(BIO_f_ssl())) == NULL) {
+                    logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());
+                    err_reply(cl, h503, lstn->err503);
+                    free_headers(headers);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+                BIO_set_ssl(bb, be_ssl, BIO_CLOSE);
+                BIO_set_ssl_mode(bb, 1);
+                be = bb;
+                if(BIO_do_handshake(be) <= 0) {
+                    str_be(buf, MAXBUF - 1, backend);
+                    logmsg(LOG_NOTICE, "BIO_do_handshake with %s failed: %s", buf,
+                        ERR_error_string(ERR_get_error(), NULL));
+                    err_reply(cl, h503, lstn->err503);
+                    free_headers(headers);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
             }
             if((bb = BIO_new(BIO_f_buffer())) == NULL) {
                 logmsg(LOG_WARNING, "(%lx) e503 BIO_new(buffer) server failed", pthread_self());

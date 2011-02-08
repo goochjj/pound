@@ -654,6 +654,13 @@ will connect to. This is a
 .B mandatory
 parameter for non Unix-domain back-ends.
 .TP
+\fBHTTPS\fR [ "cert" ]
+The back-end is using HTTPS. If the optional parameter
+.I cert
+is specified,
+.B Pound
+will present this certificate to the back-end.
+.TP
 \fBPriority\fR val
 The priority of this back-end (between 1 and 9, 5 is default). Higher priority
 back-ends will be used more often than lower priority ones, so you should

@@ -297,6 +297,7 @@ typedef struct _backend {
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */
+    SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
     int                 n_requests; /* number of requests seen */
     double              t_requests; /* time to answer these requests */
@@ -331,8 +332,8 @@ typedef struct _service {
     pthread_mutex_t     mut;        /* mutex for this service */
     SESS_TYPE           sess_type;
     int                 sess_ttl;   /* session time-to-live */
+    regex_t             sess_start; /* pattern to identify the session data */
     regex_t             sess_pat;   /* pattern to match the session data */
-    char                *sess_parm; /* session cookie or parameter */
     LHASH               *sessions;  /* currently active sessions */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */

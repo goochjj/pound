@@ -193,6 +193,7 @@ parse_be(const int is_emergency)
     memset(&res->ha_addr, 0, sizeof(res->ha_addr));
     res->url = NULL;
     res->next = NULL;
+    res->ctx = NULL;
     has_addr = has_port = 0;
     pthread_mutex_init(&res->mut, NULL);
     while(conf_fgets(lin, MAXBUF)) {
@@ -286,6 +287,33 @@ parse_be(const int is_emergency)
             default:
                 conf_err("Unknown HA address type");
             }
+        } else if(!regexec(&HTTPS, lin, 4, matches, 0)) {
+            if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
+                conf_err("SSL_CTX_new failed - aborted");
+            SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
+            SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
+            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            sprintf(lin, "%d-Pound-%ld", getpid(), random());
+            SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
+            SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
+            SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+        } else if(!regexec(&HTTPSCert, lin, 4, matches, 0)) {
+            if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
+                conf_err("SSL_CTX_new failed - aborted");
+            lin[matches[1].rm_eo] = '\0';
+            if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1)
+                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
+            if(SSL_CTX_use_PrivateKey_file(res->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
+                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
+            if(SSL_CTX_check_private_key(res->ctx) != 1)
+                conf_err("SSL_CTX_check_private_key failed - aborted");
+            SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
+            SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
+            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            sprintf(lin, "%d-Pound-%ld", getpid(), random());
+            SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
+            SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
+            SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr)
                 conf_err("BackEnd missing Address - aborted");
@@ -307,8 +335,9 @@ parse_be(const int is_emergency)
 static void
 parse_sess(SERVICE *const svc)
 {
-    char        lin[MAXBUF], *cp;
+    char        lin[MAXBUF], *cp, *parm;
 
+    parm = NULL;
     while(conf_fgets(lin, MAXBUF)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
@@ -337,7 +366,7 @@ parse_sess(SERVICE *const svc)
             if(svc->sess_type != SESS_COOKIE && svc->sess_type != SESS_URL && svc->sess_type != SESS_HEADER)
                 conf_err("no ID permitted unless COOKIE/URL/HEADER Session - aborted");
             lin[matches[1].rm_eo] = '\0';
-            if((svc->sess_parm = strdup(lin + matches[1].rm_so)) == NULL)
+            if((parm = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("ID config: out of memory - aborted");
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(svc->sess_type == SESS_NONE)
@@ -345,29 +374,39 @@ parse_sess(SERVICE *const svc)
             if(svc->sess_ttl == 0)
                 conf_err("Session TTL not defined - aborted");
             if((svc->sess_type == SESS_COOKIE || svc->sess_type == SESS_URL || svc->sess_type == SESS_HEADER)
-            && svc->sess_parm == NULL)
+            && parm == NULL)
                 conf_err("Session ID not defined - aborted");
             if(svc->sess_type == SESS_COOKIE) {
-                snprintf(lin, MAXBUF - 1, "Cookie[^:]*:.*[ \t]%s=([^;]*)", svc->sess_parm);
-                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                snprintf(lin, MAXBUF - 1, "Cookie[^:]*:.*[ \t]%s=", parm);
+                if(regcomp(&svc->sess_start, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("COOKIE pattern failed - aborted");
+                if(regcomp(&svc->sess_pat, "([^;]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                     conf_err("COOKIE pattern failed - aborted");
             } else if(svc->sess_type == SESS_URL) {
-                snprintf(lin, MAXBUF - 1, "[?&]%s=([^&;#]*)", svc->sess_parm);
-                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                snprintf(lin, MAXBUF - 1, "[?&]%s=", parm);
+                if(regcomp(&svc->sess_start, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("URL pattern failed - aborted");
+                if(regcomp(&svc->sess_pat, "([^&;#]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                     conf_err("URL pattern failed - aborted");
             } else if(svc->sess_type == SESS_PARM) {
-                snprintf(lin, MAXBUF - 1, ";([^?]*)");
-                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                if(regcomp(&svc->sess_start, ";", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("PARM pattern failed - aborted");
+                if(regcomp(&svc->sess_pat, "([^?]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                     conf_err("PARM pattern failed - aborted");
             } else if(svc->sess_type == SESS_BASIC) {
-                snprintf(lin, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
-                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                if(regcomp(&svc->sess_start, "Authorization:[ \t]*Basic[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("BASIC pattern failed - aborted");
+                if(regcomp(&svc->sess_pat, "([^ \t]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                     conf_err("BASIC pattern failed - aborted");
             } else if(svc->sess_type == SESS_HEADER) {
-                snprintf(lin, MAXBUF - 1, "%s:[ \t]*([^ \t]*)[ \t]*", svc->sess_parm);
-                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                snprintf(lin, MAXBUF - 1, "%s:[ \t]*", parm);
+                if(regcomp(&svc->sess_start, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("HEADER pattern failed - aborted");
+                if(regcomp(&svc->sess_pat, "([^ \t]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                     conf_err("HEADER pattern failed - aborted");
             }
+            if(parm != NULL)
+                free(parm);
             return;
         } else {
             conf_err("unknown directive");

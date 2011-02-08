@@ -1,4 +1,15 @@
 ------------------------------------------------------------------------
+r64 | roseg | 2009-09-21 13:16:57 +0200 (Mon, 21 Sep 2009) | 8 lines
+
+Release 2.5c
+
+Enhancements:
+  - added support for HTTPS backends
+
+Bug fixes:
+  - fixed problem with sub-patterns in session parameters
+
+------------------------------------------------------------------------
 r63 | roseg | 2009-08-19 17:44:07 +0200 (Wed, 19 Aug 2009) | 10 lines
 
 Release 2.5b

@@ -63,7 +63,7 @@ dh1024.h:
 
 $(OBJS):	pound.h
 
-svc.o:		dh512.h dh1024.h
+svc.o:		svc.c dh512.h dh1024.h
 		gcc ${CFLAGS} -c -o svc.o svc.c
 
 install:	all

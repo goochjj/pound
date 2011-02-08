@@ -368,16 +368,21 @@ get_service(const LISTENER *lstn, const char *request, char **const headers)
 static int
 get_REQUEST(char *res, const SERVICE *svc, const char *request)
 {
-    int         n;
+    int         n, s;
     regmatch_t  matches[4];
 
-    if(regexec(&svc->sess_pat, request, 4, matches, 0)) {
+    if(regexec(&svc->sess_start, request, 4, matches, 0)) {
+        res[0] = '\0';
+        return 0;
+    }
+    s = matches[0].rm_eo;
+    if(regexec(&svc->sess_pat, request + s, 4, matches, 0)) {
         res[0] = '\0';
         return 0;
     }
     if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
         n = KEY_SIZE;
-    strncpy(res, request + matches[1].rm_so, n);
+    strncpy(res, request + s + matches[1].rm_so, n);
     res[n] = '\0';
     return 1;
 }
@@ -385,7 +390,7 @@ get_REQUEST(char *res, const SERVICE *svc, const char *request)
 static int
 get_HEADERS(char *res, const SERVICE *svc, char **const headers)
 {
-    int         i, n;
+    int         i, n, s;
     regmatch_t  matches[4];
 
     /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
@@ -393,11 +398,14 @@ get_HEADERS(char *res, const SERVICE *svc, char **const headers)
     for(i = 0; i < (MAXHEADERS - 1); i++) {
         if(headers[i] == NULL)
             continue;
-        if(regexec(&svc->sess_pat, headers[i], 4, matches, 0))
+        if(regexec(&svc->sess_start, headers[i], 4, matches, 0))
+            continue;
+        s = matches[0].rm_eo;
+        if(regexec(&svc->sess_pat, headers[i] + s, 4, matches, 0))
             continue;
         if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
             n = KEY_SIZE;
-        strncpy(res, headers[i] + matches[1].rm_so, n);
+        strncpy(res, headers[i] + s + matches[1].rm_so, n);
         res[n] = '\0';
     }
     return res[0] != '\0';
