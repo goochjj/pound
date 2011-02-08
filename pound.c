@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $";
+static char *rcs_id = "$Id: pound.c,v 1.10 2006/02/01 11:19:53 roseg Rel $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.10  2006/02/01 11:19:53  roseg
+ * Enhancements:
+ *   added NoDaemon configuration directive (replaces compile-time switch)
+ *   added LogFacility configuration directive (replaces compile-time switch)
+ *   added user name logging
+ *
+ * Bug fixes:
+ *   fixed problem with the poll() code
+ *   fixed problem with empty list in gethostbyname()
+ *   added call to setsid() if daemon
+ *   conflicting headers are removed (Content-length - Transfer-encoding)
+ *
+ * Last release in the 1.x series.
+ *
  * Revision 1.9  2005/06/01 15:01:53  roseg
  * Enhancements:
  *   Added the VerifyList configuration flag (CA root certs + CRL)
@@ -252,8 +266,11 @@ char    **http,             /* HTTP port to listen on */
         *CS_frag;           /* character set of fragment */
 int     check_URL;          /* check URL for correct syntax */
 int     rewrite_redir;      /* rewrite redirection responses */
+int     daemonize;          /* run as daemon */
 int     print_log;          /* print log messages to stdout/stderr */
 char    *pid_name;          /* file to record pid in */
+int     log_facility;       /* log facility to use */
+
 regex_t *head_off;          /* headers to remove */
 int     n_head_off;         /* how many of them */
 
@@ -268,7 +285,8 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         RESP_SKIP,          /* responses for which we skip response */
         RESP_IGN,           /* responses for which we ignore content */
         RESP_REDIR,         /* responses for which we rewrite Location */
-        LOCATION;           /* the host we are redirected to */
+        LOCATION,           /* the host we are redirected to */
+        AUTHORIZATION;      /* the Authorisation header */
 
 char    *e500 = "An internal server error occurred. Please try again later.",
         *e501 = "This method may not be used.",
@@ -391,10 +409,7 @@ main(int argc, char **argv)
 
     print_log = 0;
 #ifndef  NO_SYSLOG
-#ifndef FACILITY
-#define FACILITY    LOG_DAEMON
-#endif
-    openlog("pound", LOG_CONS, FACILITY);
+    openlog("pound", LOG_CONS, LOG_DAEMON);
 #endif
     logmsg(LOG_NOTICE, "starting...");
 
@@ -461,6 +476,7 @@ main(int argc, char **argv)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[456]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_REDIR, "^HTTP/1.[01] 30[1237].*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LOCATION, "(http|https)://([^/]+)/(.*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AUTHORIZATION, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad Regex - aborted");
         exit(1);
@@ -490,7 +506,7 @@ main(int argc, char **argv)
                  */
                 host_addr.sin_addr.s_addr = INADDR_ANY;
             } else {
-                if((host = gethostbyname(http[i])) == NULL) {
+                if((host = gethostbyname(http[i])) == NULL || host->h_addr_list[0] == NULL) {
                     logmsg(LOG_ERR, "Unknown HTTP host %s", http[i]);
                     exit(1);
                 }
@@ -551,7 +567,7 @@ main(int argc, char **argv)
                  */
                 host_addr.sin_addr.s_addr = INADDR_ANY;
             } else {
-                if((host = gethostbyname(https[i])) == NULL) {
+                if((host = gethostbyname(https[i])) == NULL || host->h_addr_list[0] == NULL) {
                     logmsg(LOG_ERR, "Unknown HTTPS host %s", https[i]);
                     exit(1);
                 }
@@ -619,7 +635,7 @@ main(int argc, char **argv)
                 SSL_CTX_set_options(ctx[i], SSL_OP_ALL);
 
                 snprintf(sess_id, 32, "%d-Pound-%d", getpid(), i);
-                SSL_CTX_set_session_id_context(ctx[i], sess_id, strlen(sess_id));
+                SSL_CTX_set_session_id_context(ctx[i], (unsigned char *)sess_id, strlen(sess_id));
 
                 if(ciphers[i])
                     SSL_CTX_set_cipher_list(ctx[i], ciphers[i]);
@@ -697,23 +713,26 @@ main(int argc, char **argv)
     /* Turn off verbose messages (if necessary) */
     print_log = 0;
 
-#ifdef  AEMON
-    /* daemonize - make ourselves a subprocess. */
-    switch (fork()) {
-        case 0:
+    if(daemonize) {
+        /* daemonize - make ourselves a subprocess. */
+        switch (fork()) {
+            case 0:
 #ifndef NO_SYSLOG
-            close(0);
-            close(1);
-            close(2);
+                close(0);
+                close(1);
+                close(2);
 #endif
-            break;
-        case -1:
-            logmsg(LOG_ERR, "fork: %s - aborted", strerror(errno));
-            exit(1);
-        default:
-            exit(0);
+                break;
+            case -1:
+                logmsg(LOG_ERR, "fork: %s - aborted", strerror(errno));
+                exit(1);
+            default:
+                exit(0);
+        }
+#ifdef  HAVE_SETSID
+        (void) setsid();
+#endif
     }
-#endif
 
     /* record pid in file */
     if((fpid = fopen(pid_name, "wt")) != NULL) {
@@ -828,7 +847,8 @@ main(int argc, char **argv)
                                     arg->sock = clnt;
                                     arg->from_host = clnt_addr.sin_addr;
                                     memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
-                                    getsockname(http_sock[i], (struct sockaddr *)&arg->to_host, &host_length);
+                                    getsockname(http_sock[i], (struct sockaddr *)&arg->to_host,
+                                        (socklen_t *)&host_length);
                                     arg->ssl = NULL;
                                     if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
                                         logmsg(LOG_WARNING, "HTTP pthread_create: %s", strerror(errno));
@@ -862,7 +882,8 @@ main(int argc, char **argv)
                                     arg->sock = clnt;
                                     arg->from_host = clnt_addr.sin_addr;
                                     memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
-                                    getsockname(https_sock[i], (struct sockaddr *)&arg->to_host, &host_length);
+                                    getsockname(https_sock[i], (struct sockaddr *)&arg->to_host,
+                                        (socklen_t *)&host_length);
                                     if((arg->ssl = SSL_new(ctx[i])) == NULL) {
                                         logmsg(LOG_WARNING, "HTTPS SSL_new: failed");
                                         free(arg);

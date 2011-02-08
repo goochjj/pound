@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $";
+static char *rcs_id = "$Id: config.c,v 1.10 2006/02/01 11:19:51 roseg Rel $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.10  2006/02/01 11:19:51  roseg
+ * Enhancements:
+ *   added NoDaemon configuration directive (replaces compile-time switch)
+ *   added LogFacility configuration directive (replaces compile-time switch)
+ *   added user name logging
+ *
+ * Bug fixes:
+ *   fixed problem with the poll() code
+ *   fixed problem with empty list in gethostbyname()
+ *   added call to setsid() if daemon
+ *   conflicting headers are removed (Content-length - Transfer-encoding)
+ *
+ * Last release in the 1.x series.
+ *
  * Revision 1.9  2005/06/01 15:01:53  roseg
  * Enhancements:
  *   Added the VerifyList configuration flag (CA root certs + CRL)
@@ -199,7 +213,47 @@ static char *rcs_id = "$Id: config.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $
  *
  */
 
+#ifndef MISS_FACILITYNAMES
+#define SYSLOG_NAMES    1
+#endif
+
 #include    "pound.h"
+
+#ifdef MISS_FACILITYNAMES
+
+/* This is lifted verbatim from the Linux sys/syslog.h */
+
+typedef struct _code {
+	char	*c_name;
+	int	c_val;
+} CODE;
+
+static CODE facilitynames[] = {
+    { "auth", LOG_AUTH },
+    { "authpriv", LOG_AUTHPRIV },
+    { "cron", LOG_CRON },
+    { "daemon", LOG_DAEMON },
+    { "ftp", LOG_FTP },
+    { "kern", LOG_KERN },
+    { "lpr", LOG_LPR },
+    { "mail", LOG_MAIL },
+    { "mark", 0 },                  /* never used! */
+    { "news", LOG_NEWS },
+    { "security", LOG_AUTH },       /* DEPRECATED */
+    { "syslog", LOG_SYSLOG },
+    { "user", LOG_USER },
+    { "uucp", LOG_UUCP },
+    { "local0", LOG_LOCAL0 },
+    { "local1", LOG_LOCAL1 },
+    { "local2", LOG_LOCAL2 },
+    { "local3", LOG_LOCAL3 },
+    { "local4", LOG_LOCAL4 },
+    { "local5", LOG_LOCAL5 },
+    { "local6", LOG_LOCAL6 },
+    { "local7", LOG_LOCAL7 },
+    { NULL, -1 }
+};
+#endif
 
 static char *
 file2str(char *fname)
@@ -236,10 +290,10 @@ parse_file(char *fname)
     char                lin[MAXBUF], pat[MAXBUF];
     regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders, MaxRequest, HeadRemove,
                         SSL_CAlist, SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
-                        SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
-                        Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
+                        SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogFacility, LogLevel, Alive,
+                        Server, Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
-                        RewriteRedir;
+                        RewriteRedir, NoDaemon;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -271,6 +325,7 @@ parse_file(char *fname)
     || regcomp(&ExtendedHTTP, "^[ \t]*ExtendedHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NO11SSL, "^[ \t]*NoHTTPS11[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -297,6 +352,7 @@ parse_file(char *fname)
     || regcomp(&CS_FRAG, "^[ \t]*CSfragment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RewriteRedir, "^[ \t]*RewriteRedirect[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&NoDaemon, "^[ \t]*NoDaemon[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -523,6 +579,13 @@ parse_file(char *fname)
             allow_dav = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&NO11SSL, lin, 4, matches, 0)) {
             no_https_11 = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            for(k = 0; facilitynames[k].c_name; k++)
+                if(!strcmp(facilitynames[k].c_name, lin + matches[1].rm_so)) {
+                    log_facility = facilitynames[k].c_val;
+                    break;
+                }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
@@ -537,6 +600,8 @@ parse_file(char *fname)
             check_URL = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&RewriteRedir, lin, 4, matches, 0)) {
             rewrite_redir = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&NoDaemon, lin, 4, matches, 0)) {
+            daemonize = 0;
         } else if(!regexec(&UrlGroup, lin, 4, matches, 0)) {
             if(in_group) {
                 logmsg(LOG_ERR, "UrlGroup in UrlGroup - aborted");
@@ -563,7 +628,7 @@ parse_file(char *fname)
             memset(&alive_addr, 0, sizeof(addr));
             addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL) {
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
                 logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
                 exit(1);
             }
@@ -580,7 +645,7 @@ parse_file(char *fname)
             memset(&alive_addr, 0, sizeof(addr));
             alive_addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL) {
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
                 logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
                 exit(1);
             }
@@ -726,6 +791,7 @@ parse_file(char *fname)
     regfree(&ExtendedHTTP);
     regfree(&WebDAV);
     regfree(&NO11SSL);
+    regfree(&LogFacility);
     regfree(&LogLevel);
     regfree(&Alive);
     regfree(&Client);
@@ -749,6 +815,7 @@ parse_file(char *fname)
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&RewriteRedir);
+    regfree(&NoDaemon);
     return;
 }
 
@@ -792,6 +859,8 @@ config_parse(int argc, char **argv)
     head_off = NULL;
     check_URL = 0;
     rewrite_redir = 1;
+    daemonize = 1;
+    log_facility = LOG_DAEMON;
 
     opterr = 0;
     check_only = 0;

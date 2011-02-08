@@ -162,6 +162,13 @@ is also required for
 .I Subversion
 (see http://subversion.tigris.org for details) access.
 .TP
+\fBLogFacility\fR value
+Specify the log facility to use.
+.I value
+(default: daemon) must be one of the symbolic facility names defined in
+syslog.h. This facility shall be used for logging (if Pound was
+compiled with support for syslog).
+.TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
 logging, 2 for extended logging (show chosen backend server as well),
@@ -174,6 +181,17 @@ Behave like an HTTP/1.0 server for HTTPS clients. If this value is
 requests on SSL connections. If the value is 2 (default) disable multiple
 requests on SSL connections only for MSIE clients. Required
 work-around for a bug in certain versions of IE.
+.TP
+\fBNoDaemon\fR
+Have
+.B Pound
+run in the foreground. By default
+.B Pound
+runs as a daemon (detaches itself from the controlling terminal and
+puts itself in the background). By specifying this option you can force
+.B Pound
+to work like a regular process. Useful for debugging or if you want to
+use something like \fIdaemontools\fR.
 .TP
 \fBAlive\fR value
 Specify how often
@@ -461,6 +479,11 @@ this issue - for other Web servers you are on your own. May the source be with y
 deals with (and sanitizes) HTTP/1.1 requests. Thus even if you have an HTTP/1.0 server,
 a single connection to an HTTP/1.1 client is kept, while the connection to the back-end
 server is re-opened as necessary.
+.PP
+.B Pound
+attempts to resolve the names of the hosts that appear in various requests and/or responses.
+That means it need a functioning resolver of some kind (be it /etc/hosts, DNS or something
+else).
 .SH EXAMPLES
 To translate HTTPS requests to a local HTTP server (assuming your network address
 is 123.123.123.123):

@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.9 2005/06/01 15:01:54 roseg Rel roseg $";
+static char *rcs_id = "$Id: svc.c,v 1.10 2006/02/01 11:19:54 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.10  2006/02/01 11:19:54  roseg
+ * Enhancements:
+ *   added NoDaemon configuration directive (replaces compile-time switch)
+ *   added LogFacility configuration directive (replaces compile-time switch)
+ *   added user name logging
+ *
+ * Bug fixes:
+ *   fixed problem with the poll() code
+ *   fixed problem with empty list in gethostbyname()
+ *   added call to setsid() if daemon
+ *   conflicting headers are removed (Content-length - Transfer-encoding)
+ *
+ * Last release in the 1.x series.
+ *
  * Revision 1.9  2005/06/01 15:01:54  roseg
  * Enhancements:
  *   Added the VerifyList configuration flag (CA root certs + CRL)
@@ -217,7 +231,7 @@ logmsg(int priority, char *fmt, ...)
     if(print_log)
         printf("%s\n", buf);
     else
-        syslog(priority, "%s", buf);
+        syslog(log_facility | priority, "%s", buf);
 #endif
     return;
 }
@@ -249,7 +263,7 @@ va_dcl
     if(print_log)
         printf("%s\n", buf);
     else
-        syslog(priority, "%s", buf);
+        syslog(log_facility | priority, "%s", buf);
 #endif
     return;
 }
@@ -696,7 +710,7 @@ is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path,
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    if((he = gethostbyname(host)) == NULL)
+    if((he = gethostbyname(host)) == NULL || he->h_addr_list[0] == NULL)
         return 0;
     memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
     if(port != NULL)

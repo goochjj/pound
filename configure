@@ -849,7 +849,7 @@ if test -n "$ac_init_help"; then
 Optional Features:
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
-  --enable-daemon         enable or disable running as a daemon (default:
+  --enable-log            enable or disable logging via syslog (default:
                           enabled)
   --enable-super          enable or disable running with supervisor process
                           (default: enabled)
@@ -862,8 +862,6 @@ Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-ssl=directory    location of OpenSSL package
-  --with-log=facility     log facility to use (default: LOG_DAEMON), use
-                          --without-log to log to stderr
 
 Some influential environment variables:
   CC          C compiler command
@@ -2922,20 +2920,10 @@ if test "${with_ssl+set}" = set; then
   CPPFLAGS="-I${with_ssl}/include ${CPPFLAGS}"; LDFLAGS="-L${with_ssl}/lib ${LDFLAGS}"
 fi;
 
-
-# Check whether --with-log or --without-log was given.
-if test "${with_log+set}" = set; then
-  withval="$with_log"
-  test ${withval} = "no" && CFLAGS="${CFLAGS} -DNO_SYSLOG"
-     test ${withval} != "no" && CFLAGS="${CFLAGS} -DFACILITY=${with_log}"
-fi;
-
-# Check whether --enable-daemon or --disable-daemon was given.
-if test "${enable_daemon+set}" = set; then
-  enableval="$enable_daemon"
-  test ${enableval} = "yes" && CFLAGS="${CFLAGS} -DAEMON"
-else
-  CFLAGS="${CFLAGS} -DAEMON"
+# Check whether --enable-log or --disable-log was given.
+if test "${enable_log+set}" = set; then
+  enableval="$enable_log"
+  test ${enableval} = "no" && CFLAGS="${CFLAGS} -DNO_SYSLOG"
 fi;
 
 # Check whether --enable-super or --disable-super was given.
@@ -3800,8 +3788,7 @@ done
 
 
 
-
-for ac_header in arpa/inet.h errno.h netdb.h netinet/in.h netinet/tcp.h stdlib.h string.h sys/socket.h sys/time.h syslog.h unistd.h getopt.h pthread.h sys/types.h sys/poll.h openssl/ssl.h openssl/engine.h time.h pwd.h grp.h signal.h regex.h ctype.h wait.h sys/wait.h sys/stat.h fcntl.h stdarg.h
+for ac_header in arpa/inet.h errno.h netdb.h netinet/in.h netinet/tcp.h stdlib.h string.h sys/socket.h sys/time.h unistd.h getopt.h pthread.h sys/types.h sys/poll.h openssl/ssl.h openssl/engine.h time.h pwd.h grp.h signal.h regex.h ctype.h wait.h sys/wait.h sys/stat.h fcntl.h stdarg.h
 do
 as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
 if eval "test \"\${$as_ac_Header+set}\" = set"; then
@@ -3949,6 +3936,121 @@ fi
 
 done
 
+
+save_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -DSYSLOG_NAMES=1"
+
+echo "$as_me:$LINENO: checking for facilitynames presence" >&5
+echo $ECHO_N "checking for facilitynames presence... $ECHO_C" >&6
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+#include <stdio.h>
+#include <syslog.h>
+
+int
+main ()
+{
+void *attr=(void *)facilitynames;
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ok=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ok=no
+fi
+rm -f conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+if test x"$ok" = xyes; then
+echo "$as_me:$LINENO: result: $ok" >&5
+echo "${ECHO_T}$ok" >&6
+CFLAGS="$save_CFLAGS -DHAVE_SYSLOG_H=1"
+else
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+#include <sys/stdio.h>
+#include <syslog.h>
+
+int
+main ()
+{
+void *attr=(void *)facilitynames;
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (eval echo "$as_me:$LINENO: \"$ac_link\"") >&5
+  (eval $ac_link) 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } &&
+	 { ac_try='test -z "$ac_c_werror_flag"			 || test ! -s conftest.err'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; } &&
+	 { ac_try='test -s conftest$ac_exeext'
+  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+  (eval $ac_try) 2>&5
+  ac_status=$?
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); }; }; then
+  ok=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+ok=no
+fi
+rm -f conftest.err conftest.$ac_objext \
+      conftest$ac_exeext conftest.$ac_ext
+if test x"$ok" = xyes; then
+echo "$as_me:$LINENO: result: $ok" >&5
+echo "${ECHO_T}$ok" >&6
+CFLAGS="$save_CFLAGS -DHAVE_SYS_SYSLOG_H=1"
+else
+CFLAGS="$save_CFLAGS -DHAVE_SYSLOG_H=1 -DMISS_FACILITYNAMES"
+fi
+fi
 
 echo "$as_me:$LINENO: checking return type of signal handlers" >&5
 echo $ECHO_N "checking return type of signal handlers... $ECHO_C" >&6
@@ -5854,7 +5956,8 @@ done
 
 
 
-for ac_func in gethostbyname inet_ntop memset regcomp poll socket strcasecmp strchr strdup strerror strncasecmp strspn strtol X509_STORE_set_flags
+
+for ac_func in gethostbyname inet_ntop memset regcomp poll socket strcasecmp strchr strdup strerror strncasecmp strspn strtol setsid X509_STORE_set_flags
 do
 as_ac_var=`echo "ac_cv_func_$ac_func" | $as_tr_sh`
 echo "$as_me:$LINENO: checking for $ac_func" >&5

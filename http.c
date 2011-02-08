@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $";
+static char *rcs_id = "$Id: http.c,v 1.10 2006/02/01 11:19:53 roseg Rel $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.10  2006/02/01 11:19:53  roseg
+ * Enhancements:
+ *   added NoDaemon configuration directive (replaces compile-time switch)
+ *   added LogFacility configuration directive (replaces compile-time switch)
+ *   added user name logging
+ *
+ * Bug fixes:
+ *   fixed problem with the poll() code
+ *   fixed problem with empty list in gethostbyname()
+ *   added call to setsid() if daemon
+ *   conflicting headers are removed (Content-length - Transfer-encoding)
+ *
+ * Last release in the 1.x series.
+ *
  * Revision 1.9  2005/06/01 15:01:53  roseg
  * Enhancements:
  *   Added the VerifyList configuration flag (CA root certs + CRL)
@@ -584,7 +598,7 @@ URL_syntax(char *line)
 void *
 thr_http(void *arg)
 {
-    BIO                 *cl, *be, *bb;
+    BIO                 *cl, *be, *bb, *b64;
     X509                *x509;
     SSL                 *ssl;
     thr_arg             *a;
@@ -593,7 +607,8 @@ thr_http(void *arg)
     int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, redir,
                         force_10;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
-                        headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], *mh;
+                        headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
+                        *mh;
     long                cont, res_bytes;
     time_t              req_start;
     regmatch_t          matches[4];
@@ -686,7 +701,7 @@ thr_http(void *arg)
     for(cl_11 = be_11 = 0;;) {
         req_start = time(NULL);
         res_bytes = 0L;
-        v_host[0] = referer[0] = u_agent[0] = '\0';
+        v_host[0] = referer[0] = u_agent[0] = u_name[0] = '\0';
         conn_closed = 0;
         for(n = 0; n < MAXHEADERS; n++)
             headers_ok[n] = 1;
@@ -752,11 +767,19 @@ thr_http(void *arg)
                     conn_closed = 1;
                 break;
             case HEADER_TRANSFER_ENCODING:
-                if(!strcasecmp("chunked", buf))
-                    chunked = 1;
+                if(cont != 0L)
+                    headers_ok[n] = 0;
+                else if(!strcasecmp("chunked", buf))
+                    if(chunked)
+                        headers_ok[n] = 0;
+                    else
+                        chunked = 1;
                 break;
             case HEADER_CONTENT_LENGTH:
-                cont = atol(buf);
+                if(chunked)
+                    headers_ok[n] = 0;
+                else
+                    cont = atol(buf);
                 break;
             case HEADER_ILLEGAL:
                 if(log_level > 0)
@@ -770,6 +793,35 @@ thr_http(void *arg)
 
                 for(i = 0; i < n_head_off; i++)
                     headers_ok[n] = regexec(&head_off[i], headers[n], 0, NULL, 0);
+            }
+            /* get User name */
+            if(!regexec(&AUTHORIZATION, headers[n], 2, matches, 0)) {
+                int inlen;
+
+                if((bb = BIO_new(BIO_s_mem())) == NULL) {
+                    logmsg(LOG_WARNING, "Can't alloc BIO_s_mem");
+                    continue;
+                }
+                if((b64 = BIO_new(BIO_f_base64())) == NULL) {
+                    logmsg(LOG_WARNING, "Can't alloc BIO_f_base64");
+                    BIO_free(bb);
+                    continue;
+                }
+                b64 = BIO_push(b64, bb);
+                BIO_write(bb, headers[n] + matches[1].rm_so, matches[1].rm_eo - matches[1].rm_so);
+                BIO_write(bb, "\n", 1);
+                if((inlen = BIO_read(b64, buf, MAXBUF - 1)) <= 0) {
+                    logmsg(LOG_WARNING, "Can't read BIO_f_base64");
+                    BIO_free(b64);
+                    continue;
+                }
+                BIO_free(b64);
+                if((mh = strchr(buf, ':')) == NULL) {
+                    logmsg(LOG_WARNING, "Unknown authentication");
+                    continue;
+                }
+                *mh = '\0';
+                strcpy(u_name, buf);
             }
         }
 
@@ -1187,18 +1239,18 @@ thr_http(void *arg)
             break;
         case 3:
             if(v_host[0])
-                logmsg(LOG_INFO, "%s %s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
-                    log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
-                    referer, u_agent);
+                logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
+                    u_name[0]? u_name: "-", log_time(req_start), request, response[9], response[10], response[11],
+                    log_bytes(res_bytes), referer, u_agent);
             else
-                logmsg(LOG_INFO, "%s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
-                    log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
-                    referer, u_agent);
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                    u_name[0]? u_name: "-", log_time(req_start), request, response[9], response[10], response[11],
+                    log_bytes(res_bytes), referer, u_agent);
             break;
         case 4:
-            logmsg(LOG_INFO, "%s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
-                log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
-                referer, u_agent);
+            logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                log_time(req_start), u_name[0]? u_name: "-", request, response[9], response[10], response[11],
+                log_bytes(res_bytes), referer, u_agent);
             break;
         }
 

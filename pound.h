@@ -27,57 +27,22 @@
  */
 
 /*
- * $Id: pound.h,v 1.9 2005/06/01 15:01:54 roseg Rel roseg $
- * Revision 1.0  2002/10/31 15:21:25  roseg
- * fixed ordering of certificate file
- * removed thread auto clean-up (bug in Linux implementation of libpthread)
- * added support for additional WebDAV commands (Microsoft)
- * restructured request match patterns
- * added support for HA ports for back-end hosts
- * added support for optional HTTPS extra header
+ * $Id: pound.h,v 1.10 2006/02/01 11:19:54 roseg Rel $
+ * $Log: pound.h,v $
+ * Revision 1.10  2006/02/01 11:19:54  roseg
+ * Enhancements:
+ *   added NoDaemon configuration directive (replaces compile-time switch)
+ *   added LogFacility configuration directive (replaces compile-time switch)
+ *   added user name logging
  *
- * Revision 0.11  2002/09/18 15:07:25  roseg
- * session tracking via IP, URL param, cookie
- * open sockets with REUSEADDR; check first noone else uses them
- * fixed bug in responses without content but Content-length (1xx, 204, 304)
- * added early pruning of sessions to "dead" back-end hosts
+ * Bug fixes:
+ *   fixed problem with the poll() code
+ *   fixed problem with empty list in gethostbyname()
+ *   added call to setsid() if daemon
+ *   conflicting headers are removed (Content-length - Transfer-encoding)
  *
- * Revision 0.10  2002/09/05 15:31:32  roseg
- * Added required/disallowed headers matching in groups
- * Configurable cyphers/strength for SSL
- * Fixed bug in multiple requests per connection (GROUP matching)
- * Fixed missing '~' in URL matching
- * Retry request on discovering dead back-end
- * Fixed bug in reading certificate/private-key file
- * Added configure script
- * Configurable logging facility
+ * Last release in the 1.x series.
  *
- * Revision 0.9  2002/08/19 08:19:53  roseg
- * Added support for listening on multiple addresses/ports
- * Added support/configuration for WebDAV (LOCK/UNLOCK)
- * Added support for old-style HTTP/1.0 responses (content to EOF)
- * Fixed threads stack size problem on *BSD (#ifdef NEED_STACK)
- * Fixed problem in URL extraction
- *
- * Revision 0.8  2002/08/01 13:29:15  roseg
- * fixed bug in server timeout/close detection
- * fixed problem with SSL multi-threading
- * header collection
- * extended request patterns as per RFC
- * fixed problem with HEAD response (ignore content length)
- *
- * Revision 0.7  2002/07/23 03:11:28  roseg
- * Moved entirely to BIO (rather then the old comm_)
- * Added HTTPS-specific headers
- * Fixed a few minor problems in the pattern matching
- *
- * Revision 0.6  2002/07/16 21:14:01  roseg
- * added URL groups and matching
- * extended URL reuest matching
- * moved to "modern" regex
- *
- * Revision 0.5  2002/07/04 12:23:42  roseg
- * code split
  *
  */
 
@@ -209,8 +174,10 @@
 
 #if HAVE_SYSLOG_H
 #include    <syslog.h>
-#else
-#error "Pound needs syslog.h"
+#endif
+
+#if HAVE_SYS_SYSLOG_H
+#include    <sys/syslog.h>
 #endif
 
 #if HAVE_SIGNAL_H
@@ -297,8 +264,10 @@ extern char **http,             /* HTTP port to listen on */
             *CS_frag;           /* character set of fragment */
 extern int  check_URL;          /* check URL for correct syntax */
 extern int  rewrite_redir;      /* rewrite redirection responses */
+extern int  daemonize;          /* run as daemon */
 extern int  print_log;          /* print log messages to stdout/stderr */
 extern char *pid_name;          /* file to record pid in */
+extern int  log_facility;       /* log facility to use */
 
 extern regex_t  *head_off;          /* headers to remove */
 extern int      n_head_off;         /* how many of them */
@@ -375,7 +344,8 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN,   /* responses for which we ignore content */
                 RESP_REDIR, /* responses for which we rewrite Location */
-                LOCATION;   /* the host we are redirected to */
+                LOCATION,   /* the host we are redirected to */
+                AUTHORIZATION;  /* the Authorisation header */
 
 extern char *e500,  /* default error 500 page contents */
             *e501,  /* default error 501 page contents */

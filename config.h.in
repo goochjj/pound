@@ -87,8 +87,8 @@
 /* Define if you have the `strtol' function. */
 #undef HAVE_STRTOL
 
-/* Define if you have the <syslog.h> header file. */
-#undef HAVE_SYSLOG_H
+/* Define if you have the `setsid' function. */
+#undef HAVE_SETSID
 
 /* Define if you have the <sys/socket.h> header file. */
 #undef HAVE_SYS_SOCKET_H
