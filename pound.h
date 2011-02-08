@@ -284,7 +284,7 @@ typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_URL, SESS_PARM, SESS_HEA
 
 /* back-end definition */
 typedef struct _backend {
-    int                 be_type;    /* 0 if real back-end, other wise code (301, 302/default, 307) */
+    int                 be_type;    /* 0 if real back-end, otherwise code (301, 302/default, 307) */
     struct addrinfo     addr;       /* IPv4/6 address */
     int                 priority;   /* priority */
     int                 to;

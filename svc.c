@@ -74,8 +74,10 @@ t_find(LHASH *const tab, char *const key)
     TABNODE t, *res;
 
     t.key = key;
-    if((res = (TABNODE *)lh_retrieve(tab, &t)) != NULL)
+    if((res = (TABNODE *)lh_retrieve(tab, &t)) != NULL) {
+        res->last_acc = time(NULL);
         return res->content;
+    }
     return NULL;
 }
 
@@ -139,7 +141,7 @@ t_cont(TABNODE *t, void *arg)
     ALL_ARG *a;
 
     a = (ALL_ARG *)arg;
-    if(memcmp(t->content, a->content, a->cont_len))
+    if(memcmp(t->content, a->content, a->cont_len) == 0)
         lh_delete(a->tab, t);
     return;
 }

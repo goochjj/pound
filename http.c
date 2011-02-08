@@ -53,14 +53,25 @@ err_reply(BIO *const c, const char *head, const char *txt)
 static void
 redirect_reply(BIO *const c, const char *url, const int code)
 {
-    char    rep[MAXBUF], cont[MAXBUF];
+    char    rep[MAXBUF], cont[MAXBUF], *code_msg;
 
+    switch(code) {
+    case 301:
+        code_msg = "Moved Permanently";
+        break;
+    case 307:
+        code_msg = "Temporary Redirect";
+        break;
+    default:
+        code_msg = "Found";
+        break;
+    }
     snprintf(cont, sizeof(cont),
         "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"%s\">%s</a></p></body></html>",
         url, url);
     snprintf(rep, sizeof(rep),
-        "HTTP/1.0 %d Found\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
-        code, url, strlen(cont));
+        "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
+        code, code_msg, url, strlen(cont));
     BIO_write(c, rep, strlen(rep));
     BIO_write(c, cont, strlen(cont));
     BIO_flush(c);
@@ -1102,16 +1113,16 @@ thr_http(void *arg)
                 break;
             case 3:
                 if(v_host[0])
-                    logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", v_host, caddr,
-                        u_name[0]? u_name: "-", req_time, request, referer, u_agent);
+                    logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\"", v_host, caddr,
+                        u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
                 else
-                    logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", caddr,
-                        u_name[0]? u_name: "-", req_time, request, referer, u_agent);
+                    logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\"", caddr,
+                        u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
                 break;
             case 4:
             case 5:
-                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", caddr,
-                    u_name[0]? u_name: "-", req_time, request, referer, u_agent);
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\"", caddr,
+                    u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
                 break;
             }
             if(!cl_11 || conn_closed || force_10)

@@ -544,7 +544,7 @@ multiple back-ends per service, in which case
 .B Pound
 will attempt to load-balance between them.
 .TP
-\fBRedirect\fR "url"
+\fBRedirect\fR [code] "url"
 This is a special type of back-end. Instead of sending the request to a back-end
 .B Pound
 replies immediately with a redirection to the given URL. You may define multiple
@@ -587,7 +587,8 @@ in an ideal world
 should reply with a "307 Temporary Redirect" status. Unfortunately, that is not
 yet supported by all clients (in particular HTTP 1.0 ones), so
 .B Pound
-currently replies with a "302 Found" instead.
+currently replies by default with a "302 Found" instead. You may override this
+behaviour by specifying the code to be used (301, 302 or 307).
 .TP
 \fBEmergency\fR
 Directives enclosed between an
