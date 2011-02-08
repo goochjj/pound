@@ -36,9 +36,15 @@ is as light-weight as I know how to make it, with a lot of simultaneous requests
 will use quite a bit of CPU and memory. Multiple CPUs are your friend.
 .SH "CONFIGURATION FILE"
 Each line in the file is considered a complete configuration directive. The directives
-are case-insensitive. Empty lines or lines starting in '#' are ignored.
-.PP
-Here is the directive syntax:
+are case-insensitive. Empty lines or lines starting in '#' are ignored. There are two
+types of directives:
+.B global
+directives (they affect the settings for the entire program instance), and
+.B group
+directives (they affect only a specific group of requests).
+.SH "GLOBAL DIRECTIVES"
+Global directives may appear anywhere within the configuration file, though it is
+customary for them to be at the start. They may appear in any order.
 .TP
 \fBListenHTTP\fR host,port
 Specify the address and port number where
@@ -68,12 +74,15 @@ and
 .I ListenHTTPS
 may be specified as may times as required.
 .TP
-\fBHTTPSHeaders\fR ["header"]
+\fBHTTPSHeaders\fR cert "header"
 Add HTTPS-specific headers. By default,
 .B Pound
-passes requests unchanged to the back-end server(s). If not empty, the value is an additional
-header for the request. Please note: if HTTPSHeaders is not specified, no client certificate
-will be requested on connection establishment.
+passes requests unchanged to the back-end server(s). If the
+.I header
+is not empty it represents the value of a header to be added to the request. The
+.I cert
+tells Pound what to do about client certificates: 0 - don't ask (default), 1 - ask,
+2 - ask and fail if no certificate was presented.
 .TP
 \fBUser\fR user_name
 Specify the user
@@ -97,11 +106,17 @@ By default,
 only allows GET, POST and HEAD.
 .TP
 \fBWebDAV\fR value
-if value is 1, allow WebDAV requests (LOCK, UNLOCK, SUBSCRIBE, PROPFIND, PROPPATCH, SEARCH, POLL, MKCOL, MOVE,
-COPY, DELETE, BDELETE, CONNECT, OPTIONS, TRACE). This, as far as I can tell, is what Microsoft needs in its
-private WebDAV version. Whether my understanding of their semantics is correct is debatable. Whether their
-understanding of their semantics is correct is also debatable (they had to patch their own proxy several
-times in order to support WebDAV).
+if value is 1, allow WebDAV requests (LOCK, UNLOCK and if compiled
+with MS support: SUBSCRIBE, PROPFIND, PROPPATCH, SEARCH, POLL, MKCOL,
+MOVE, COPY, DELETE, BDELETE, CONNECT, OPTIONS, TRACE, MKACTIVITY,
+CHECKOUT, MERGE, REPORT). This, as far as I can tell, is what
+Microsoft needs in its private WebDAV version. Whether my understanding
+of their semantics is correct is debatable. Whether their understanding
+of their semantics is correct is also debatable (they had to patch
+their own proxy several times in order to support WebDAV). MS support
+is also required for
+.I Subversion
+(see http://subversion.tigris.org for details) access.
 .TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
@@ -126,13 +141,27 @@ will close the connection. Set it higher if your clients
 time-out on a slow network or over-loaded server, lower is you
 start getting DOS attacks or run into problems with IE clients.
 .TP
+\fBSSLEngine\fR name
+Use an OpenSSL hardware accelleration card called "name". Available
+only if OpenSSL-engine is installed on your system.
+.SH "GROUP DIRECTIVES"
+Group directives apply to a specific group of requests. The order of the group
+directives is important - incoming requests will be matched against the
+given patterns in the order they appear in the file, and the first group
+that matches wins.
+.PP
+If a request does not match any of the defined groups it will not be sent
+anywhere (there is no default server). This can come in handy if you want
+to block a specific kind of requests, though it would be better style to
+do this with a catch-all group with no servers.
+.TP
 \fBUrlGroup\fR "pattern"
 Specify a group of backend servers based on a URL pattern. All
 requests fitting the pattern will be served by the defined servers.
 .I Pattern
 is a regular pattern as specified in regex(7) - extended version.
 The patterns are tested in order of definition, so the last pattern
-should be a catch-all
+should usually be a catch-all
 .I ".*"
 The group ends with a
 .I EndGroup
@@ -212,7 +241,7 @@ If a client browser connects to
 .B Pound
 via HTTPS and if it presents a client certificate and if
 .I HTTPSHeaders
-is set (HTTPSHeaders "value"),
+is set (HTTPSHeaders 1 "value"),
 .B Pound
 adds the following headers to the request it issues to the server:
 .TP
@@ -230,6 +259,9 @@ Starting date of certificate validity.
 .TP
 \fBX-SSL-notAfter\fR
 Ending date of certificate validity.
+.TP
+\fBX-SSL-serial\fR
+Certificate serial number (decimal).
 .PP
 It is the application's responsability to actually use these
 headers - Pound just passes this information without checking
@@ -240,8 +272,9 @@ In general,
 .B Pound
 does not read or write to the hard-disk. The exceptions are reading the configuration file
 and (possibly) the server certificate file(s), which are opened read-only on startup, read,
-and closed. Following this there is no disk access whatsoever, so using a RootJail
-directive is only for extra security bonus points.
+and closed, and the pid file which is opened on start-up, written to and immediately closed.
+Following this there is no disk access whatsoever, so using a RootJail directive is only
+for extra security bonus points.
 .PP
 .B Pound
 tries to sanitise all HTTP/HTTPS requests: the request itself, the headers and the contents
@@ -269,7 +302,7 @@ server is re-opened as necessary.
 To translate HTTPS requests to a local HTTP server (assuming your network address
 is 123.123.123.123):
 .IP
-ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+ListenHTTPS 1.2.3.4,443 /etc/pound/server.pem
 .br
 
 .br
@@ -284,7 +317,7 @@ is a newer and faster machine:
 .IP
 ListenHTTP 123.123.123.123,80
 .br
-ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+ListenHTTPS 1.2.3.4,443 /etc/pound/server.pem
 .br
 
 .br
@@ -305,7 +338,7 @@ ListenHTTP 123.123.123.123,80
 .br
 ListenHTTP 123.123.123.123,8080
 .br
-ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+ListenHTTPS 1.2.3.4,443 /etc/pound/server.pem
 .br
 User www
 .br
@@ -384,7 +417,7 @@ Client 15
 .br
 Alive 60
 .br
-HTTPSHeaders
+HTTPSHeaders 1 ""
 .br
 LogLevel 0
 .br

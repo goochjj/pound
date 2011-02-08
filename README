@@ -78,6 +78,13 @@ INSTALLATION
     it should work unchanged on just about any modern
     Unix-like system. You will require OpenSSL and
     libpthread.
+
+    Warning: as Pound is a multi-threaded program it requires
+    a version of OpenSSL with thread support. This is normally
+    the case on Linux and Solaris (for example) but not on *BSD.
+    If your system has the wrong library please download, compile
+    and install OpenSSL (from http://www.openssl.org).
+
 (2) Download the pound.tgz file and unpack it. Do the usual
     thing:
 
@@ -153,6 +160,92 @@ that in order to use Pound as an SSL wrapper you need to:
 - start _two_ copies of Pound on the front-end: one listens
   on port 80 and passes requests to port 8080, the second
   listens on port 443 and passes requests to port 8443.
+
+
+
+VIRTUAL HOSTS (IN GENERAL)
+
+Some people asked about the possibility of redirecting requests to back-ends
+as per some virtual hosts definition. While I believe this is not Pound's
+job, it can be done. As of version 0.10, Pound supports filtering requests based
+not only on the request URL, but also on the presence or absence of certain headers.
+
+Let's assume that you have internal server 192.168.0.10 that is supposed to serve
+the needs of virtual host www.server0.com and 192.168.0.11 that serves www.server1.com.
+You want Pound to listen on address 1.2.3.4 and separate the requests to each host.
+The config file would look something like this:
+
+    ListenHTTP  1.2.3.4,80
+
+    UrlGroup    ".*"
+    HeadRequire Host    "http://www.server0.com.*"
+    BackEnd     192.168.0.10
+    EndGroup
+
+    UrlGroup    ".*"
+    HeadRequire Host    "http://www.server1.com.*"
+    BackEnd     192.168.0.11
+    EndGroup
+
+(add whatever else is necessary) or, if you want even safer filtering:
+
+    ListenHTTP  1.2.3.4,80
+
+    UrlGroup    ".*"
+    HeadRequire Host    ".*www.server0.com.*"
+    HeadDeny    Host    ".*www.server1.com.*"
+    BackEnd     192.168.0.10
+    EndGroup
+
+    UrlGroup    ".*"
+    HeadRequire Host    ".*www.server1.com.*"
+    HeadDeny    Host    ".*www.server0.com.*"
+    BackEnd     192.168.0.11
+    EndGroup
+
+This is NOT recommended (I personally believe that virtual hosts should be
+implemented in the back-end servers - putting this in a proxy
+is a major security kludge) but it works.
+
+
+
+VIRTUAL HOSTS AND HTTPS
+
+Quite often we get inquiries about Pound's ability to do virtual hosting with
+HTTPS. In order to lay this matter to rest, let me say:
+
+    HTTPS does not allow virtual hosting
+
+This is not a limitation of Pound, but of HTTPS - no Web server or proxy are
+able to do it due to the nature of the beast.
+
+In order to see why this is the case we need to look at the way HTTPS works.
+Basically there are three stages in any HTTPS connection:
+
+(1) Connection negotiation - the client (your browser) and the server (Web server
+    or proxy) negotiate the basic parameters: cyphers to use, session key, etc.
+(2) Connection authentication: at the very least the server presents the client
+    with a certificate that says "I am server www.encrypted.com - and
+    certificate.authority.org will verify that". The client may also present a
+    certificate of its own at this stage.
+(3) Request/response cycle: normal HTTP is sent (through the encrypted channel)
+    back and forth.
+
+The vital point to notice here is that connection authentication takes place
+BEFORE any request was issued.
+
+On the other hand, the way virtual hosting works is for the client to specify
+in the request to which server it would like to talk. This is accomplished via
+a Host header:
+
+    GET /index.html HTTP/1.1
+    Host: http://www.virthost.com
+
+Combining the two we get to an impasse: on connection setup the server will reply
+with the certificate for "www.realhost.com", but the request is really for
+"www.virthost.com" - and most browsers will scream blue murder (as well they
+should) if the two do not match.
+
 
 
 VIRTUAL HOSTS IN ZOPE
@@ -265,10 +358,24 @@ request it makes to the server:
 - X-SSL-Issuer: information about the certificate issuer (CA)
 - X-SSL-notBefore: begin validity date for the certificate
 - X-SSL-notAfter: end validity date for the certificate
+- X-SSL-serial: certificate serial number (in decimal)
 
 It is the application's responsibility to actually use these
 headers - Pound just passes this information without checking
 it in any way (except for signature and encryption correctness).
+
+Please note that this mechanism allows forgeries: a client may
+(maliciously) send these headers to Pound in order to masquerade
+as an SSL client with a specific certificate. If this is a problem
+for your application make sure to deny these requests: add
+
+    HeadDeny X-SSL-Subject ".*"
+    HeadDeny X-SSL-Issuer ".*"
+    HeadDeny X-SSL-notBefore ".*"
+    HeadDeny X-SSL-notAfter ".*"
+    HeadDeny X-SSL-serial ".*"
+
+within the UrlGroup(s).
 
 
 THREADS AND LIMITS
@@ -406,7 +513,10 @@ implications are!
 
 In addition to this flag you must specify 'WebDAV 1' in the config file.
 If you also use the SSL wrapper feature in front of a Microsoft server
-you should probably also add 'HTTPSHeaders "Front-End-Https: on"'.
+you should probably also add 'HTTPSHeaders 1 "Front-End-Https: on"'.
+
+These changes are also required to access a Subversion server via
+Pound.
 
 
 OTHER ISSUES
@@ -456,6 +566,10 @@ debugging of the WebDAV code for Microsoft servers.
 
 Abner G. Jacobsen (abner@integraweb.com.br) did a lot of testing
 in a production environment and contributed some very nice ideas.
+
+Jan-Piet Mens (jpmens@yahoo.de) raised some interesting security
+points about the HTTPS implementation and brought the original idea
+for SSL header filtering.
 
 Gurkan Sengun (gurkan@linuks.mine.nu) tested Pound on Solaris,
 contributed the Solaris cc flags and makes a Solaris 7 pre-compiled

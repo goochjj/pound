@@ -26,10 +26,19 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $";
+static char *rcs_id = "$Id: http.c,v 1.3 2003/02/19 13:51:59 roseg Exp $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.3  2003/02/19 13:51:59  roseg
+ * Added support for OpenSSL Engine (crypto hardware)
+ * Added support for Subversion WebDAV
+ * Added support for mandatory client certificates
+ * Added X-SSL-serial header for SSL connections
+ * Fixed problem with BIO_pending in is_readable
+ * Fixed problem with multi-threading in OpenSSL
+ * Improved autoconf
+ *
  * Revision 1.2  2003/01/20 15:15:06  roseg
  * Better handling of "100 Continue" responses
  * Fixed problem with allowed character set for requests
@@ -263,6 +272,8 @@ is_readable(BIO *bio)
     struct timeval  to;
     int             s;
 
+    if(BIO_pending(bio) > 0)
+        return 1;
     s = BIO_get_fd(bio, NULL);
     to.tv_sec = 0;
     to.tv_usec = 0;
@@ -416,9 +427,6 @@ thr_http(void *arg)
         SSL     *ssl;
 
         /* setup SSL_CTX */
-        ERR_load_crypto_strings();
-        ERR_load_SSL_strings();
-        OpenSSL_add_all_algorithms();
         if((ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
             syslog(LOG_ERR, "SSL_CTX_new failed - aborted");
             BIO_free_all(cl);
@@ -442,7 +450,9 @@ thr_http(void *arg)
             BIO_free_all(cl);
             pthread_exit(NULL);
         }
-        if(https_headers)
+        if(https_headers > 1)
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, verify_cert);
+        else if(https_headers == 1)
             SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
         else
             SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, verify_cert);
@@ -470,6 +480,12 @@ thr_http(void *arg)
                 pthread_exit(NULL);
             }
             x509 = SSL_get_peer_certificate(ssl);
+        }
+        if(https_headers > 1 && x509 == NULL) {
+            /* certificate is mandatory ! */
+            SSL_CTX_free(ctx);
+            BIO_free_all(cl);
+            pthread_exit(NULL);
         }
     } else {
         ctx = NULL;
@@ -531,13 +547,6 @@ thr_http(void *arg)
                 if(log_level > 0)
                     syslog(LOG_WARNING, "bad header from %s (%s)", inet_ntoa(from_host), headers[n]);
                 headers_ok[n] = 0;
-                /*
-                syslog(LOG_WARNING, "bad header from %s (%s)", inet_ntoa(from_host), headers[n]);
-                err_reply(cl, h500, e500);
-                free_headers(headers);
-                clean_all();
-                pthread_exit(NULL);
-                */
             } else if(!strncasecmp(headers[n] + matches[1].rm_so, "Host", matches[1].rm_eo - matches[1].rm_so)) {
                 strncpy(v_host, headers[n] + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
                 v_host[matches[2].rm_eo - matches[2].rm_so] = '\0';
@@ -629,7 +638,7 @@ thr_http(void *arg)
         free_headers(headers);
 
         /* if SSL put additional headers for client certificate */
-        if(ctx != NULL && https_headers) {
+        if(ctx != NULL && https_headers > 0) {
             if(https_header != NULL)
                 if(BIO_printf(be, "%s\r\n", https_header) <= 0) {
                     syslog(LOG_WARNING, "error write HTTPSHeader to %s:%hd: %m",
@@ -676,6 +685,14 @@ thr_http(void *arg)
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-notAfter: %s\r\n", buf) <= 0) {
                     syslog(LOG_WARNING, "error write X-SSL-notAfter to %s:%hd: %m",
+                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+                    err_reply(cl, h500, e500);
+                    BIO_free_all(bb);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+                if(BIO_printf(be, "X-SSL-serial: %ld\r\n", ASN1_INTEGER_get(X509_get_serialNumber(x509))) <= 0) {
+                    syslog(LOG_WARNING, "error write X-SSL-serial to %s:%hd: %m",
                         inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
                     err_reply(cl, h500, e500);
                     BIO_free_all(bb);

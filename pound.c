@@ -26,10 +26,19 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $";
+static char *rcs_id = "$Id: pound.c,v 1.3 2003/02/19 13:51:59 roseg Exp $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.3  2003/02/19 13:51:59  roseg
+ * Added support for OpenSSL Engine (crypto hardware)
+ * Added support for Subversion WebDAV
+ * Added support for mandatory client certificates
+ * Added X-SSL-serial header for SSL connections
+ * Fixed problem with BIO_pending in is_readable
+ * Fixed problem with multi-threading in OpenSSL
+ * Improved autoconf
+ *
  * Revision 1.2  2003/01/20 15:15:06  roseg
  * Better handling of "100 Continue" responses
  * Fixed problem with allowed character set for requests
@@ -131,6 +140,9 @@ char    **http,             /* HTTP port to listen on */
         **https,            /* HTTPS port to listen on */
         **cert,             /* certificate file */
         **ciphers,          /* cipher types */
+#if HAVE_OPENSSL_ENGINE_H
+        *ssl_engine,        /* OpenSSL engine */
+#endif
         *user,              /* user to run as */
         *group,             /* group to run as */
         *root;              /* directory to chroot to */
@@ -153,9 +165,44 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
 static  pid_t               son = 0;
 
 /*
+ * OpenSSL thread support stuff
+ */
+static pthread_mutex_t  *l_array;
+
+static void
+l_init(void)
+{
+    int i;
+
+    if((l_array = (pthread_mutex_t *)calloc(CRYPTO_num_locks(), sizeof(pthread_mutex_t))) == NULL) {
+        syslog(LOG_ERR, "lock init: out of memory - aborted...");
+        exit(1);
+    }
+    for(i = 0; i < CRYPTO_num_locks(); i++)
+        pthread_mutex_init(&l_array[i], NULL);
+    return;
+}
+
+static void
+l_lock(int mode, int n, const char *file, int line)
+{
+    if(mode & CRYPTO_LOCK)
+        pthread_mutex_lock(&l_array[n]);
+    else
+        pthread_mutex_unlock(&l_array[n]);
+    return;
+}
+
+static unsigned long
+l_id(void)
+{
+    return (unsigned long)pthread_self();
+}
+
+/*
  * handle SIGTERM - exit
  */
-static void
+static RETSIGTYPE
 h_term(int sig)
 {
     syslog(LOG_NOTICE, "received signal %d - exiting...", sig);
@@ -218,6 +265,31 @@ main(int argc, char **argv)
 
     config_parse(argc, argv);
 
+#if HAVE_OPENSSL_ENGINE_H
+    /* select SSL engine */
+    if (ssl_engine != NULL) {
+        ENGINE  *e;
+
+        if (!(e = ENGINE_by_id(ssl_engine))) {
+            syslog(LOG_ERR, "could not find %s engine", ssl_engine);
+            exit(1);
+        }
+        if(!ENGINE_init(e)) {
+            ENGINE_free(e);
+            syslog(LOG_ERR, "could not init %s engine", ssl_engine);
+            exit(1);
+        }
+        if(!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
+            ENGINE_free(e);
+            syslog(LOG_ERR, "could not set all defaults");
+            exit(1);
+        }
+        ENGINE_finish(e);
+        ENGINE_free(e);
+        syslog(LOG_NOTICE, "%s engine selected", ssl_engine);
+    }
+#endif
+
     /* prepare regular expressions */
     if(
 #ifdef  MSDAV
@@ -225,7 +297,7 @@ main(int argc, char **argv)
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WEBDAV, "^(LOCK|UNLOCK|SUBSCRIBE|PROPFIND|PROPPATCH|BPROPPATCH|SEARCH|POLL|MKCOL|MOVE|BMOVE|COPY|BCOPY|DELETE|BDELETE|CONNECT|OPTIONS|TRACE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
+    || regcomp(&WEBDAV, "^(LOCK|UNLOCK|SUBSCRIBE|PROPFIND|PROPPATCH|BPROPPATCH|SEARCH|POLL|MKCOL|MOVE|BMOVE|COPY|BCOPY|DELETE|BDELETE|CONNECT|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #else
        regcomp(&HTTP, "^(GET|POST|HEAD) ([A-Za-z0-9~;/?:%@&=+$,_.!'()<>#*\"-]+) HTTP/1.[01]$",
@@ -474,6 +546,14 @@ main(int argc, char **argv)
             else
                 syslog(LOG_ERR, "MONITOR: worker exited (stopped?) %d, restarting...", status);
         } else if (son == 0) {
+            /* SSL stuff */
+            ERR_load_crypto_strings();
+            ERR_load_SSL_strings();
+            OpenSSL_add_all_algorithms();
+            l_init();
+            CRYPTO_set_id_callback(l_id);
+            CRYPTO_set_locking_callback(l_lock);
+
             /* thread stuff */
             pthread_attr_init(&attr);
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);

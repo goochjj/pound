@@ -26,10 +26,19 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $";
+static char *rcs_id = "$Id: svc.c,v 1.3 2003/02/19 13:52:00 roseg Exp $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.3  2003/02/19 13:52:00  roseg
+ * Added support for OpenSSL Engine (crypto hardware)
+ * Added support for Subversion WebDAV
+ * Added support for mandatory client certificates
+ * Added X-SSL-serial header for SSL connections
+ * Fixed problem with BIO_pending in is_readable
+ * Fixed problem with multi-threading in OpenSSL
+ * Improved autoconf
+ *
  * Revision 1.2  2003/01/20 15:15:06  roseg
  * Better handling of "100 Continue" responses
  * Fixed problem with allowed character set for requests

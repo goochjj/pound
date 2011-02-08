@@ -26,10 +26,19 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.2 2003/01/20 15:15:05 roseg Exp roseg $";
+static char *rcs_id = "$Id: config.c,v 1.3 2003/02/19 13:51:59 roseg Exp $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.3  2003/02/19 13:51:59  roseg
+ * Added support for OpenSSL Engine (crypto hardware)
+ * Added support for Subversion WebDAV
+ * Added support for mandatory client certificates
+ * Added X-SSL-serial header for SSL connections
+ * Fixed problem with BIO_pending in is_readable
+ * Fixed problem with multi-threading in OpenSSL
+ * Improved autoconf
+ *
  * Revision 1.2  2003/01/20 15:15:05  roseg
  * Better handling of "100 Continue" responses
  * Fixed problem with allowed character set for requests
@@ -104,8 +113,8 @@ parse_file(char *fname)
 {
     FILE                *fconf;
     char                lin[MAXBUF], pat[MAXBUF];
-    regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders, HTTPSHeadersOn,
-                        SessionIP, SessionURL, SessionCOOKIE,
+    regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders,
+                        SSLEngine, SessionIP, SessionURL, SessionCOOKIE,
                         User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup;
     regex_t             *req, *deny;
@@ -120,8 +129,10 @@ parse_file(char *fname)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HTTPSHeadersOn, "^[ \t]*HTTPSHeaders[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([012])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#if HAVE_OPENSSL_ENGINE_H
+    || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#endif
     || regcomp(&SessionIP, "^[ \t]*Session[ \t]+IP[ \t]+([0-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SessionURL, "^[ \t]*Session[ \t]+URL[ \t]+([^ \t]+)[ \t]+([0-9-][0-9]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -239,19 +250,24 @@ parse_file(char *fname)
             } else
                 ciphers[n_https] = NULL;
             n_https++;
-        } else if(!regexec(&HTTPSHeadersOn, lin, 4, matches, 0)) {
-            https_headers = 1;
-        } else if(!regexec(&HTTPSHeaders, lin, 4, matches, 0)) {
-            if(matches[1].rm_eo == matches[1].rm_so) {
-                syslog(LOG_ERR, "HTTPSHeaders config: value may not be empty - aborted");
-                exit(1);
-            }
-            https_headers = 1;
+#if HAVE_OPENSSL_ENGINE_H
+        } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if((https_header = strdup(lin + matches[1].rm_so)) == NULL) {
-                syslog(LOG_ERR, "HTTPSHeaders config: out of memory - aborted");
+            if((ssl_engine = strdup(lin + matches[1].rm_so)) == NULL) {
+                syslog(LOG_ERR, "SSLEngine config: out of memory - aborted");
                 exit(1);
             }
+#endif
+        } else if(!regexec(&HTTPSHeaders, lin, 4, matches, 0)) {
+            https_headers = atoi(lin + matches[1].rm_so);
+            if(matches[2].rm_eo != matches[2].rm_so) {
+                lin[matches[2].rm_eo] = '\0';
+                if((https_header = strdup(lin + matches[2].rm_so)) == NULL) {
+                    syslog(LOG_ERR, "HTTPSHeaders config: out of memory - aborted");
+                    exit(1);
+                }
+            } else
+                https_header = NULL;
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
@@ -439,7 +455,9 @@ parse_file(char *fname)
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&HTTPSHeaders);
-    regfree(&HTTPSHeadersOn);
+#if HAVE_OPENSSL_ENGINE_H
+    regfree(&SSLEngine);
+#endif
     regfree(&SessionIP);
     regfree(&SessionURL);
     regfree(&SessionCOOKIE);
@@ -475,6 +493,9 @@ config_parse(int argc, char **argv)
     http = NULL;
     https = NULL;
     cert = NULL;
+#if HAVE_OPENSSL_ENGINE_H
+    ssl_engine = NULL;
+#endif
     user = NULL;
     groups = NULL;
     root = NULL;

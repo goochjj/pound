@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $
+ * $Id: pound.h,v 1.3 2003/02/19 13:52:00 roseg Exp $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -81,27 +81,147 @@
  *
  */
 
+#include    "config.h"
 #include    <stdio.h>
+
+#if HAVE_STDLIB_H
 #include    <stdlib.h>
+#else
+#error "Pound needs stdlib.h"
+#endif
+
+#if HAVE_UNISTD_H
 #include    <unistd.h>
+#else
+#error "Pound needs unistd.h"
+#endif
+
+#if HAVE_PTHREAD_H
 #include    <pthread.h>
+#else
+#error "Pound needs pthread.h"
+#endif
+
+#if HAVE_STRING_H
 #include    <string.h>
+#else
+#error "Pound needs string.h"
+#endif
+
+#if TIME_WITH_SYS_TIME
+#if HAVE_SYS_TIME_H
 #include    <sys/time.h>
-#include    <sys/types.h>
+#else
+#error "Pound needs sys/time.h"
+#endif
+#if HAVE_UNISTD_H
 #include    <time.h>
+#else
+#error "Pound needs time.h"
+#endif
+#else   /* may not mix sys/time.h and time.h */
+#if HAVE_SYS_TIME_H
+#include    <sys/time.h>
+#elif   HAVE_TIME_H
+#include    <time.h>
+#else
+#error "Pound needs time.h"
+#endif
+#endif  /* mix */
+
+#if HAVE_SYS_TYPES_H
+#include    <sys/types.h>
+#else
+#error "Pound needs sys/types.h"
+#endif
+
+#if HAVE_SYS_SOCKET_H
 #include    <sys/socket.h>
+#else
+#error "Pound needs sys/socket.h"
+#endif
+
+#if HAVE_NETINET_IN_H
 #include    <netinet/in.h>
+#else
+#error "Pound needs netinet/in.h"
+#endif
+
+#if HAVE_ARPA_INET_H
 #include    <arpa/inet.h>
+#else
+#error "Pound needs arpa/inet.h"
+#endif
+
+#if HAVE_NETDB_H
 #include    <netdb.h>
+#else
+#error "Pound needs netdb.h"
+#endif
+
+#if HAVE_OPENSSL_SSL_H
+#define OPENSSL_THREAD_DEFINES
 #include    <openssl/ssl.h>
+#ifndef THREADS
+#error  "Pound requires OpenSSL with thread support"
+#endif
+#else
+#error "Pound needs openssl/ssl.h"
+#endif
+
+#if HAVE_OPENSSL_ENGINE_H
+#include    <openssl/engine.h>
+#endif
+
+#if HAVE_PWD_H
 #include    <pwd.h>
+#else
+#error "Pound needs pwd.h"
+#endif
+
+#if HAVE_GRP_H
 #include    <grp.h>
+#else
+#error "Pound needs grp.h"
+#endif
+
+#if HAVE_SYSLOG_H
 #include    <syslog.h>
+#else
+#error "Pound needs syslog.h"
+#endif
+
+#if HAVE_SIGNAL_H
 #include    <signal.h>
+#else
+#error "Pound needs signal.h"
+#endif
+
+#if HAVE_REGEX_H
 #include    <regex.h>
+#else
+#error "Pound needs regex.h"
+#endif
+
+#if HAVE_CTYPE_H
 #include    <ctype.h>
+#else
+#error "Pound needs ctype.h"
+#endif
+
+#if HAVE_ERRNO_H
 #include    <errno.h>
+#else
+#error "Pound needs errno.h"
+#endif
+
+#if HAVE_WAIT_H
+#include    <wait.h>
+#elif   HAVE_SYS_WAIT_H
 #include    <sys/wait.h>
+#else
+#error "Pound needs sys/wait.h"
+#endif
 
 extern int errno;
 
@@ -120,6 +240,9 @@ extern char **http,             /* HTTP port to listen on */
             **https,            /* HTTPS port to listen on */
             **cert,             /* certificate file */
             **ciphers,          /* cipher type */
+#if HAVE_OPENSSL_ENGINE_H
+            *ssl_engine,        /* OpenSSL engine */
+#endif
             *user,              /* user to run as */
             *group,             /* group to run as */
             *root;              /* directory to chroot to */
