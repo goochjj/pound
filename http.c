@@ -126,11 +126,16 @@ get_line(BIO *const in, char *const buf, const int bufsize)
         case -1:
             return 1;
         default:
-            for(i = n_read; i < bufsize; i++)
+            for(i = n_read; i < bufsize; i++) {
                 if(buf[i] == '\n' || buf[i] == '\r') {
                     buf[i] = '\0';
                     return 0;
                 }
+                if(buf[i] == '\0') {
+                    n_read = i;
+                    continue;
+                }
+            }
             if(i < bufsize) {
                 n_read = i;
                 continue;

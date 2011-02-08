@@ -1289,18 +1289,36 @@ static void
 do_RSAgen(void)
 {
     int n, ret_val;
+    RSA *t_RSA512_keys[N_RSA_KEYS];
+    RSA *t_RSA1024_keys[N_RSA_KEYS];
 
+    for(n = 0; n < N_RSA_KEYS; n++) {
+        t_RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
+        t_RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+    }
     if(ret_val = pthread_mutex_lock(&RSA_mut))
         logmsg(LOG_WARNING, "thr_RSAgen() lock: %s", strerror(ret_val));
     for(n = 0; n < N_RSA_KEYS; n++) {
         RSA_free(RSA512_keys[n]);
-        RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
+        RSA512_keys[n] = t_RSA512_keys[n];
         RSA_free(RSA1024_keys[n]);
-        RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+        RSA1024_keys[n] = t_RSA1024_keys[n];
     }
     if(ret_val = pthread_mutex_unlock(&RSA_mut))
         logmsg(LOG_WARNING, "thr_RSAgen() unlock: %s", strerror(ret_val));
     return;
+}
+
+#include    "dh512.h"
+#include    "dh1024.h"
+
+DH *
+DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength)
+{
+    if(keylength == 512)
+        return get_dh512();
+    else
+        return get_dh1024();
 }
 
 static time_t   last_RSA, last_rescale, last_alive, last_expire;

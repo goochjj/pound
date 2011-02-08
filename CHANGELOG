@@ -1,4 +1,16 @@
 ------------------------------------------------------------------------
+r62 | roseg | 2009-08-06 17:23:30 +0200 (Thu, 06 Aug 2009) | 9 lines
+
+Release 2.5a
+
+Enhancements:
+  - support for include directive
+
+Bug fixes:
+  - fixed generation of ephemeral RSA keys (avoid premature locking)
+  - added pre-generated DH parameters
+
+------------------------------------------------------------------------
 r61 | roseg | 2009-06-29 17:53:55 +0200 (Mon, 29 Jun 2009) | 13 lines
 
 Release 2.4.5
