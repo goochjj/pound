@@ -90,18 +90,21 @@ INSTALLATION
 
         ./configure
 
-    Four options are available for the configure script:
+    The following options are available for the configure script:
 
-        -with-ssl=ssl_dir   OpenSSL home directory
-        -with-log=facility  log facility to use. By default this
+        --with-ssl=ssl_dir  OpenSSL home directory
+        --with-log=facility log facility to use. By default this
                             is LOG_DAEMON, but you may change it
                             to anything you like.  Use the symbolic
                             names as in openlog(3). Use --without-log
                             to send all messages to stderr
-        -enable-daemon      enable or disable running as a daemon.
+        --enable-daemon     enable or disable running as a daemon.
                             By default enabled.
-        -enable-msdav       enable or disable support for the Microsoft
+        --enable-msdav      enable or disable support for the Microsoft
                             WebDAV extensions. By default disabled.
+        --enable-unsafe     The characters "{}|\^[]'" will be allowed
+                            in request URL's. This can be overriden in
+                            the configuration file. By default disabled.
 
     Check that the resulting Makefile is correct and possibly
     adjust flags as needed on your system. Compile:
@@ -140,6 +143,13 @@ P.O.Box
 Switzerland
 +41-1-920 4904
 http://www.apsis.ch
+
+
+MAILING LIST
+
+Pound has its own mailing list now: please send a message to
+pound-subscribe@apsis.ch to subscribe. You will receive
+confirmation and instructions in the reply.
 
 
 ZOPE
@@ -186,12 +196,12 @@ The config file would look something like this:
     ListenHTTP  1.2.3.4,80
 
     UrlGroup    ".*"
-    HeadRequire Host    "http://www.server0.com.*"
+    HeadRequire Host    ".*www.server0.com.*"
     BackEnd     192.168.0.10
     EndGroup
 
     UrlGroup    ".*"
-    HeadRequire Host    "http://www.server1.com.*"
+    HeadRequire Host    ".*www.server1.com.*"
     BackEnd     192.168.0.11
     EndGroup
 
@@ -299,9 +309,9 @@ web-based applications to function correctly - it is vital that once
 a session is established all subsequent requests from the same browser
 be directed to the same back-end server.
 
-Three possible ways of detecting a session have been implemented in
-Pound (hopefully the most useful ones): by client address, by URL
-parameter and by cookie.
+Four possible ways of detecting a session have been implemented in
+Pound (hopefully the most useful ones): by client address, by Basic
+authentication, by URL parameter and by cookie.
 
 - by client address: in this scheme Pound directs all requests from
   the same client IP address to the same back-end server. Put the
@@ -310,6 +320,16 @@ parameter and by cookie.
   always be directed to the same back-end server, otherwise the initial
   assignment is random. The value indicates what period of inactivity is
   allowed before the session is discarded.
+
+- by Basic Authentication: in this scheme Pound directs all requests from
+  the same user (as identified in the Basic Authentication header ) to the
+  same back-end server. Put the line "Session BASIC 300" in the
+  configuration file to achieve this effect. The value indicates what
+  period of inactivity is allowed before the session is discarded.
+  WARNING: given the constraints of the HTTP protocol it may very well be
+  that the authenticated request will go to a different back-end server than
+  the one originally requesting it. Make sure all your servers support
+  the same authentication scheme!
 
 - by URL parameter: quite often session information is passed through URL
   parameters (the browser is pointed to something like http://xxx?id=123).
@@ -403,6 +423,12 @@ limits. Please keep in mind the following requirements:
   a ps and you see a single 'pound' process. The process needs two
   file descriptors per active request (bash: 'ulimit -n', csh
   'limit maxfiles'/'limit openfiles').
+- on most systems the thread library comes with a built-in limit on the
+  maximal number of concurrent threads allowed - usually 1024. In very
+  rare cases (very high load and long response times) you may run into
+  this limitation - the symptom is log messages saying "can't create
+  thread". Your only solution is to recompile the system threads library
+  with a higher limit.
 
 Please note that your kernel needs to be configured to support the
 required resources - the above are just the shell commands.
@@ -543,46 +569,81 @@ The following problems were reported by various people who use pound:
   it may cause problems with slow connections.
 
 - Pound fails to start; HTTPS is enabled and the message "can't read private key
-  from file xxx</em>" appears in the log.
+  from file xxx" appears in the log.
 
   Solution: make sure that the certificate file includes:
 
+  - (optional) a chain of certificates from a known certificate authority to
+    your server certificate
   - the server certificate
-  - (optional) a chain of certificates from a known certificate authority to your
-    server certificate
   - the private key; the key may NOT be password-protected
 
-  The file should be in PEM format. The OpenSSL command to generate a self-signed
-  certificate in the correct format would be something like:
+  The file should be in PEM format. The OpenSSL command to generate a
+  self-signed certificate in the correct format would be something like:
 
     openssl req -x509 -newkey rs:1024 -keyout test.pem -out test.pem -days 365 -nodes
 
   Note the '-nodes' flag - it's important!
 
+- Pound fails to operate correctly with SSL when RootJail is specified.
+  Solution: OpenSSL requires access to /dev/urandom, so make sure such a device
+  is accessible from the root jail directory. Thus if your root jail is
+  something like /var/pound:
+
+    mkdir /var/pound/dev
+    mknod /var/pound/dev/urandom c 1 9
+
+  or whatever major/minor number are apropriate for your system.
+
+- In chroot mode logging may stop functioning.
+  Solution: make sure /dev and the root jail are on the same filesystem
+  and create a hard link in the root jail to /dev/log:
+
+    mkdir /chroot/jail/dev
+    ln /dev/log /chroot/jail/dev/log
+
+  Alternately you can have syslog (or syslog-ng) listen on another socket - see
+  the man page for details.
+
+- IE 5.x fails to work (correctly or at all) with Pound in HTTPS mode.
+  Solution: define the supported OpenSSL ciphers for IE compatability (this is
+  really a work-around for a known IE bug):
+
+    ListenHTTPS 1.2.3.4,443 /etc/pound.pem ALL:!ADH:!EXPORT56:RC4+RSA:+HIGH:+MEDIUM:+LOW:+SSLv2:+EXP:+eNULL
+
+  (Thanks to Andi Roedl for the tip).
+
 
 ACKNOWLEDGMENTS
-
-Ken Lalonde (ken@torus.ca) contributed very useful remarks and
-suggestions, as well as correcting a few code errors.
-
-Frank Denis (j@pureftpd.org) contributed a few excellent code
-patches and some good ideas.
-
-Jim Washington (jwashin@vt.edu) contributed the code for WebDAV
-and tested it.
 
 Luuk de Boer (luuk@planet.nl) did some serious testing and
 debugging of the WebDAV code for Microsoft servers.
 
+Frank Denis (j@pureftpd.org) contributed a few excellent code
+patches and some good ideas.
+
 Abner G. Jacobsen (abner@integraweb.com.br) did a lot of testing
 in a production environment and contributed some very nice ideas.
+
+Ken Lalonde (ken@torus.ca) contributed very useful remarks and
+suggestions, as well as correcting a few code errors.
+
+Phil Lodwick (Phil.Lodwick@EFI.com) contributed essential parts
+of the high-availability code and came up with some good ideas. In
+addition, did some serious testing under heavy loads.
 
 Jan-Piet Mens (jpmens@yahoo.de) raised some interesting security
 points about the HTTPS implementation and brought the original idea
 for SSL header filtering.
 
+Andreas Roedl (andreas.roedl@native-instruments.de) for testing and some
+ideas about logging in root jails.
+
 Gurkan Sengun (gurkan@linuks.mine.nu) tested Pound on Solaris,
 contributed the Solaris cc flags and makes a Solaris 7 pre-compiled
 version available on his Web-site (www.linuks.mine.nu)
+
+Jim Washington (jwashin@vt.edu) contributed the code for WebDAV
+and tested it.
 
 All the others who tested Pound and told me about their results.

@@ -98,7 +98,9 @@ will run as (must be defined in \fI/etc/group\fR).
 \fBRootJail\fR directory_path_and_name
 Specify the directory that
 .B Pound
-will chroot to at runtime.
+will chroot to at runtime. Please note that OpenSSL requires access to /dev/urandom,
+so make sure you create the a device by that name, accessible from the root jail
+directory.
 .TP
 \fBExtendedHTTP\fR value
 if value is 1, allow extended HTTP requests (PUT, DELETE).
@@ -121,8 +123,14 @@ is also required for
 .TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
-logging, 2 for extended logging (show chosen backend server as well)
-and 3 for Apache-like format (Common Log Format with Virtual Host).
+logging, 2 for extended logging (show chosen backend server as well),
+3 for Apache-like format (Common Log Format with Virtual Host) and 4
+(same as 3 but without the virtual host information).
+.TP
+\fBNoHTTPS11\fR value
+Behave like an HTTP/1.0 server for HTTPS clients (default: 0). If value is
+non-zero do not allow multiple requests on SSL connections. Required
+work-around for a bug in certain versions of IE.
 .TP
 \fBAlive\fR value
 Specify how often
@@ -135,13 +143,12 @@ low it will consume resources - so beware.
 \fBServer\fR value
 Specify for how long
 .B Pound
-will wait for a server response (default: 0). After this
-long has passed without the server sending any data
+will wait for a server response. After this long has passed without
+the server sending any data
 .B Pound
-will consider the data exhausted and abort the connection. Set
-it higher if your server(s) time-out on a slow network or are
-over-loaded, lower if you
-can get away with it (ideally it should be 0).
+will consider the response finishedand abort the connection. A value
+of 0 (default) implies waiting forever. Set it higher if your server(s)
+occasionally time-out on a slow network or are over-loaded.
 .TP
 \fBClient\fR value
 Specify for how long
@@ -168,6 +175,25 @@ Default: "This method may not be used.".
 \fBErr503\fR "filename"
 A file with the text to be displayed if an Error 503 occurs.
 Default: "The service is not available. Please try again later.".
+.TP
+\fBCSsegment\fR chars
+The allowed character set for the segment part of the request. Same for
+\fBCSparameter\fR, \fBCSqid\fR, \fBCSqval\fR and \fBCSfragment\fR. See
+below for details on URL matching.
+.TP
+\fBMaxRequest\fR nnn
+Request maximal size. All requests will be limited to these many bytes. If
+a request contains more data than allowed an error is returned. Default:
+unlimited.
+.TP
+\fBHeadRemove\fR "header"
+Remove certain headers from the incoming requests. All occurences of the
+matching specified header will be removed. Please note that this filtering
+is done prior to other checks (such as \fIHeadRequire\fR or \fIHeadDeny\fR),
+so you should not try to check for these headers in later matches. Multiple
+directives may be specified in order to remove more than one header, and
+the header itself may be a regular pattern (though this should be used with
+caution).
 .SH "GROUP DIRECTIVES"
 Group directives apply to a specific group of requests. The order of the group
 directives is important - incoming requests will be matched against the
@@ -206,6 +232,8 @@ May be used exactly once and only in an
 directive. \fITYPE\fR is one of:
 .IP
 \fBIP\fR - the session is kept based on client IP address. No \fIid\fR is allowed.
+.IP
+\fBBASIC\fR - the session is kept based on Basic Authentication data. No \fIid\fR is allowed.
 .IP
 \fBURL\fR - the session is kept based on the value of a parameter in the request
 URL. The \fIid\fR indicates which parameter will be checked.
@@ -260,6 +288,41 @@ The \fIha_port\fR parameter specifies an additional port that is used only for v
 checks: if this port is specified in a \fIBackEnd\fR directive, \fIPound\fR will attempt
 periodically (every \fIAlive\fR seconds) to connect to this port. If the port does not
 respond the server is considered dead.
+.SH URL MATCHING
+.B Pound
+attempts to filter out illegal request URLs. In general a URL is defined as
+.PP
+{ / segment [; parameter] } [? qid [ = [ qval ] ] { & qid [ = [ qval ] ] } ] [ # fragment ]
+.PP
+Each of the elements is matched against the allowed character set. By default,
+the parts are defined as:
+.PP
+CSsegment - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-
+.br
+CSparameter - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-
+.br
+CSqid - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()-
+.br
+CSqval - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()%-
+.br
+CSfragment - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()
+.PP
+If
+.B Pound
+was compiled with support for MS DAV the segment part includes, in addition, the
+characters {}<>".
+.PP
+This mechanism comes in handy should you need to define some other "legal" URLs.
+A common occurence is that PHP programmers use unencoded parameters in their
+requests such as /xxx?id[2]=abc. For such cases define:
+.PP
+CSqid ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()-[]
+.PP
+in your config file. Additionally this can be useful for accented characters
+and other non-RFC conformant requests.
+.PP
+Please be aware that each of these additional definitions may introduce security
+problems - use them at your own risk.
 .SH HTTPS HEADERS
 If a client browser connects to
 .B Pound
@@ -416,7 +479,7 @@ BackEnd 192.168.0.10,80,1
 .br
 BackEnd 192.168.0.11,80,1
 .br
-Session IP 300
+Session BASIC 300
 .br
 EndGroup
 .PP
@@ -462,7 +525,7 @@ EndGroup
 .br
 UrlGroup ".*sessid=.*"
 .br
-HeadRequire ".*www.myserver.com"
+HeadRequire Host ".*www.myserver.com"
 .br
 BackEnd 192.168.0.11,80,1
 .br

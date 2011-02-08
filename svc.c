@@ -26,10 +26,28 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.4 2003/04/24 13:40:12 roseg Exp $";
+static char *rcs_id = "$Id: svc.c,v 1.5 2003/10/14 08:35:45 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.5  2003/10/14 08:35:45  roseg
+ * Session by Basic Authentication:
+ *     Session BASIC parameter added
+ * Syntax checking of request.
+ * User-defined request character set(s):
+ *     Parameters CSsegment, CSparameter, CSqid, CSqval
+ * Request size limit:
+ *     Parameter MaxRequest
+ * Single log function rather than #ifdefs.
+ * Added LogLevel 4 (same as 3 but without the virtual host info).
+ * Added HeadRemove directive (allows to delete a header from requests).
+ * Location rewriting on redirect:
+ *     if  the request contains a Header directive
+ *         and the response is codes 301, 302, 303, 307
+ *         and the Location in the response is to a known host
+ *     then the Location header in the response will be rewritten to point
+ *         to the Pound protocol/port itself
+ *
  * Revision 1.4  2003/04/24 13:40:12  roseg
  * Added 'Server' configuration directive
  * Fixed problem with HTTPSHeaders 0 "..." - the desired header is written even if HTTPSHeaders is 0
@@ -104,6 +122,107 @@ static char *rcs_id = "$Id: svc.c,v 1.4 2003/04/24 13:40:12 roseg Exp $";
  */
 
 #include    "pound.h"
+
+/*
+ * Log an error to the syslog or to stderr
+ */
+#ifdef  HAVE_STDARG_H
+void
+logmsg(int priority, char *fmt, ...)
+{
+    char    buf[MAXBUF + 1];
+    va_list ap;
+
+    buf[MAXBUF] = '\0';
+    va_start(ap, fmt);
+    vsnprintf(buf, MAXBUF, fmt, ap);
+    va_end(ap);
+#ifdef  NO_SYSLOG
+    if(priority == LOG_INFO)
+        printf("%s\n", buf);
+    else {
+        char    t_stamp[32];
+        time_t  now;
+
+        now = time(NULL);
+        strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", localtime(&now));
+        fprintf(stderr, "%s: %s\n", t_stamp, buf);
+    }
+#else
+    syslog(priority, buf);
+#endif
+    return;
+}
+#else
+void
+logmsg(int priority, char *fmt, va_alist)
+va_dcl
+{
+    char    buf[MAXBUF + 1];
+    va_list ap;
+
+    buf[MAXBUF] = '\0';
+    va_start(ap);
+    vsnprintf(buf, MAXBUF, fmt, ap);
+    va_end(ap);
+#ifdef  NO_SYSLOG
+    if(priority == LOG_INFO)
+        printf("%s\n", buf);
+    else {
+        char    t_stamp[32];
+        time_t  now;
+
+        now = time(NULL);
+        strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", localtime(&now));
+        fprintf(stderr, "%s: %s\n", t_stamp, buf);
+    }
+#else
+    syslog(priority, buf);
+#endif
+    return;
+}
+#endif
+
+/*
+ * Parse a header
+ * return a code and possibly content in the arg
+ */
+int
+check_header(char *header, char *content)
+{
+    regmatch_t  matches[4];
+    static struct {
+        char    header[32];
+        int     len;
+        int     val;
+    } hd_types[] = {
+        { "Transfer-encoding",  17, HEADER_TRANSFER_ENCODING },
+        { "Content-length",     14, HEADER_CONTENT_LENGTH },
+        { "Connection",         10, HEADER_CONNECTION },
+        { "Location",           8,  HEADER_LOCATION },
+        { "Host",               4,  HEADER_HOST },
+        { "Referer",            7,  HEADER_REFERER },
+        { "User-agent",         10, HEADER_USER_AGENT },
+        { "",                   0,  HEADER_OTHER },
+    };
+    int i;
+
+    if(!regexec(&HEADER, header, 4, matches, 0)) {
+        for(i = 0; hd_types[i].len > 0; i++)
+            if((matches[1].rm_eo - matches[1].rm_so) == hd_types[i].len
+            && strncasecmp(header + matches[1].rm_so, hd_types[i].header, hd_types[i].len) == 0) {
+                /* we know that the original header was read into a buffer of size MAXBUF, so no overflow */
+                strncpy(content, header + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+                content[matches[2].rm_eo - matches[2].rm_so] = '\0';
+                return hd_types[i].val;
+            }
+        return HEADER_OTHER;
+    } else if(header[0] == ' ' || header[0] == '\t') {
+        *content = '\0';
+        return HEADER_OTHER;
+    } else
+        return HEADER_ILLEGAL;
+}
 
 /*
  * Find a session in a tree
@@ -287,7 +406,6 @@ get_grp(char *url, char **headers)
 /*
  * extract the session key for a given request (IP, URL, Headers)
  */
-
 static char *
 get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
 {
@@ -314,6 +432,7 @@ get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
             res = NULL;
         break;
     case SessCOOKIE:
+    case SessBASIC:
         for(i = 0; headers[i]; i++) {
             if(regexec(&g->sess_pat, headers[i], 4, matches, 0))
                 continue;
@@ -328,11 +447,7 @@ get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
             res = NULL;
         break;
     default:
-#ifdef  NO_SYSLOG
-        fprintf(stderr, "Unknown session type %d\n", g->sess_type);
-#else
-        syslog(LOG_WARNING, "Unknown session type %d", g->sess_type);
-#endif
+        logmsg(LOG_WARNING, "Unknown session type %d", g->sess_type);
         res = NULL;
     }
     return res;
@@ -433,13 +548,8 @@ upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
             if(srv == &(g->backend_addr[n].addr))
                 break;
         if(n >= g->tot_pri) {
-#ifdef  NO_SYSLOG
-            fprintf(stderr, "upd_session - unknown backend server %s:%hd\n",
+            logmsg(LOG_WARNING, "upd_session - unknown backend server %s:%hd",
                 inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
-#else
-            syslog(LOG_WARNING, "upd_session - unknown backend server %s:%hd",
-                inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
-#endif
             pthread_mutex_unlock(&g->mut);
             return;
         }
@@ -471,6 +581,80 @@ kill_be(struct sockaddr_in *be)
         pthread_mutex_unlock(&g->mut);
     }
     return;
+}
+
+/*
+ * compare two host addresses - only address and port matter
+ * this might be a bug in the Linux TCP stack!
+ */
+static int
+addrcmp(struct sockaddr_in *a1, struct sockaddr_in *a2)
+{
+    int res;
+
+    if((res = memcmp(&a1->sin_addr, &a2->sin_addr, sizeof(a1->sin_addr))))
+        return res;
+    return memcmp(&a1->sin_port, &a2->sin_port, sizeof(a1->sin_port));
+}
+
+/*
+ * Find if a host is in our list of back-ends
+ */
+int
+is_be(char *location, struct sockaddr_in *to_host, char *path)
+{
+    int     i, n;
+    GROUP   *g;
+    struct sockaddr_in  addr;
+    struct hostent      *he;
+    regmatch_t          matches[4];
+    char                *proto, *host, *port;
+
+    /* split the location into its fields */
+    if(regexec(&LOCATION, location, 4, matches, 0))
+        return 0;
+    proto = location + matches[1].rm_so;
+    host = location + matches[2].rm_so;
+    strcpy(path, location + matches[3].rm_so);
+    location[matches[1].rm_eo] = location[matches[2].rm_eo] = '\0';
+    if((port = strchr(host, ':')) != NULL)
+        *port++ = '\0';
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    if((he = gethostbyname(host)) == NULL)
+        return 0;
+    memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
+    if(port != NULL)
+        addr.sin_port = (in_port_t)htons(atoi(port));
+    else if(strcmp(proto, "http") == 0)
+        addr.sin_port = (in_port_t)htons(80);
+    else /* if(strcmp(proto, "https") == 0) */
+        addr.sin_port = (in_port_t)htons(443);
+
+    if(addrcmp(to_host, &addr) == 0)
+        return 1;
+    for(n = 0; (g = groups[n]) != NULL; n++) {
+        for(i = 0; i < g->tot_pri; i++)
+            if(addrcmp(&(g->backend_addr[i].addr), &addr) == 0)
+                return 1;
+    }
+    return 0;
+}
+
+/*
+ * Add explicit port number (if required)
+ */
+char *
+add_port(char *host, struct sockaddr_in *to_host)
+{
+    char    res[MAXBUF];
+
+    if(strchr(host, ':') != NULL)
+        /* the host already contains a port */
+        return NULL;
+    sprintf(res, "Host: %s:%hd", host, ntohs(to_host->sin_port));
+    return strdup(res);
 }
 
 /*
@@ -530,11 +714,7 @@ thr_resurect(void *arg)
                 addr = g->backend_addr[i].alive_addr;
                 if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0) {
                     kill_be(&g->backend_addr[i].addr);
-#ifdef  NO_SYSLOG
-                    fprintf(stderr, "BackEnd %s is dead\n", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-#else
-                    syslog(LOG_ERR,"BackEnd %s is dead", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-#endif
+                    logmsg(LOG_ERR,"BackEnd %s is dead", inet_ntoa(g->backend_addr[i].addr.sin_addr));
                 }
                 shutdown(sock, 2);
                 close(sock);
@@ -557,11 +737,7 @@ thr_resurect(void *arg)
                     for(j = i; j < g->tot_pri; j++)
                         if(memcmp(&(g->backend_addr[j].addr), &addr, sizeof(addr)) == 0) {
                             g->backend_addr[j].alive = 1;
-#ifdef  NO_SYSLOG
-                            fprintf(stderr, "BackEnd %s resurrect\n", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-#else
-                            syslog(LOG_ERR,"BackEnd %s resurrect", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-#endif
+                            logmsg(LOG_ERR,"BackEnd %s resurrect", inet_ntoa(g->backend_addr[i].addr.sin_addr));
                         }
                     pthread_mutex_unlock(&g->mut);
                 }

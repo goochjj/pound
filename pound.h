@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.4 2003/04/24 13:40:12 roseg Exp $
+ * $Id: pound.h,v 1.5 2003/10/14 08:35:45 roseg Rel $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -241,6 +241,12 @@
 #error "Pound needs fcntl.h"
 #endif
 
+#if HAVE_STDARG_H
+#include    <stdarg.h>
+#else
+#include    <varargs.h>
+#endif
+
 extern int errno;
 
 /*
@@ -254,7 +260,9 @@ extern int  https_headers;      /* add HTTPS-specific headers */
 extern char *https_header;      /* HTTPS-specific header to add */
 extern int  allow_xtd;          /* allow extended HTTP - PUT, DELETE */
 extern int  allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
+extern int  no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
 extern int  alive_to;           /* check interval for resurrection */
+extern long max_req;            /* maximal allowed request size */
 extern char **http,             /* HTTP port to listen on */
             **https,            /* HTTPS port to listen on */
             **cert,             /* certificate file */
@@ -264,10 +272,18 @@ extern char **http,             /* HTTP port to listen on */
 #endif
             *user,              /* user to run as */
             *group,             /* group to run as */
-            *root;              /* directory to chroot to */
+            *root,              /* directory to chroot to */
+            *CS_segment,        /* character set of path segment */
+            *CS_parm,           /* character set of path parameter */
+            *CS_qid,            /* character set of query id */
+            *CS_qval,           /* character set of query value */
+            *CS_frag;           /* character set of fragment */
 
-#define MAXBUF      16378
-#define MAXHEADERS  256
+extern regex_t  *head_off;          /* headers to remove */
+extern int      n_head_off;         /* how many of them */
+
+#define MAXBUF      8192
+#define MAXHEADERS  128
 #define MAXCHAIN    8
 #define GLOB_SESS   15
 
@@ -292,7 +308,7 @@ typedef struct _sess {
 
 #define n_children(S)   ((S)? (S)->children: 0)
 
-typedef enum    { SessNONE, SessIP, SessURL, SessCOOKIE } SESS_TYPE;
+typedef enum    { SessNONE, SessIP, SessURL, SessCOOKIE, SessBASIC } SESS_TYPE;
 
 /* URL group definition */
 typedef struct _group {
@@ -313,9 +329,10 @@ typedef struct _group {
 extern GROUP    **groups;
 
 typedef struct  {
-    int             sock;
-    struct in_addr  from_host;
-    SSL_CTX         *ctx;
+    int                 sock;
+    struct in_addr      from_host;
+    struct sockaddr_in  to_host;
+    SSL_CTX             *ctx;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
 extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
@@ -323,16 +340,26 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 WEBDAV,     /* WebDAV requests: LOCK, UNLOCK, SUBSCRIBE, PROPFIND, PROPPATCH, BPROPPATCH, SEARCH,
                                POLL, MKCOL, MOVE, BMOVE, COPY, BCOPY, DELETE, BDELETE, CONNECT, OPTIONS, TRACE */
                 HEADER,     /* Allowed header */
-                CHUNKED,    /* Transfer-encoding: chunked header */
-                CONT_LEN,   /* Content-length header */
-                CONN_CLOSED,/* Connection: closed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
-                RESP_IGN;   /* responses for which we ignore content */
+                RESP_IGN,   /* responses for which we ignore content */
+                RESP_REDIR, /* responses for which we rewrite Location */
+                LOCATION;   /* the host we are redirected to */
 
 extern char *e500,  /* default error 500 page contents */
             *e501,  /* default error 501 page contents */
             *e503;  /* default error 503 page contents */
+
+/* Header types */
+#define HEADER_ILLEGAL              -1
+#define HEADER_OTHER                0
+#define HEADER_TRANSFER_ENCODING    1
+#define HEADER_CONTENT_LENGTH       2
+#define HEADER_CONNECTION           3
+#define HEADER_LOCATION             4
+#define HEADER_HOST                 5
+#define HEADER_REFERER              6
+#define HEADER_USER_AGENT           7
 
 #ifdef  NEED_INADDRT
 /* for oldish Unices - normally this is in /usr/include/netinet/in.h */
@@ -350,9 +377,19 @@ typedef u_int16_t   in_port_t;
 extern void *thr_http(void *);
 
 /*
+ * Log an error to the syslog or to stderr
+ */
+extern void logmsg(int priority, char *fmt, ...);
+
+/*
+ * Parse a header
+ */
+extern int  check_header(char *, char *);
+
+/*
  * Find the required group for a given URL
  */
-GROUP *get_grp(char *, char **);
+extern GROUP *get_grp(char *, char **);
 
 /*
  * Find the host to connect to
@@ -369,6 +406,16 @@ extern void upd_session(GROUP *, char **, struct sockaddr_in  *);
  * do nothing if no resurection code is active
  */
 extern void kill_be(struct sockaddr_in *);
+
+/*
+ * Find if a host is in our list of back-ends
+ */
+extern int is_be(char *, struct sockaddr_in *, char *);
+
+/*
+ * Add explicit port number (if required)
+ */
+extern char *add_port(char *, struct sockaddr_in *);
 
 /*
  * Prune the expired sessions and dead hosts from the table;
