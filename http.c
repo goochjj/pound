@@ -968,16 +968,15 @@ thr_http(void *arg)
             else 
                 strncpy(buf, cur_backend->url, sizeof(buf) - 1);
             redirect_reply(cl, buf);
+            addr2str(caddr, MAXBUF - 1, &from_host);
             switch(lstn->log_level) {
             case 0:
                 break;
             case 1:
             case 2:
-                addr2str(caddr, MAXBUF - 1, &from_host);
                 logmsg(LOG_INFO, "%s %s - REDIRECT %s", caddr, request, buf);
                 break;
             case 3:
-                addr2str(caddr, MAXBUF - 1, &from_host);
                 if(v_host[0])
                     logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", v_host, caddr,
                         u_name[0]? u_name: "-", req_time, request, referer, u_agent);
@@ -986,7 +985,7 @@ thr_http(void *arg)
                         u_name[0]? u_name: "-", req_time, request, referer, u_agent);
                 break;
             case 4:
-                addr2str(caddr, MAXBUF - 1, &from_host);
+            case 5:
                 logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 302 0 \"%s\" \"%s\"", caddr,
                     u_name[0]? u_name: "-", req_time, request, referer, u_agent);
                 break;
@@ -1190,11 +1189,11 @@ thr_http(void *arg)
         case 2:
             if(v_host[0])
                 logmsg(LOG_INFO, "%s %s - %s (%s/%s -> %s) %.3f sec",
-                    caddr, request, response, v_host, svc->name? svc->name: "-", buf,
+                    caddr, request, response, v_host, svc->name[0]? svc->name: "-", buf,
                     (end_req - start_req) / 1000000.0);
             else
                 logmsg(LOG_INFO, "%s %s - %s (%s -> %s) %.3f sec",
-                    caddr, request, response, svc->name? svc->name: "-", buf,
+                    caddr, request, response, svc->name[0]? svc->name: "-", buf,
                     (end_req - start_req) / 1000000.0);
             break;
         case 3:
@@ -1211,7 +1210,7 @@ thr_http(void *arg)
         case 5:
             logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s)",
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
-                response[11], s_res_bytes, referer, u_agent, svc->name? svc->name: "-", buf);
+                response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf);
             break;
         }
 

@@ -518,6 +518,7 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
     BACKEND     *res;
     char        key[KEY_SIZE + 1];
     int         ret_val;
+    void        *vp;
 
     if(svc->tot_pri <= 0)
         /* it might be NULL, but that is OK */
@@ -532,19 +533,21 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host);
-        if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
+        if((vp = t_find(svc->sessions, key)) == NULL) {
             /* no session yet - create one */
             res = rand_backend(svc->backends, random() % svc->tot_pri);
-            svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
-        }
+            svc->sessions = t_add(svc->sessions, key, &res, sizeof(res));
+        } else
+            memcpy(&res, vp, sizeof(res));
         break;
     case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
-            if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
+            if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
-            }
+                svc->sessions = t_add(svc->sessions, key, &res, sizeof(res));
+            } else
+                memcpy(&res, vp, sizeof(res));
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
@@ -552,11 +555,12 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
     default:
         /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
-            if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
+            if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
-            }
+                svc->sessions = t_add(svc->sessions, key, &res, sizeof(res));
+            } else
+                memcpy(&res, vp, sizeof(res));
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
@@ -583,7 +587,7 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
     if(get_HEADERS(key, svc, headers))
         if(t_find(svc->sessions, key) == NULL)
-            svc->sessions = t_add(svc->sessions, key, be, sizeof(be));
+            svc->sessions = t_add(svc->sessions, key, &be, sizeof(be));
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     return;
