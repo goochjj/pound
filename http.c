@@ -26,7 +26,7 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.9 2005/06/01 15:01:53 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 1.9 2005/06/01 15:01:53 roseg Rel roseg $";
 
 /*
  * $Log: http.c,v $
@@ -377,13 +377,13 @@ bio_callback(BIO *bio, int cmd, const char *argp, int argi, long argl, long ret)
         switch(poll(&p, 1, to)) {
         case 1:
             if(cmd == BIO_CB_READ) {
-                if(p.revents == POLLIN || p.revents == POLLPRI)
+                if((p.revents & POLLIN) || (p.revents & POLLPRI))
                     /* there is readable data */
                     return ret;
                 else
                     errno = EIO;
             } else {
-                if(p.revents == POLLOUT)
+                if(p.revents & POLLOUT)
                     /* data can be written */
                     return ret;
                 else
@@ -1222,7 +1222,7 @@ thr_http(void *arg)
     /*
      * This may help with some versions of IE with a broken channel shutdown
      */
-    if(ssl != NULL && strstr(u_agent, "MSIE") != NULL)
+    if(ssl != NULL)
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();

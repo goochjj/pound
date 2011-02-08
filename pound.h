@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.9 2005/06/01 15:01:54 roseg Rel $
+ * $Id: pound.h,v 1.9 2005/06/01 15:01:54 roseg Rel roseg $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
