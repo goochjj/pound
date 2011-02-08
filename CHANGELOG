@@ -1,22 +1,88 @@
 ------------------------------------------------------------------------
-r50 | roseg | 2007-05-18 10:34:51 +0200 (Fri, 18 May 2007) | 5 lines
+r56 | roseg | 2008-02-11 12:53:51 +0100 (Mon, 11 Feb 2008) | 4 lines
 
-Release 2.3.2
+Release 2.4
 
-Fixed problem long lines (thanks to Rune Saetre)
-Fixed pcreposix autoconf for systems that also require pcre
-
-------------------------------------------------------------------------
-r48 | roseg | 2007-04-30 15:01:04 +0200 (Mon, 30 Apr 2007) | 5 lines
-
-Release 2.3.1
-
-Fixed problem with premature opening of control socket
-Fixed test for owner/group (BSD portability)
+Stable release 2.4
 
 ------------------------------------------------------------------------
-r47 | roseg | 2007-04-11 15:08:33 +0200 (Wed, 11 Apr 2007) | 1 line
+r55 | roseg | 2007-12-27 12:54:32 +0100 (Thu, 27 Dec 2007) | 7 lines
 
+Release 2.4f
+
+Enhancements:
+
+Bug fixes:
+  - fixed back-end enable/disable (priority computing)
+
+------------------------------------------------------------------------
+r54 | roseg | 2007-11-29 18:16:36 +0100 (Thu, 29 Nov 2007) | 12 lines
+
+Enhancements:
+  - added PARM session type. Old PARM is now URL
+  - allow AddHeader for HTTP listeners as well
+  - allow -1 for session (all types) TTL. Will hash the key to a fixed value
+  - Redirect takes an optional code parameter (301, 302/default or 307)
+  - new config param to allow printing the SSL certificate in a single line
+  - new config param to control the maximal size of the input line
+  - added better error messages for SSL loading problems
+
+Bug fixes:
+  - if the same cookie is defined more than once use LAST definition
+
+------------------------------------------------------------------------
+r53 | roseg | 2007-08-15 18:26:58 +0200 (Wed, 15 Aug 2007) | 10 lines
+
+Release 2.4d
+
+Enhancements:
+  - moved to GPLv3
+  - now using lh_hash for the session tables
+
+Bug fixes:
+  - allow case-sensitive matching for URLs
+  - fixed memory leak in DNS searches
+
+------------------------------------------------------------------------
+r52 | roseg | 2007-07-04 15:29:27 +0200 (Wed, 04 Jul 2007) | 10 lines
+
+Release 2.4c
+
+Enhancements:
+  - added XML output for poundctl
+  - added more detailed error messages
+
+Bug fixes:
+  - fixed problems with extra-long lines
+  - fixed problems with chunked encoding
+
+------------------------------------------------------------------------
+r51 | roseg | 2007-05-18 10:35:02 +0200 (Fri, 18 May 2007) | 11 lines
+
+Release 2.4b
+
+Enhancements:
+  - cleaned resurrection code
+  - added RR threads scheduling
+
+Bug fixes:
+  - fixed problem long lines (thanks to Rune Saetre)
+  - fixed pcreposix autoconf for systems that also require pcre
+  - fixed problem with IP session handling
+
+------------------------------------------------------------------------
+r49 | roseg | 2007-04-30 15:01:17 +0200 (Mon, 30 Apr 2007) | 11 lines
+
+Release 2.4a
+
+Enhancements:
+  - added display of configuration switches
+  - added grace period for shutdown (based on an idea from Rune Saetre)
+  - added support for IPv6 (but host caching was removed)
+
+Bug fixes:
+  - fixed test for owner/group (BSD portability)
+  - fixed problem with premature opening of control socket
 
 ------------------------------------------------------------------------
 r46 | roseg | 2007-04-11 15:00:11 +0200 (Wed, 11 Apr 2007) | 8 lines

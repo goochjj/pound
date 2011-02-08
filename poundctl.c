@@ -1,10 +1,39 @@
+/*
+ * Pound - the reverse-proxy load-balancer
+ * Copyright (C) 2002-2007 Apsis GmbH
+ *
+ * This file is part of Pound.
+ *
+ * Pound is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Foobar is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Contact information:
+ * Apsis GmbH
+ * P.O.Box
+ * 8707 Uetikon am See
+ * Switzerland
+ * Tel: +41-44-920 4904
+ * EMail: roseg@apsis.ch
+ */
 #define NO_EXTERNALS 1
 #include    "pound.h"
+
+static int  xml_out = 0;
 
 static void
 usage(const char *arg0)
 {
-    fprintf(stderr, "Usage: %s -c /control/socket cmd\n", arg0);
+    fprintf(stderr, "Usage: %s -c /control/socket [ -X ] cmd\n", arg0);
     fprintf(stderr, "\twhere cmd is one of:\n");
     fprintf(stderr, "\t-L n - enable listener n\n");
     fprintf(stderr, "\t-l n - disable listener n\n");
@@ -16,26 +45,76 @@ usage(const char *arg0)
     fprintf(stderr, "\t-n n m k - remove a session with key k r in service m in listener n\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\tentering the command without arguments lists the current configuration.\n");
+    fprintf(stderr, "\tthe -X flags results in XML output.\n");
     exit(1);
+}
+
+/*
+ * Translate inet/inet6 address/port into a string
+ */
+static char *
+prt_addr(const struct addrinfo *addr)
+{
+    static char res[64];
+    char        buf[64];
+    int         port;
+    void        *src;
+
+    memset(buf, 0, 64);
+#ifdef  HAVE_INET_NTOP
+    switch(addr->ai_family) {
+    case AF_INET:
+        src = (void *)&((struct sockaddr_in *)addr->ai_addr)->sin_addr.s_addr;
+        port = ntohs(((struct sockaddr_in *)addr->ai_addr)->sin_port);
+        if(inet_ntop(AF_INET, src, buf, 63) == NULL)
+            strncpy(buf, "(UNKNOWN)", 63);
+        break;
+    case AF_INET6:
+        src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr;
+        port = ntohs(((struct sockaddr_in6 *)addr->ai_addr)->sin6_port);
+        if(inet_ntop(AF_INET6, src, buf, 63) == NULL)
+            strncpy(buf, "(UNKNOWN)", 63);
+        break;
+    case AF_UNIX:
+        strncpy(buf, (char *)addr->ai_addr, 63);
+        port = 0;
+        break;
+    default:
+        strncpy(buf, "(UNKNOWN)", 63);
+        port = 0;
+        break;
+    }
+    snprintf(res, 63, "%s:%d", buf, port);
+#else
+#error "Pound needs inet_ntop()"
+#endif
+    return res;
 }
 
 static void
 be_prt(const int sock)
 {
     BACKEND be;
+    struct  sockaddr_storage    a, h;
     int     n_be;
 
     n_be = 0;
     while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
         if(be.disabled < 0)
             break;
-        if(be.domain == PF_INET)
-            printf("    %3d. Backend PF_INET %s:%hd %s (%d %.3f sec) %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
-                ntohs(be.addr.in.sin_port), be.disabled? "DISABLED": "active", be.priority, be.t_average,
-                be.alive? "alive": "DEAD");
+        read(sock, &a, be.addr.ai_addrlen);
+        be.addr.ai_addr = (struct sockaddr *)&a;
+        if(be.ha_addr.ai_addrlen > 0) {
+            read(sock, &h, be.ha_addr.ai_addrlen);
+            be.ha_addr.ai_addr = (struct sockaddr *)&h;
+        }
+        if(xml_out)
+            printf("<backend index=\"%d\" address=\"%s\" average=\"%.3f\" priority=\"%d\"%s%s />\n", n_be++,
+                prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "": " DEAD",
+                be.disabled? " DISABLED": "");
         else
-            printf("    %3d. Backend PF_UNIX %s %s (%d %.3f sec) %s\n", n_be++, be.addr.un.sun_path,
-                be.disabled? "DISABLED": "active", be.priority, be.t_average, be.alive? "alive": "DEAD");
+            printf("    %3d. Backend %s %s (%d %.3f sec) %s\n", n_be++, prt_addr(&be.addr),
+                be.disabled? "DISABLED": "active", be.priority, be.t_average / 1000000, be.alive? "alive": "DEAD");
     }
     return;
 }
@@ -43,19 +122,33 @@ be_prt(const int sock)
 static void
 sess_prt(const int sock)
 {
-    TREENODE    sess;
+    TABNODE     sess;
     int         n_be, n_sess, cont_len;
-    char        buf[KEY_SIZE + 1];
+    char        buf[KEY_SIZE + 1], escaped[KEY_SIZE * 2 + 1];
 
     n_sess = 0;
-    while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
+    while(read(sock, (void *)&sess, sizeof(TABNODE)) == sizeof(TABNODE)) {
         if(sess.content == NULL)
             break;
         read(sock, &n_be, sizeof(n_be));
         read(sock, &cont_len, sizeof(cont_len));
         memset(buf, 0, KEY_SIZE + 1);
+        /* cont_len is at most KEY_SIZE */
         read(sock, buf, cont_len);
-        printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
+        if(xml_out) {
+            int     i, j;
+            char    escaped[KEY_SIZE * 2 + 1];
+
+            for(i = j = 0; buf[i]; i++)
+                if(buf[i] == '"') {
+                    escaped[j++] = '\\';
+                    escaped[j++] = '"';
+                } else
+                    escaped[j++] = buf[i];
+            buf[j] = '\0';
+            printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" />\n", n_sess++, escaped, n_be);
+        } else
+            printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
     }
     return;
 }
@@ -70,12 +163,22 @@ svc_prt(const int sock)
     while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
         if(svc.disabled < 0)
             break;
-        if(svc.name[0])
-            printf("  %3d. Service \"%s\" %s (%d)\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active", svc.tot_pri);
-        else
-            printf("  %3d. Service %s (%d)\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri);
+        if(xml_out) {
+            if(svc.name[0])
+                printf("<service index=\"%d\" name=\"%s\"%s>\n", n_svc++, svc.name, svc.disabled? " DISABLED": "");
+            else
+                printf("<service index=\"%d\"%s>\n", n_svc++, svc.disabled? " DISABLED": "");
+        } else {
+            if(svc.name[0])
+                printf("  %3d. Service \"%s\" %s (%d)\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active",
+                    svc.tot_pri);
+            else
+                printf("  %3d. Service %s (%d)\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri);
+        }
         be_prt(sock);
         sess_prt(sock);
+        if(xml_out)
+            printf("</service>\n");
     }
     return;
 }
@@ -109,7 +212,8 @@ main(const int argc, char **argv)
     LISTENER    lstn;
     SERVICE     svc;
     BACKEND     be;
-    TREENODE    sess;
+    TABNODE     sess;
+    struct  sockaddr_storage    a;
 
     arg0 = *argv;
     sock_name = NULL;
@@ -117,10 +221,13 @@ main(const int argc, char **argv)
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
     i = 0;
-    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNn")) > 0)
+    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNnX")) > 0)
         switch(c_opt) {
         case 'c':
             sock_name = optarg;
+            break;
+        case 'X':
+            xml_out = 1;
             break;
         case 'L':
             if(is_set)
@@ -225,15 +332,28 @@ main(const int argc, char **argv)
 
     if (!is_set) {
         n_lstn = 0;
+        if(xml_out)
+            printf("<pound>\n");
         while(read(sock, (void *)&lstn, sizeof(LISTENER)) == sizeof(LISTENER)) {
             if(lstn.disabled < 0)
                 break;
-            printf("%3d. %s Listener %s:%hd %s\n", n_lstn++, lstn.ctx? "HTTPS" : "http",
-                inet_ntoa(lstn.addr.sin_addr), ntohs(lstn.addr.sin_port), lstn.disabled? "*D": "a");
+            read(sock, &a, lstn.addr.ai_addrlen);
+            lstn.addr.ai_addr = (struct sockaddr *)&a;
+            if(xml_out)
+                printf("<listener index=\"%d\" %s address=\"%s\"%s>\n", n_lstn++, lstn.ctx? "HTTPS": "HTTP",
+                    prt_addr(&lstn.addr), lstn.disabled? " DISABLED": "");
+            else
+                printf("%3d. %s Listener %s %s\n", n_lstn++, lstn.ctx? "HTTPS" : "http",
+                    prt_addr(&lstn.addr), lstn.disabled? "*D": "a");
             svc_prt(sock);
+            if(xml_out)
+                printf("</listener>\n");
         }
-        printf(" -1. Global services\n");
+        if(!xml_out)
+            printf(" -1. Global services\n");
         svc_prt(sock);
+        if(xml_out)
+            printf("</pound>\n");
     }
     return 0;
 }

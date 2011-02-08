@@ -1,22 +1,21 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002-2006 Apsis GmbH
+ * Copyright (C) 2002-2007 Apsis GmbH
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- * Additionaly compiling, linking, and/or using OpenSSL is expressly allowed.
+ * This file is part of Pound.
  *
- * This program is distributed in the hope that it will be useful,
+ * Pound is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Foobar is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA  02111-1307, USA.
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Contact information:
  * Apsis GmbH
@@ -131,6 +130,8 @@
 #if HAVE_OPENSSL_SSL_H
 #define OPENSSL_THREAD_DEFINES
 #include    <openssl/ssl.h>
+#include    <openssl/lhash.h>
+#include    <openssl/err.h>
 #if OPENSSL_VERSION_NUMBER >= 0x00907000L
 #ifndef OPENSSL_THREADS
 #error  "Pound requires OpenSSL with thread support"
@@ -176,6 +177,8 @@
 
 #if HAVE_PCREPOSIX_H
 #include    <pcreposix.h>
+#elif HAVE_PCRE_PCREPOSIX
+#include    <pcre/pcreposix.h>
 #elif HAVE_REGEX_H
 #include    <regex.h>
 #else
@@ -256,7 +259,10 @@ extern int  SOL_TCP;
 
 #endif /* NO_EXTERNALS */
 
-#define MAXBUF      2048
+#ifndef MAXBUF
+#define MAXBUF      1024
+#endif
+
 #define MAXHEADERS  128
 
 #ifndef F_CONF
@@ -274,20 +280,15 @@ typedef struct _matcher {
 }   MATCHER;
 
 /* back-end types */
-typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
-typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
+typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_URL, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
 
 /* back-end definition */
 typedef struct _backend {
-    BE_TYPE             be_type;
-    int                 domain;     /* PF_UNIX or PF_INET, in the future also PF_INET6 */
-    union {
-        struct sockaddr_in  in;     /* IPv4 address */
-        struct sockaddr_un  un;     /* UNIX "address" */
-    }                   addr;
+    int                 be_type;    /* 0 if real back-end, other wise code (301, 302/default, 307) */
+    struct addrinfo     addr;       /* IPv4/6 address */
     int                 priority;   /* priority */
     int                 to;
-    struct sockaddr_in  HA;         /* HA address & port */
+    struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */
     pthread_mutex_t     mut;        /* mutex for this back-end */
@@ -295,6 +296,7 @@ typedef struct _backend {
     double              t_requests; /* time to answer these requests */
     double              t_average;  /* average time to answer requests */
     int                 alive;      /* false if the back-end is dead */
+    int                 resurrect;  /* this back-end is to be resurrected */
     int                 disabled;   /* true if the back-end is disabled */
     struct _backend     *next;
 }   BACKEND;
@@ -303,9 +305,7 @@ typedef struct _tn {
     char        *key;
     void        *content;
     time_t      last_acc;
-    int         children;
-    struct _tn  *left, *right;
-}   TREENODE;
+}   TABNODE;
 
 #define n_children(N)   ((N)? (N)->children: 0)
 
@@ -320,13 +320,14 @@ typedef struct _service {
                         *deny_head; /* forbidden headers */
     BACKEND             *backends;
     BACKEND             *emergency;
-    int                 tot_pri;    /* total priority for all back-ends */
+    int                 abs_pri;    /* abs total priority for all back-ends */
+    int                 tot_pri;    /* total priority for current back-ends */
     pthread_mutex_t     mut;        /* mutex for this service */
     SESS_TYPE           sess_type;
     int                 sess_ttl;   /* session time-to-live */
     regex_t             sess_pat;   /* pattern to match the session data */
     char                *sess_parm; /* session cookie or parameter */
-    TREENODE            *sessions;  /* currently active sessions */
+    LHASH               *sessions;  /* currently active sessions */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
@@ -338,12 +339,12 @@ extern SERVICE          *services;  /* global services (if any) */
 
 /* Listener definition */
 typedef struct _listener {
-    struct sockaddr_in  addr;       /* address */
+    struct addrinfo     addr;       /* IPv4/6 address */
     int                 sock;       /* listening socket */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     int                 clnt_check; /* client verification mode */
     int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
-    char                *ssl_head;  /* extra SSL header */
+    char                *add_head;  /* extra SSL header */
     regex_t             verb;       /* pattern to match the request verb against */
     int                 to;         /* client time-out */
     int                 has_pat;    /* was a URL pattern defined? */
@@ -367,9 +368,9 @@ extern LISTENER         *listeners; /* all available listeners */
 #endif /* NO_EXTERNALS */
 
 typedef struct  {
-    int                 sock;
-    LISTENER            *lstn;
-    struct in_addr      from_host;
+    int             sock;
+    LISTENER        *lstn;
+    struct addrinfo from_host;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
 /* Header types */
@@ -429,14 +430,14 @@ extern void *thr_http(void *);
 extern void logmsg(const int, const char *, ...);
 
 /*
- * Translate inet address into a string
+ * Translate inet/inet6 address into a string
  */
-extern void addr2str(char *, const int, const struct in_addr *);
+extern void addr2str(char *, const int, const struct addrinfo *, const int);
 
 /*
  * Return a string representation for a back-end address
  */
-extern void str_be(char *, const int, const BACKEND *);
+#define str_be(BUF, LEN, BE)    addr2str((BUF), (LEN), &(BE)->addr, 0)
 
 /*
  * Find the right service for a request
@@ -446,12 +447,12 @@ extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *const, const struct in_addr *, const char *, char **const);
+extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char *, char **const);
 
 /*
- * init the gethostbyname protection mutex
+ * Search for a host name, return the addrinfo for it
  */
-extern void init_host_mut(void);
+extern int  get_host(char *const, struct addrinfo *);
 
 /*
  * Find if a redirect needs rewriting
@@ -474,7 +475,7 @@ extern int  check_header(const char *, char *);
  * mark a backend host as dead;
  * do nothing if no resurection code is active
  */
-extern void kill_be(SERVICE *const, const BACKEND *);
+extern void kill_be(SERVICE *const, const BACKEND *, const int);
 
 /*
  * Rescale back-end priorities if needed
@@ -500,7 +501,7 @@ extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
  * Non-blocking version of connect(2). Does the same as connect(2) but
  * ensures it will time-out after a much shorter time period CONN_TO.
  */
-extern int  connect_nb(const int, const struct sockaddr *, const socklen_t, const int);
+extern int  connect_nb(const int, const struct addrinfo *, const int);
 
 /*
  * Parse arguments/config file

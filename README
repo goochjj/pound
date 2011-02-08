@@ -336,6 +336,17 @@ VIRTUAL HOSTS AND HTTPS
     for "www.virthost.com" - and most browsers will scream blue murder (as well
     they should) if the two do not match.
 
+    There is a new twist on this however: some of the newer browsers will accept
+    so-called "wild-card certificates". This is a specially crafted certificate
+    that is not issued to a host, but rather to a domain. The result is that
+    on setting-up a new SSL connection, the server replies not with "I am
+    www.encrypted.com", but with "I am *.encrypted.com". If the browser is
+    capable of processing this type of certificate then the connection is
+    set up and normal HTTPS (with www.encrypted.com or special.encrypted.com or
+    even some.other.server.encrypted.com or whatever other name matches) proceeds
+    as usual. Pound supports these certificates and you can use virtual hosts in
+    the normal way.
+
 
 
 VIRTUAL HOSTS IN ZOPE
@@ -464,6 +475,17 @@ SESSIONS
       has alternative methods for sessions you will have to define a separate
       Service for each method.
 
+    A note on cookie injection: some applications have no session-tracking mechanism at
+    all but would still like to have the client always directed to the same back-end
+    time after time. Some reverse proxies use a mechanism called "cookie injection" in
+    order to achieve this: a cookie is added to the back-end responses and tracked by the
+    reverse proxy.
+
+    Pound was designed to be as transparent as possible, and this mechanism is not
+    supported. If you really need this sort of persistent mapping use the client address
+    session mechanism (Session Type IP), which achieves the same result without
+    changing the contents in any way.
+
 
 REQUEST LOGGING
 
@@ -551,7 +573,8 @@ THREADS AND LIMITS
       'limit maxfiles'/'limit openfiles').
 
     - on most systems the thread library comes with a built-in limit on the
-      maximal number of concurrent threads allowed - usually 1024. In very
+      maximal number of concurrent threads allowed - on older systems it usually
+      is 1024, on newer systems quite a bit higher. In very
       rare cases (very high load and long response times) you may run into
       this limitation - the symptom is log messages saying "can't create
       thread". Your only solution is to recompile the system threads library
@@ -613,7 +636,7 @@ SIMILAR SYSTEMS
       would have made sense, except that integrating HTTPS into Pound
       proved to be so simple that it was not worth the trouble.
 
-    - your favorite system: let me know how it looks in light of the
+    - your favourite system: let me know how it looks in light of the
       above criteria - I am always interested in new ideas.
 
 
@@ -710,7 +733,7 @@ WebDAV
 
     Rather then change Pound to accept these characters (which could create
     some serious issues with security on other systems) we have made this
-    behavior dependent on a configuration switch: xHTTP (see the man page
+    behaviour dependent on a configuration switch: xHTTP (see the man page
     for details).
 
     If you also use the SSL wrapper feature in front of a Microsoft server

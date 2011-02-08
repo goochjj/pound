@@ -1,22 +1,21 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002-2006 Apsis GmbH
+ * Copyright (C) 2002-2007 Apsis GmbH
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- * Additionaly compiling, linking, and/or using OpenSSL is expressly allowed.
+ * This file is part of Pound.
  *
- * This program is distributed in the hope that it will be useful,
+ * Pound is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Foobar is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA  02111-1307, USA.
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Contact information:
  * Apsis GmbH
@@ -134,8 +133,7 @@ h_shut(const int sig)
         for(lstn = listeners; lstn; lstn = lstn->next)
             close(lstn->sock);
         kill(son, sig);
-        while(wait(&status) != son)
-            logmsg(LOG_ERR, "MONITOR: bad wait (%s)", strerror(errno));
+        (void)wait(&status);
         if(ctrl_name != NULL)
             (void)unlink(ctrl_name);
         exit(0);
@@ -158,10 +156,11 @@ main(const int argc, char **argv)
     LISTENER            *lstn;
     pthread_t           thr;
     pthread_attr_t      attr;
+    struct sched_param  sp;
     uid_t               user_id;
     gid_t               group_id;
     FILE                *fpid;
-    struct sockaddr_in  clnt_addr;
+    struct sockaddr_storage clnt_addr;
     char                tmp[MAXBUF];
 #ifndef SOL_TCP
     struct protoent     *pe;
@@ -234,23 +233,21 @@ main(const int argc, char **argv)
         listen(control_sock, 512);
     }
 
-    /* open HTTP listeners */
+    /* open listeners */
     for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
         int opt;
 
         /* prepare the socket */
-        if((lstn->sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-            addr2str(tmp, MAXBUF - 1, &lstn->addr.sin_addr);
-            logmsg(LOG_ERR, "HTTP socket %s:%hd create: %s - aborted",
-                tmp, ntohs(lstn->addr.sin_port), strerror(errno));
+        if((lstn->sock = socket(lstn->addr.ai_family == AF_INET? PF_INET: PF_INET6, SOCK_STREAM, 0)) < 0) {
+            addr2str(tmp, MAXBUF - 1, &lstn->addr, 0);
+            logmsg(LOG_ERR, "HTTP socket %s create: %s - aborted", tmp, strerror(errno));
             exit(1);
         }
         opt = 1;
         setsockopt(lstn->sock, SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-        if(bind(lstn->sock, (struct sockaddr *)&lstn->addr, (socklen_t)sizeof(lstn->addr)) < 0) {
-            addr2str(tmp, MAXBUF - 1, &lstn->addr.sin_addr);
-            logmsg(LOG_ERR, "HTTP socket bind %s:%hd: %s - aborted",
-                tmp, ntohs(lstn->addr.sin_port), strerror(errno));
+        if(bind(lstn->sock, lstn->addr.ai_addr, (socklen_t)lstn->addr.ai_addrlen) < 0) {
+            addr2str(tmp, MAXBUF - 1, &lstn->addr, 0);
+            logmsg(LOG_ERR, "HTTP socket bind %s: %s - aborted", tmp, strerror(errno));
             exit(1);
         }
         listen(lstn->sock, 512);
@@ -346,8 +343,7 @@ main(const int argc, char **argv)
         if((son = fork()) > 0) {
             int status;
 
-            while(wait(&status) != son)
-                logmsg(LOG_ERR, "MONITOR: bad wait (%s)", strerror(errno));
+            (void)wait(&status);
             if(WIFEXITED(status))
                 logmsg(LOG_ERR, "MONITOR: worker exited normally %d, restarting...", WEXITSTATUS(status));
             else if(WIFSIGNALED(status))
@@ -356,9 +352,11 @@ main(const int argc, char **argv)
                 logmsg(LOG_ERR, "MONITOR: worker exited (stopped?) %d, restarting...", status);
         } else if (son == 0) {
 #endif
+
             /* thread stuff */
             pthread_attr_init(&attr);
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            pthread_attr_setschedpolicy(&attr, SCHED_RR);
 
 #ifdef  NEED_STACK
             /* set new stack size - necessary for OpenBSD/FreeBSD and Linux NPTL */
@@ -388,8 +386,10 @@ main(const int argc, char **argv)
                     logmsg(LOG_NOTICE, "shutting down...");
                     for(lstn = listeners; lstn; lstn = lstn->next)
                         close(lstn->sock);
-                    sleep(grace);
-                    logmsg(LOG_NOTICE, "grace period expired - exiting...");
+                    if(grace > 0) {
+                        sleep(grace);
+                        logmsg(LOG_NOTICE, "grace period expired - exiting...");
+                    }
                     if(ctrl_name != NULL)
                         (void)unlink(ctrl_name);
                     exit(0);
@@ -408,32 +408,45 @@ main(const int argc, char **argv)
                             if((clnt = accept(lstn->sock, (struct sockaddr *)&clnt_addr,
                                 (socklen_t *)&clnt_length)) < 0) {
                                 logmsg(LOG_WARNING, "HTTP accept: %s", strerror(errno));
-                            } else if (clnt_addr.sin_family != AF_INET) {
-                                /* may happen on FreeBSD, I am told */
-                                logmsg(LOG_WARNING, "HTTP connection prematurely closed by peer");
-                                close(clnt);
-                            } else if(lstn->disabled) {
-                                /*
-                                addr2str(tmp, MAXBUF - 1, &clnt_addr.sin_addr);
-                                logmsg(LOG_WARNING, "HTTP disabled listener from %s", tmp);
-                                */
-                                close(clnt);
-                            } else {
+                            } else if(((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET
+                                   || ((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET6) {
                                 thr_arg *arg;
 
+                                if(lstn->disabled) {
+                                    /*
+                                    addr2str(tmp, MAXBUF - 1, &clnt_addr, 1);
+                                    logmsg(LOG_WARNING, "HTTP disabled listener from %s", tmp);
+                                    */
+                                    close(clnt);
+                                }
                                 if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
                                     logmsg(LOG_WARNING, "HTTP arg: malloc");
                                     close(clnt);
-                                } else {
-                                    arg->sock = clnt;
-                                    arg->lstn = lstn;
-                                    arg->from_host = clnt_addr.sin_addr;
-                                    if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
-                                        logmsg(LOG_WARNING, "HTTP pthread_create: %s", strerror(errno));
-                                        free(arg);
-                                        close(clnt);
-                                    }
+                                    continue;
                                 }
+                                arg->sock = clnt;
+                                arg->lstn = lstn;
+                                if((arg->from_host.ai_addr = (struct sockaddr *)malloc(clnt_length)) == NULL) {
+                                    logmsg(LOG_WARNING, "HTTP arg address: malloc");
+                                    free(arg);
+                                    continue;
+                                }
+                                memcpy(arg->from_host.ai_addr, &clnt_addr, clnt_length);
+                                arg->from_host.ai_addrlen = clnt_length;
+                                if(((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET)
+                                    arg->from_host.ai_family = AF_INET;
+                                else
+                                    arg->from_host.ai_family = AF_INET6;
+                                if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+                                    logmsg(LOG_WARNING, "HTTP pthread_create: %s", strerror(errno));
+                                    free(arg->from_host.ai_addr);
+                                    free(arg);
+                                    close(clnt);
+                                }
+                            } else {
+                                /* may happen on FreeBSD, I am told */
+                                logmsg(LOG_WARNING, "HTTP connection prematurely closed by peer");
+                                close(clnt);
                             }
                         }
                     }
