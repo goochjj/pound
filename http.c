@@ -34,7 +34,7 @@ static char *h500 = "500 Internal Server Error",
             *h503 = "503 Service Unavailable",
             *h414 = "414 Request URI too long";
 
-static char *err_response = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s";
+static char *err_response = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nExpires: now\r\nPragma: no-cache\r\nCache-control: no-cache,no-store\r\n\r\n%s";
 
 /*
  * Reply with an error
@@ -843,7 +843,7 @@ thr_http(void *arg)
                     }
                     str_be(caddr, MAXBUF - 1, cur_backend);
                     strcpy(loc_path, buf + matches[3].rm_so);
-                    snprintf(buf, MAXBUF, "Destination: http://%s/%s", caddr, loc_path);
+                    snprintf(buf, MAXBUF, "Destination: http://%s%s", caddr, loc_path);
                     free(headers[n]);
                     if((headers[n] = strdup(buf)) == NULL) {
                         logmsg(LOG_WARNING, "(%lx) rewrite Destination - out of memory: %s",
@@ -1156,7 +1156,7 @@ thr_http(void *arg)
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend)) {
-                        snprintf(buf, MAXBUF, "Location: %s://%s/%s",
+                        snprintf(buf, MAXBUF, "Location: %s://%s%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
@@ -1170,7 +1170,7 @@ thr_http(void *arg)
                     break;
                 case HEADER_CONTLOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend)) {
-                        snprintf(buf, MAXBUF, "Content-location: %s://%s/%s",
+                        snprintf(buf, MAXBUF, "Content-location: %s://%s%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {

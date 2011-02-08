@@ -1,4 +1,19 @@
 ------------------------------------------------------------------------
+r57 | roseg | 2008-04-05 11:45:41 +0200 (Sat, 05 Apr 2008) | 12 lines
+
+Release 2.4.1
+
+Stable release 2.4.1
+
+Enhancements:
+  - added cache control for errors (thanks to Pavel Merdin for the suggestion)
+
+Bug fixes:
+  - fixed problem with double slash in header rewriting (thanks to Cédric P.)
+  - remove sched_policy to avoid problems on systems with poor support for it
+  - fixed memory corruption problem with HAport
+
+------------------------------------------------------------------------
 r56 | roseg | 2008-02-11 12:53:51 +0100 (Mon, 11 Feb 2008) | 4 lines
 
 Release 2.4

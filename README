@@ -392,10 +392,10 @@ SESSIONS
     a session is established all subsequent requests from the same browser
     be directed to the same back-end server.
 
-    Five possible ways of detecting a session have been implemented in
+    Six possible ways of detecting a session have been implemented in
     Pound (hopefully the most useful ones): by client address, by Basic
-    authentication (user id/password), by URL parameter, by cookie and
-    by header value.
+    authentication (user id/password), by URL parameter, by cookie, by
+    HTTP parameter and by header value.
 
     - by client address: in this scheme Pound directs all requests from
       the same client IP address to the same back-end server. Put the
@@ -431,7 +431,7 @@ SESSIONS
       Put the lines
 
       Session
-        Type    PARM
+        Type    URL
         ID      "id"
         TTL     300
       End
@@ -450,6 +450,17 @@ SESSIONS
 
       to your configuration file - the sessions will be tracked by the value of
       the "sess" cookie.
+
+    - by HTTP parameter value: applications that use this method pass an HTTP
+      parameter (http://x.y/z;parameter) back and forth. Add the lines
+      
+      Session
+        Type    PARM
+        TTL     300
+      End
+
+      to your configuration file - the sessions will be tracked by the value of
+      the parameter.
 
     - by header value: applications that use this method pass a certain header
       back and forth. Add the lines

@@ -356,7 +356,6 @@ main(const int argc, char **argv)
             /* thread stuff */
             pthread_attr_init(&attr);
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-            pthread_attr_setschedpolicy(&attr, SCHED_RR);
 
 #ifdef  NEED_STACK
             /* set new stack size - necessary for OpenBSD/FreeBSD and Linux NPTL */

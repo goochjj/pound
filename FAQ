@@ -204,7 +204,7 @@ FREQUENTLY ASKED QUESTIONS
 4.4 How can a back-end know that the connection is via HTTPS?
 
     Pound can add a header for incoming requests indicating that they were
-    received via HTTPS. See the details on HTTPSHeaders in the man page.
+    received via HTTPS. See the details on AddHeader in the man page.
 
 4.5 HTTPS connections fail when Pound runs chrooted
 

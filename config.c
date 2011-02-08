@@ -177,25 +177,19 @@ parse_be(FILE *const f_conf, const int is_emergency)
                 logmsg(LOG_ERR, "line %d: HAport is not supported for Emergency back-ends", n_lin);
                 exit(1);
             }
+            res->ha_addr = res->addr;
+            if((res->ha_addr.ai_addr = (struct sockaddr *)malloc(res->addr.ai_addrlen)) == NULL) {
+                logmsg(LOG_ERR, "line %d: out of memory", n_lin);
+                exit(1);
+            }
+            memcpy(res->ha_addr.ai_addr, res->addr.ai_addr, res->addr.ai_addrlen);
             switch(res->addr.ai_family) {
             case AF_INET:
-                res->ha_addr = res->addr;
-                if((res->ha_addr.ai_addr = (struct sockaddr *)malloc(res->ha_addr.ai_addrlen)) == NULL) {
-                    logmsg(LOG_ERR, "line %d: out of memory", n_lin);
-                    exit(1);
-                }
-                memcpy(&res->ha_addr.ai_addr, res->addr.ai_addr, res->ha_addr.ai_addrlen);
                 memcpy(&in, res->ha_addr.ai_addr, sizeof(in));
                 in.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
                 memcpy(res->ha_addr.ai_addr, &in, sizeof(in));
                 break;
             case AF_INET6:
-                res->ha_addr = res->addr;
-                if((res->ha_addr.ai_addr = (struct sockaddr *)malloc(res->ha_addr.ai_addrlen)) == NULL) {
-                    logmsg(LOG_ERR, "line %d: out of memory", n_lin);
-                    exit(1);
-                }
-                memcpy(&res->ha_addr.ai_addr, res->addr.ai_addr, res->ha_addr.ai_addrlen);
                 memcpy(&in6, res->addr.ai_addr, sizeof(in6));
                 in6.sin6_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
                 memcpy(res->addr.ai_addr, &in6, sizeof(in6));
