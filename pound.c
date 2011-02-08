@@ -26,10 +26,14 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $";
+static char *rcs_id = "$Id: pound.c,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.2  2003/01/20 15:15:06  roseg
+ * Better handling of "100 Continue" responses
+ * Fixed problem with allowed character set for requests
+ *
  * Revision 1.1  2003/01/09 01:28:40  roseg
  * Better auto-conf detection
  * LogLevel 3 for Apache-like log (Combined Log Format)
@@ -142,6 +146,7 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         CONT_LEN,           /* Content-length header */
         CONN_CLOSED,        /* Connection: closed header */
         CHUNK_HEAD,         /* chunk header line */
+        RESP_SKIP,          /* responses for which we skip response */
         RESP_IGN;           /* responses for which we ignore content */
 
 /* worker pid */
@@ -216,18 +221,18 @@ main(int argc, char **argv)
     /* prepare regular expressions */
     if(
 #ifdef  MSDAV
-       regcomp(&HTTP, "^(GET|POST|HEAD) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}-]+) HTTP/1.[01]$",
+       regcomp(&HTTP, "^(GET|POST|HEAD) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}-]+) HTTP/1.[01]$",
+    || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WEBDAV, "^(LOCK|UNLOCK|SUBSCRIBE|PROPFIND|PROPPATCH|BPROPPATCH|SEARCH|POLL|MKCOL|MOVE|BMOVE|COPY|BCOPY|DELETE|BDELETE|CONNECT|OPTIONS|TRACE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}-]+) HTTP/1.[01]$",
+    || regcomp(&WEBDAV, "^(LOCK|UNLOCK|SUBSCRIBE|PROPFIND|PROPPATCH|BPROPPATCH|SEARCH|POLL|MKCOL|MOVE|BMOVE|COPY|BCOPY|DELETE|BDELETE|CONNECT|OPTIONS|TRACE) ([A-Za-z0-9~;/?:%@&=+$,_.!'(){}<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #else
-       regcomp(&HTTP, "^(GET|POST|HEAD) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
+       regcomp(&HTTP, "^(GET|POST|HEAD) ([A-Za-z0-9~;/?:%@&=+$,_.!'()<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
+    || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'()<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WEBDAV, "^(LOCK|UNLOCK) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
+    || regcomp(&WEBDAV, "^(LOCK|UNLOCK) ([A-Za-z0-9~;/?:%@&=+$,_.!'()<>#*\"-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #endif
     || regcomp(&HEADER, "^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -236,6 +241,7 @@ main(int argc, char **argv)
     || regcomp(&CONT_LEN, "^Content-length:[ \t]*([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CONN_CLOSED, "^Connection:[ \t]*close$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LISTEN_ADDR, "^([^,]+),([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|304).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         syslog(LOG_ERR, "bad Regex - aborted");

@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $
+ * $Id: pound.h,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -187,6 +187,7 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 CONT_LEN,   /* Content-length header */
                 CONN_CLOSED,/* Connection: closed header */
                 CHUNK_HEAD, /* chunk header line */
+                RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN;   /* responses for which we ignore content */
 
 #ifdef  NEED_INADDRT

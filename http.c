@@ -26,10 +26,14 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.1 2003/01/09 01:28:39 roseg Rel roseg $";
+static char *rcs_id = "$Id: http.c,v 1.2 2003/01/20 15:15:06 roseg Exp roseg $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.2  2003/01/20 15:15:06  roseg
+ * Better handling of "100 Continue" responses
+ * Fixed problem with allowed character set for requests
+ *
  * Revision 1.1  2003/01/09 01:28:39  roseg
  * Better auto-conf detection
  * LogLevel 3 for Apache-like log (Combined Log Format)
@@ -124,7 +128,7 @@ err_reply(BIO *c, char *head, char *txt)
  * Read and write some binary data
  */
 static int
-copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes)
+copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes, int no_write)
 {
     char        buf[MAXBUF];
     int         res;
@@ -134,8 +138,9 @@ copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes)
             return -1;
         if(res == 0)
             return 0;
-        if(BIO_write(be, buf, res) != res)
-            return -2;
+        if(!no_write)
+            if(BIO_write(be, buf, res) != res)
+                return -2;
         cont -= res;
         if(res_bytes)
             *res_bytes += res;
@@ -162,7 +167,7 @@ strip_eol(char *lin)
  * Copy chunked
  */
 static int
-copy_chunks(BIO *cl, BIO *be, long *res_bytes)
+copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write)
 {
     char        buf[MAXBUF];
     long        cont;
@@ -181,12 +186,13 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes)
             syslog(LOG_WARNING, "bad chunk header <%s>: %m", buf);
             return -2;
         }
-        if(BIO_printf(be, "%s\r\n", buf) <= 0) {
-            syslog(LOG_WARNING, "error write chunked: %m");
-            return -3;
-        }
+        if(!no_write)
+            if(BIO_printf(be, "%s\r\n", buf) <= 0) {
+                syslog(LOG_WARNING, "error write chunked: %m");
+                return -3;
+            }
         if(cont > 0L) {
-            if(copy_bin(cl, be, cont, res_bytes)) {
+            if(copy_bin(cl, be, cont, res_bytes, no_write)) {
                 syslog(LOG_WARNING, "error copy chunk cont: %m");
                 return -4;
             }
@@ -200,10 +206,11 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes)
         strip_eol(buf);
         if(buf[0])
             syslog(LOG_WARNING, "unexpected after chunk \"%s\"", buf);
-        if(BIO_printf(be, "%s\r\n", buf) <= 0) {
-            syslog(LOG_WARNING, "error after chunk write: %m");
-            return -6;
-        }
+        if(!no_write)
+            if(BIO_printf(be, "%s\r\n", buf) <= 0) {
+                syslog(LOG_WARNING, "error after chunk write: %m");
+                return -6;
+            }
     }
     /* possibly trailing headers */
     for(;;) {
@@ -211,10 +218,11 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes)
             syslog(LOG_WARNING, "unexpected post-chunk EOF: %m");
             return -7;
         }
-        if(BIO_puts(be, buf) <= 0) {
-            syslog(LOG_WARNING, "error post-chunk write: %m");
-            return -8;
-        }
+        if(!no_write)
+            if(BIO_puts(be, buf) <= 0) {
+                syslog(LOG_WARNING, "error post-chunk write: %m");
+                return -8;
+            }
         strip_eol(buf);
         if(!buf[0])
             break;
@@ -372,7 +380,7 @@ thr_http(void *arg)
     thr_arg             *a;
     struct in_addr      from_host;
     struct sockaddr_in  *srv;
-    int                 cl_11, be_11, res, chunked, n, sock, no_cont, conn_closed;
+    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], *a_ciphers, v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF];
     long                cont, res_bytes;
@@ -685,14 +693,14 @@ thr_http(void *arg)
 
         if(cl_11 && chunked) {
             /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-            if(copy_chunks(cl, be, NULL)) {
+            if(copy_chunks(cl, be, NULL, 0)) {
                 err_reply(cl, h500, e500);
                 clean_all();
                 pthread_exit(NULL);
             }
         } else if(cont > 0L) {
             /* had Content-length, so do raw reads/writes for the length */
-            if(copy_bin(cl, be, cont, NULL)) {
+            if(copy_bin(cl, be, cont, NULL, 0)) {
                 syslog(LOG_WARNING, "error copy cont: %m");
                 err_reply(cl, h500, e500);
                 clean_all();
@@ -708,84 +716,86 @@ thr_http(void *arg)
             pthread_exit(NULL);
         }
 
-        if((headers = get_headers(be)) == NULL) {
-            syslog(LOG_WARNING, "response error read from %s:%hd: %m",
-                inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
-            err_reply(cl, h500, e500);
-            clean_all();
-            pthread_exit(NULL);
-        }
-
-        strcpy(response, headers[0]);
-        be_11 = (response[7] == '1');
-        /* some response codes (1xx, 204, 304) have no content */
-        if(!no_cont && !regexec(&RESP_IGN, response, 0, NULL, 0))
-            no_cont = 1;
-
-        for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
-            if(!regexec(&CONN_CLOSED, headers[n], 1, matches, 0))
-                conn_closed = 1;
-            else if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
-                chunked = 1;
-            else if(!regexec(&CONT_LEN, headers[n], 2, matches, 0))
-                cont = atol(headers[n] + matches[1].rm_so);
-        }
-
-        /* possibly record session information (only for cookies) */
-        upd_session(grp, &headers[1], srv);
-
-        /* send the response */
-        for(n = 0; n < MAXHEADERS && headers[n]; n++) {
-            if(BIO_printf(cl, "%s\r\n", headers[n]) <= 0) {
-                syslog(LOG_WARNING, "error write to %s: %m", inet_ntoa(from_host));
-                free_headers(headers);
+        for(skip = 1; skip;) {
+            if((headers = get_headers(be)) == NULL) {
+                syslog(LOG_WARNING, "response error read from %s:%hd: %m",
+                    inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+                err_reply(cl, h500, e500);
                 clean_all();
                 pthread_exit(NULL);
             }
-        }
-        free_headers(headers);
 
-        /* final CRLF */
-        BIO_puts(cl, "\r\n");
+            strcpy(response, headers[0]);
+            be_11 = (response[7] == '1');
+            /* responses with code 100 are never passed back to the client */
+            skip = !regexec(&RESP_SKIP, response, 0, NULL, 0);
+            /* some response codes (1xx, 204, 304) have no content */
+            if(!no_cont && !regexec(&RESP_IGN, response, 0, NULL, 0))
+                no_cont = 1;
 
-        if(!no_cont) {
-            /* ignore this if request was HEAD */
-            if(be_11 && chunked) {
-                /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-                if(copy_chunks(be, cl, &res_bytes)) {
-                    /* copy_chunks() has its own error messages */
-                    clean_all();
-                    pthread_exit(NULL);
-                }
-            } else if(cont > 0L) {
-                /* had Content-length, so do raw reads/writes for the length */
-                if(copy_bin(be, cl, cont, &res_bytes)) {
-                    syslog(LOG_WARNING, "error copy cont: %m");
-                    clean_all();
-                    pthread_exit(NULL);
-                }
-            } else
-#ifndef MSDAV
-            /* for some mysterious reason MS/IIS doesn't like this at all */
-            if(is_readable(be))
-#endif
-            {
-                /* old-style response - content until EOF */
-                while((res = BIO_read(be, buf, MAXBUF)) > 0) {
-                    if(BIO_write(cl, buf, res) != res) {
-                        syslog(LOG_WARNING, "error copy response body: %m");
+            for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
+                if(!regexec(&CONN_CLOSED, headers[n], 1, matches, 0))
+                    conn_closed = 1;
+                else if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
+                    chunked = 1;
+                else if(!regexec(&CONT_LEN, headers[n], 2, matches, 0))
+                    cont = atol(headers[n] + matches[1].rm_so);
+            }
+
+            /* possibly record session information (only for cookies) */
+            upd_session(grp, &headers[1], srv);
+
+            /* send the response */
+            if(!skip)
+                for(n = 0; n < MAXHEADERS && headers[n]; n++) {
+                    if(BIO_printf(cl, "%s\r\n", headers[n]) <= 0) {
+                        syslog(LOG_WARNING, "error write to %s: %m", inet_ntoa(from_host));
+                        free_headers(headers);
                         clean_all();
                         pthread_exit(NULL);
-                    } else
-                        res_bytes += res;
+                    }
+                }
+            free_headers(headers);
+
+            /* final CRLF */
+            if(!skip)
+                BIO_puts(cl, "\r\n");
+
+            if(!no_cont) {
+                /* ignore this if request was HEAD or similar */
+                if(be_11 && chunked) {
+                    /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
+                    if(copy_chunks(be, cl, &res_bytes, skip)) {
+                        /* copy_chunks() has its own error messages */
+                        clean_all();
+                        pthread_exit(NULL);
+                    }
+                } else if(cont > 0L) {
+                    /* had Content-length, so do raw reads/writes for the length */
+                    if(copy_bin(be, cl, cont, &res_bytes, skip)) {
+                        syslog(LOG_WARNING, "error copy cont: %m");
+                        clean_all();
+                        pthread_exit(NULL);
+                    }
+                } else if(!skip && is_readable(be)) {
+                    /* old-style response - content until EOF */
+                    while((res = BIO_read(be, buf, MAXBUF)) > 0) {
+                        if(BIO_write(cl, buf, res) != res) {
+                            syslog(LOG_WARNING, "error copy response body: %m");
+                            clean_all();
+                            pthread_exit(NULL);
+                        } else
+                            res_bytes += res;
+                    }
                 }
             }
-        }
 
-        if(BIO_flush(cl) != 1) {
-            syslog(LOG_WARNING, "error flush to %s: %m", inet_ntoa(from_host));
-            clean_all();
-            pthread_exit(NULL);
+            if(!skip)
+                if(BIO_flush(cl) != 1) {
+                    syslog(LOG_WARNING, "error flush to %s: %m", inet_ntoa(from_host));
+                    clean_all();
+                    pthread_exit(NULL);
+                }
         }
 
         /* log what happened */

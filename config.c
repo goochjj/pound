@@ -26,10 +26,14 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.1 2003/01/09 01:28:39 roseg Rel roseg $";
+static char *rcs_id = "$Id: config.c,v 1.2 2003/01/20 15:15:05 roseg Exp roseg $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.2  2003/01/20 15:15:05  roseg
+ * Better handling of "100 Continue" responses
+ * Fixed problem with allowed character set for requests
+ *
  * Revision 1.1  2003/01/09 01:28:39  roseg
  * Better auto-conf detection
  * LogLevel 3 for Apache-like log (Combined Log Format)
