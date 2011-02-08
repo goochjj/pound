@@ -26,10 +26,27 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
+static char *rcs_id = "$Id: pound.c,v 1.9 2005/06/01 15:01:53 roseg Rel $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.9  2005/06/01 15:01:53  roseg
+ * Enhancements:
+ *   Added the VerifyList configuration flag (CA root certs + CRL)
+ *   CRL checking code
+ *   RewriteRedirect 2 - ignores port value for host matching
+ *   Added -c flag (check-only mode)
+ *   Added -v flag (verbose mode)
+ *   Added -p flag for pid file name
+ *
+ * Bug fixes:
+ *   fixed a potential buffer overflow problem (in checking the Host header)
+ *   added call to SSL_library_init
+ *   added a check for MSIE before forcing SSL shutdown
+ *   X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
+ *   added code for shorter linger on badly closed connections (IE work-around)
+ *   fixed the locking for session checking (mutex_lock/unlock)
+ *
  * Revision 1.8  2004/11/04 13:37:07  roseg
  * Changes:
  * - added support for non-blocking connect(2)
@@ -211,6 +228,7 @@ int     log_level;          /* logging mode - 0, 1, 2 */
 int     https_headers;      /* add HTTPS-specific headers */
 char    *https_header;      /* HTTPS-specific header to add */
 char    *ssl_CAlst;         /* CA certificate list (path to file) */
+char    *ssl_Verifylst;     /* Verify (path to file) */
 int     ssl_vdepth;         /* max verification depth */
 int     allow_xtd;          /* allow extended HTTP - PUT, DELETE */
 int     allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
@@ -234,6 +252,8 @@ char    **http,             /* HTTP port to listen on */
         *CS_frag;           /* character set of fragment */
 int     check_URL;          /* check URL for correct syntax */
 int     rewrite_redir;      /* rewrite redirection responses */
+int     print_log;          /* print log messages to stdout/stderr */
+char    *pid_name;          /* file to record pid in */
 regex_t *head_off;          /* headers to remove */
 int     n_head_off;         /* how many of them */
 
@@ -364,11 +384,12 @@ main(int argc, char **argv)
     uid_t               user_id;
     gid_t               group_id;
     FILE                *fpid;
-    char                fpid_name[32];
     regex_t             LISTEN_ADDR;
     regmatch_t          matches[3];
     SSL_CTX             **ctx;
+    X509_STORE*         store;
 
+    print_log = 0;
 #ifndef  NO_SYSLOG
 #ifndef FACILITY
 #define FACILITY    LOG_DAEMON
@@ -386,6 +407,7 @@ main(int argc, char **argv)
 
     /* SSL stuff */
     SSL_load_error_strings();
+    SSL_library_init();
     OpenSSL_add_all_algorithms();
     l_init();
     CRYPTO_set_id_callback(l_id);
@@ -602,6 +624,7 @@ main(int argc, char **argv)
                 if(ciphers[i])
                     SSL_CTX_set_cipher_list(ctx[i], ciphers[i]);
                 SSL_CTX_set_tmp_rsa_callback(ctx[i], RSA_tmp_callback);
+
                 if(ssl_CAlst != NULL) {
                     STACK_OF(X509_NAME) *cert_names;
 
@@ -610,12 +633,21 @@ main(int argc, char **argv)
                         exit(1);
                     }
                     SSL_CTX_set_client_CA_list(ctx[i], cert_names);
+                }
 
-                    if(SSL_CTX_load_verify_locations(ctx[i], ssl_CAlst, NULL) != 1) {
+                if(ssl_Verifylst != NULL) {
+                    if(SSL_CTX_load_verify_locations(ctx[i], ssl_Verifylst, NULL) != 1) {
                         logmsg(LOG_ERR, "SSL_CTX_load_verify_locations failed - aborted");
                         exit(1);
                     }
                 }
+#if HAVE_X509_STORE_SET_FLAGS
+                /* add the CRL stuff */
+                if((store = SSL_CTX_get_cert_store(ctx[i])) != NULL)
+                    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
+                else
+                    logmsg(LOG_WARNING, "SSL_CTX_get_cert_store failed!");
+#endif
             }
         }
     }
@@ -662,6 +694,9 @@ main(int argc, char **argv)
         group_id = gr->gr_gid;
     }
 
+    /* Turn off verbose messages (if necessary) */
+    print_log = 0;
+
 #ifdef  AEMON
     /* daemonize - make ourselves a subprocess. */
     switch (fork()) {
@@ -680,13 +715,12 @@ main(int argc, char **argv)
     }
 #endif
 
-    /* record pid in var/run */
-    sprintf(fpid_name, "/var/run/pound_pid.%d", getpid());
-    if((fpid = fopen(fpid_name, "wt")) != NULL) {
+    /* record pid in file */
+    if((fpid = fopen(pid_name, "wt")) != NULL) {
         fprintf(fpid, "%d\n", getpid());
         fclose(fpid);
     } else
-        logmsg(LOG_WARNING, "Create \"%s\": %s", fpid_name, strerror(errno));
+        logmsg(LOG_WARNING, "Create \"%s\": %s", pid_name, strerror(errno));
 
     /* chroot if necessary */
     if(root) {

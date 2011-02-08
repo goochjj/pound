@@ -26,10 +26,27 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
+static char *rcs_id = "$Id: svc.c,v 1.9 2005/06/01 15:01:54 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.9  2005/06/01 15:01:54  roseg
+ * Enhancements:
+ *   Added the VerifyList configuration flag (CA root certs + CRL)
+ *   CRL checking code
+ *   RewriteRedirect 2 - ignores port value for host matching
+ *   Added -c flag (check-only mode)
+ *   Added -v flag (verbose mode)
+ *   Added -p flag for pid file name
+ *
+ * Bug fixes:
+ *   fixed a potential buffer overflow problem (in checking the Host header)
+ *   added call to SSL_library_init
+ *   added a check for MSIE before forcing SSL shutdown
+ *   X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
+ *   added code for shorter linger on badly closed connections (IE work-around)
+ *   fixed the locking for session checking (mutex_lock/unlock)
+ *
  * Revision 1.8  2004/11/04 13:37:07  roseg
  * Changes:
  * - added support for non-blocking connect(2)
@@ -197,7 +214,10 @@ logmsg(int priority, char *fmt, ...)
         fprintf(stderr, "%s: %s\n", t_stamp, buf);
     }
 #else
-    syslog(priority, "%s", buf);
+    if(print_log)
+        printf("%s\n", buf);
+    else
+        syslog(priority, "%s", buf);
 #endif
     return;
 }
@@ -226,7 +246,10 @@ va_dcl
         fprintf(stderr, "%s: %s\n", t_stamp, buf);
     }
 #else
-    syslog(priority, "%s", buf);
+    if(print_log)
+        printf("%s\n", buf);
+    else
+        syslog(priority, "%s", buf);
 #endif
     return;
 }
@@ -520,10 +543,10 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
     if(g->tot_pri == 0)
         return NULL;
 
+    pthread_mutex_lock(&g->mut);
     key = get_key(g, from_host, url, headers);
     if(key != NULL && g->sess_to > 0) {
         /* check for session, add it if necessary */
-        pthread_mutex_lock(&g->mut);
         if((sp = sess_find(g->sessions, key)) == NULL) {
             /* no session yet - create one */
             orig = n = rand() % g->tot_pri;
@@ -545,7 +568,6 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
             } else
                 res = NULL;
         }
-        pthread_mutex_unlock(&g->mut);
     } else {
         if(g->sess_to < 0) {
             /* "sticky" mappings */
@@ -572,6 +594,7 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
         else
             res = NULL;
     }
+    pthread_mutex_unlock(&g->mut);
 
     return res;
 }
@@ -586,11 +609,13 @@ upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
     char            *key;
     int             n;
 
-    memset(&dummy, 0, sizeof(dummy));
-    if(g->sess_type != SessCOOKIE || (key = get_key(g, dummy, "", headers)) == NULL)
-        return;
-    /* probably found a Set-cookie, so we may have to create a session here */
     pthread_mutex_lock(&g->mut);
+    memset(&dummy, 0, sizeof(dummy));
+    if(g->sess_type != SessCOOKIE || (key = get_key(g, dummy, "", headers)) == NULL) {
+        pthread_mutex_unlock(&g->mut);
+        return;
+    }
+    /* probably found a Set-cookie, so we may have to create a session here */
     if(sess_find(g->sessions, key) == NULL) {
         /* no session yet - create one */
         for(n = 0; n < g->tot_pri; n++)
@@ -636,14 +661,14 @@ kill_be(struct sockaddr_in *be)
  * Find if a host is in our list of back-ends
  */
 int
-is_be(char *location, struct sockaddr_in *to_host, char *path, GROUP *grp)
+is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path, GROUP *grp)
 {
     int     i, n;
     GROUP   *g;
     struct sockaddr_in  addr;
     struct hostent      *he;
     regmatch_t          matches[4];
-    char                *proto, *host, *port;
+    char                *proto, *host, *port, *v_host, *v_port;
 
     /* split the location into its fields */
     if(regexec(&LOCATION, location, 4, matches, 0))
@@ -654,6 +679,20 @@ is_be(char *location, struct sockaddr_in *to_host, char *path, GROUP *grp)
     location[matches[1].rm_eo] = location[matches[2].rm_eo] = '\0';
     if((port = strchr(host, ':')) != NULL)
         *port++ = '\0';
+
+    /*
+     * rewrite if hostname in Host: and Location: are the same
+     * applies only if RewriteRedir is 2
+     */
+    if(rewrite_redir == 2 && (v_host = strdup(v_hostport)) != NULL) {
+        if ((v_port = strchr(v_host, ':')) != NULL)
+            *v_port++ = '\0';
+        if(strcmp(host, v_host) == 0) {
+            free(v_host);
+            return 1;
+        }
+        free(v_host);
+    }
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -688,7 +727,7 @@ add_port(char *host, struct sockaddr_in *to_host)
     if(strchr(host, ':') != NULL)
         /* the host already contains a port */
         return NULL;
-    sprintf(res, "Host: %s:%hd", host, ntohs(to_host->sin_port));
+    snprintf(res, MAXBUF - 1, "Host: %s:%hd", host, ntohs(to_host->sin_port));
     return strdup(res);
 }
 

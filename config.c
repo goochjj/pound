@@ -26,10 +26,27 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
+static char *rcs_id = "$Id: config.c,v 1.9 2005/06/01 15:01:53 roseg Rel $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.9  2005/06/01 15:01:53  roseg
+ * Enhancements:
+ *   Added the VerifyList configuration flag (CA root certs + CRL)
+ *   CRL checking code
+ *   RewriteRedirect 2 - ignores port value for host matching
+ *   Added -c flag (check-only mode)
+ *   Added -v flag (verbose mode)
+ *   Added -p flag for pid file name
+ *
+ * Bug fixes:
+ *   fixed a potential buffer overflow problem (in checking the Host header)
+ *   added call to SSL_library_init
+ *   added a check for MSIE before forcing SSL shutdown
+ *   X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
+ *   added code for shorter linger on badly closed connections (IE work-around)
+ *   fixed the locking for session checking (mutex_lock/unlock)
+ *
  * Revision 1.8  2004/11/04 13:37:07  roseg
  * Changes:
  * - added support for non-blocking connect(2)
@@ -219,7 +236,7 @@ parse_file(char *fname)
     char                lin[MAXBUF], pat[MAXBUF];
     regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders, MaxRequest, HeadRemove,
                         SSL_CAlist, SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
-                        User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
+                        SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
                         Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
                         RewriteRedir;
@@ -236,7 +253,8 @@ parse_file(char *fname)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([0123])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSL_Verifylist, "^[ \t]*VerifyList[ \t]+([^ \t]+)[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #if HAVE_OPENSSL_ENGINE_H
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #endif
@@ -278,7 +296,7 @@ parse_file(char *fname)
     || regcomp(&CS_QVAL, "^[ \t]*CSqval[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_FRAG, "^[ \t]*CSfragment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RewriteRedir, "^[ \t]*RewriteRedirect[ \t]+([0-1])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RewriteRedir, "^[ \t]*RewriteRedirect[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -403,6 +421,12 @@ parse_file(char *fname)
             lin[matches[1].rm_eo] = '\0';
             if((ssl_CAlst = strdup(lin + matches[1].rm_so)) == NULL) {
                 logmsg(LOG_ERR, "CAlist config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&SSL_Verifylist, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((ssl_Verifylst = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "Verifylist config: out of memory - aborted");
                 exit(1);
             }
             ssl_vdepth = atoi(lin + matches[2].rm_so);
@@ -688,6 +712,7 @@ parse_file(char *fname)
     regfree(&ListenHTTPS);
     regfree(&HTTPSHeaders);
     regfree(&SSL_CAlist);
+    regfree(&SSL_Verifylist);
 #if HAVE_OPENSSL_ENGINE_H
     regfree(&SSLEngine);
 #endif
@@ -727,12 +752,18 @@ parse_file(char *fname)
     return;
 }
 
+extern char *optarg;
+extern int  optind, opterr, optopt;
+
 /*
  * parse the arguments/config file
  */
 void
 config_parse(int argc, char **argv)
 {
+    int c_opt, check_only;
+    char    *conf_name;
+
     /* init values */
     clnt_to = 10;
     server_to = 0;
@@ -740,6 +771,7 @@ config_parse(int argc, char **argv)
     https_headers = 0;
     https_header = NULL;
     ssl_CAlst = NULL;
+    ssl_Verifylst = NULL;
     ssl_vdepth = 1;
     allow_xtd = 0;
     allow_dav = 0;
@@ -755,24 +787,44 @@ config_parse(int argc, char **argv)
     user = NULL;
     groups = NULL;
     root = NULL;
-    e500 = e501 = e503 = NULL;
+    e500 = e501 = e503 = e414 = NULL;
     CS_segment = CS_parm = CS_qid = CS_qval = CS_frag = NULL;
     head_off = NULL;
     check_URL = 0;
     rewrite_redir = 1;
 
-    if(argc == 1) {
-        /* without arguments - use default configuration file */
-#ifndef F_CONF
-#define F_CONF  "/usr/local/etc/pound.cfg"
-#endif
-        parse_file(F_CONF);
-    } else if(argc == 3 && !strcmp(argv[1], "-f")) {
-        /* argument is the configuration file */
-        parse_file(argv[2]);
-    } else {
-        logmsg(LOG_ERR, "bad argument(s)");
+    opterr = 0;
+    check_only = 0;
+    conf_name = F_CONF;
+    pid_name = F_PID;
+
+    while((c_opt = getopt(argc, argv, "f:cvp:")) > 0)
+        switch(c_opt) {
+        case 'f':
+            conf_name = optarg;
+            break;
+        case 'p':
+            pid_name = optarg;
+            break;
+        case 'c':
+            check_only = 1;
+            break;
+        case 'v':
+            print_log = 1;
+            break;
+        default:
+            logmsg(LOG_ERR, "bad flag -%c", optopt);
+            exit(1);
+        }
+    if(optind < argc) {
+        logmsg(LOG_ERR, "unknown extra arguments (%s...)", argv[optind]);
         exit(1);
+    }
+
+    parse_file(conf_name);
+    if(check_only) {
+        logmsg(LOG_INFO, "Config file %s is OK", conf_name);
+        exit(0);
     }
 
     if(!http[0] && !https[0]) {

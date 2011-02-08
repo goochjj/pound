@@ -148,6 +148,22 @@ FREQUENTLY ASKED QUESTIONS
         - have an instance of Pound listening on 8081 and sending the
           requests to 192.168.1.20
 
+3.3 What happens when my server replies with a redirect?
+
+    Depending on configuration, Pound can watch for redirect replies from back-ends
+    and change them to the correct address. In order for this to happen the
+    following conditions must be met:
+
+    - Pound has "RewriteRedirect 1" (default).
+    - the back-end replies with a redirect. The address of that URL resolves to
+      the same address as the one Pound is listening on or the address of one of
+      the back-ends.
+
+    This also implies that in some cases a "ListenHTTP *,..." may disable the URL
+    rewriting. This feature is commonly used when Pound serves as a HTTPS wrapper,
+    as the backend redirect to "Location: http://x.y.com" is rewritten as
+    "Location: https://x.y.com".
+
 
 4. HTTPS
 ========

@@ -20,7 +20,7 @@ WHAT POUND IS:
 
     3.  an SSL wrapper: *Pound* will decrypt HTTPS requests
         from client browsers and pass them as plain HTTP
-        to the back-end browsers.
+        to the back-end servers.
 
     4.  an HTTP/HTTPS sanitizer: *Pound* will verify requests
         for correctness and accept only well-formed ones.
@@ -227,12 +227,12 @@ VIRTUAL HOSTS (IN GENERAL)
 
         UrlGroup    ".*"
         HeadRequire Host    ".*www.server0.com.*"
-        BackEnd     192.168.0.10
+        BackEnd     192.168.0.10,80,1
         EndGroup
 
         UrlGroup    ".*"
         HeadRequire Host    ".*www.server1.com.*"
-        BackEnd     192.168.0.11
+        BackEnd     192.168.0.11,80,1
         EndGroup
 
     (add whatever else is necessary) or, if you want even safer filtering::
@@ -242,13 +242,13 @@ VIRTUAL HOSTS (IN GENERAL)
         UrlGroup    ".*"
         HeadRequire Host    ".*www.server0.com.*"
         HeadDeny    Host    ".*www.server1.com.*"
-        BackEnd     192.168.0.10
+        BackEnd     192.168.0.10,80,1
         EndGroup
 
         UrlGroup    ".*"
         HeadRequire Host    ".*www.server1.com.*"
         HeadDeny    Host    ".*www.server0.com.*"
-        BackEnd     192.168.0.11
+        BackEnd     192.168.0.11,80,1
         EndGroup
 
     This is NOT recommended (I personally believe that virtual hosts should be
@@ -667,6 +667,12 @@ OTHER ISSUES
       Alternately you can have syslog (or syslog-ng) listen on another socket -
       see the man page for details.
 
+    - In chroot mode name resolution (and especially redirects) may stop functioning.
+      Solution: make sure either you have a working DNS or that /etc/hosts is available
+      in the root jail. Failing that the translation of host names to IP addresses would
+      fail, thereby defeating the mechanism *Pound* uses to identify when should a
+      Redirect be rewritten.
+
     - IE 5.x fails to work (correctly or at all) with *Pound* in HTTPS mode.
       Solution: define the supported OpenSSL ciphers for IE compatibility (this
       is really a work-around for a known IE bug):
@@ -717,6 +723,9 @@ ACKNOWLEDGMENTS
 
     "Jim Washington", mailto:jwashin@vt.edu contributed the code for WebDAV
     and tested it.
+
+    "Maxime Yve", mailto:maxime.yve@free.fr discovered a nasty bug in the session
+    tracking code and contributed the patch to fix it.
 
     All the others who tested *Pound* and told me about their results.
 

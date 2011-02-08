@@ -24,7 +24,7 @@
 # Tel: +41-1-920 4904
 # EMail: roseg@apsis.ch
 #
-# $Id: Makefile.in,v 1.8 2004/11/04 13:37:08 roseg Exp $
+# $Id: Makefile.in,v 1.9 2005/06/01 15:01:54 roseg Rel $
 
 CFLAGS=-DF_CONF=\"$(F_CONF)\" @CFLAGS@ @CPPFLAGS@
 

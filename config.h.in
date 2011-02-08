@@ -39,6 +39,9 @@
 /* Define if you have the <netinet/in.h> header file. */
 #undef HAVE_NETINET_IN_H
 
+/* Define if you have the <netinet/tcp.h> header file. */
+#undef HAVE_NETINET_TCP_H
+
 /* Define if you have the <openssl/engine.h> header file. */
 #undef HAVE_OPENSSL_ENGINE_H
 
@@ -111,6 +114,9 @@
 /* Define if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
 
+/* Define if you have the <getopt.h> header file. */
+#undef HAVE_GETOPT_H
+
 /* Define if you have the `vfork' function. */
 #undef HAVE_VFORK
 
@@ -149,6 +155,9 @@
 
 /* Define if you have the inet_ntop function. */
 #undef HAVE_INET_NTOP
+
+/* Define if you have the `X509_STORE_set_flags' function. */
+#undef HAVE_X509_STORE_SET_FLAGS
 
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const

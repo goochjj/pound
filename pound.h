@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.8 2004/11/04 13:37:07 roseg Exp $
+ * $Id: pound.h,v 1.9 2005/06/01 15:01:54 roseg Rel $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -96,6 +96,10 @@
 #error "Pound needs unistd.h"
 #endif
 
+#if HAVE_GETOPT_H
+#include    <getopt.h>
+#endif
+
 #if HAVE_PTHREAD_H
 #include    <pthread.h>
 #else
@@ -145,6 +149,12 @@
 #include    <netinet/in.h>
 #else
 #error "Pound needs netinet/in.h"
+#endif
+
+#if HAVE_NETINET_TCP_H
+#include    <netinet/tcp.h>
+#else
+#error "Pound needs netinet/tcp.h"
 #endif
 
 #if HAVE_ARPA_INET_H
@@ -263,6 +273,7 @@ extern int  log_level;          /* logging mode - 0, 1, 2 */
 extern int  https_headers;      /* add HTTPS-specific headers */
 extern char *https_header;      /* HTTPS-specific header to add */
 extern char *ssl_CAlst;         /* CA certificate list (path to file) */
+extern char *ssl_Verifylst;     /* Verify (path to file) */
 extern int  ssl_vdepth;         /* max verification depth */
 extern int  allow_xtd;          /* allow extended HTTP - PUT, DELETE */
 extern int  allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
@@ -286,6 +297,8 @@ extern char **http,             /* HTTP port to listen on */
             *CS_frag;           /* character set of fragment */
 extern int  check_URL;          /* check URL for correct syntax */
 extern int  rewrite_redir;      /* rewrite redirection responses */
+extern int  print_log;          /* print log messages to stdout/stderr */
+extern char *pid_name;          /* file to record pid in */
 
 extern regex_t  *head_off;          /* headers to remove */
 extern int      n_head_off;         /* how many of them */
@@ -294,6 +307,14 @@ extern int      n_head_off;         /* how many of them */
 #define MAXHEADERS  128
 #define MAXCHAIN    8
 #define GLOB_SESS   15
+
+#ifndef F_CONF
+#define F_CONF  "/usr/local/etc/pound.cfg"
+#endif
+
+#ifndef F_PID
+#define F_PID  "/var/run/pound.pid"
+#endif
 
 #define SERVER_TO   (server_to > 0? server_to: 5)
 
@@ -421,7 +442,7 @@ extern void kill_be(struct sockaddr_in *);
 /*
  * Find if a host is in our list of back-ends
  */
-extern int is_be(char *, struct sockaddr_in *, char *, GROUP *);
+extern int is_be(char *, struct sockaddr_in *, char *, char *, GROUP *);
 
 /*
  * Add explicit port number (if required)

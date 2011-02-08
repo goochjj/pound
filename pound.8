@@ -4,7 +4,10 @@ pound \- HTTP/HTTPS reverse-proxy and load-balancer
 .SH SYNOPSIS
 .TP
 .B pound
+[\fI-v\fR]
+[\fI-c\fR]
 [\fI-f config_file\fR]
+[\fI-p pid_file\fR]
 .SH DESCRIPTION
 .PP
 .B Pound
@@ -20,10 +23,31 @@ keeps track of associations between clients and back-end servers (sessions).
 .SH OPTIONS
 Options available (see also below for configuration file options):
 .TP
+\fB\-v\fR
+Verbose mode: error messages will be sent to stdout even if
+.B Pound
+was configured to log to syslog. This applies only to startup messages, before
+.B Pound
+puts itself in the background. Normal operational messages will still go to syslog.
+.TP
+\fB\-c\fR
+Check only:
+.B Pound
+will exit immediately after parsing the configuration file. This may be used for
+running a quick syntax check before actually activating a server.
+.TP
 \fB\-f\fR config_file
 Location of the configuration file (see below for a full description of the format).
 Default:
 .I /usr/local/etc/pound.cfg
+.TP
+\fB\-p\fR pid_file
+Location of the pid file.
+.B Pound
+will write its own pid into this file. Normally this is used for shell
+scripts that control starting and stopping of the daemon.
+Default:
+.I /var/run/pound.pid
 .PP
 In general, any number of back-end servers may be specified. Use the priority to
 affect the load distribution among unequal-performance servers.
@@ -85,12 +109,22 @@ is not empty it represents the value of a header to be added to the request. The
 tells Pound what to do about client certificates: 0 - don't ask (default), 1 - ask,
 2 - ask and fail if no certificate was presented, 3 - ask but do not verify.
 .TP
-\fBCAlist CAcert_file verify_depth
+\fBCAlist CAcert_file
 Set the list of "trusted" CA's for this server. The CAcert_file is a file containing
-a sequence of CA certificates (PEM format). The names of the define CAs will be sent
-to the client on connection).
+a sequence of CA certificates (PEM format). The names of the defined CA certificates
+will be sent to the client on connection.
+.TP
+\fBVerifyList Verify_file verify_depth
+Set the CA (Certificate Authority) and CRL (Certificate Revocation List). The
+Verify_file is a file that contains the CA root certificates and CRL (in PEM format).
 Verify_depth is the depth of verification for a client certificate (up to 9). A
 value of 0 (the default) implies no verification at all.
+.IP
+.IR "Please note":
+there is an important difference between the CAlist and the VerifyList. The
+CAlist tells the client (browser) which client certificates it should send. The
+VerifyList defines which CAs are actually used for the verification of the
+returned certificate.
 .TP
 \fBUser\fR user_name
 Specify the user
@@ -193,7 +227,8 @@ Default: "Request URI is too long.".
 If value is 1 (default) check the responses from the back-end servers.
 If a response is a redirect to a back-end managed by Pound the response
 is modified to be a redirect to Pound itself. A value of 0 disables
-this behaviour.
+this behaviour. A value of 2 will also ignore the ports and check only
+on host name identity.
 .TP
 \fBCheckURL\fR value
 If value is 1 check the requested URL for correct syntax. If value is 0
@@ -317,7 +352,11 @@ message.
 The \fIha_port\fR parameter specifies an additional port that is used only for viability
 checks: if this port is specified in a \fIBackEnd\fR directive, \fIPound\fR will attempt
 periodically (every \fIAlive\fR seconds) to connect to this port. If the port does not
-respond the server is considered dead.
+respond the server is considered dead. \fBIt never makes sense to have the \fIha_port\fB
+identical to the main back-end port\fR: this would only generate extra, unncecessary
+activity (CPU, network traffic) for no good reason whatsoever. The \fIha_port\fR is meant
+for applications that offer an additional health monitoring port or for installations
+that wish to take servers off-line in a controlled manner.
 .SH URL MATCHING
 .B Pound
 attempts to filter out illegal request URLs. In general a URL is defined as
@@ -331,11 +370,11 @@ CSsegment - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'
 .br
 CSparameter - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-
 .br
-CSqid - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()-
+CSqid - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-
 .br
-CSqval - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()%-
+CSqval - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-+
 .br
-CSfragment - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()
+CSfragment - ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-
 .PP
 If
 .B Pound
@@ -346,7 +385,7 @@ This mechanism comes in handy should you need to define some other "legal" URLs.
 A common occurence is that PHP programmers use unencoded parameters in their
 requests such as /xxx?id[2]=abc. For such cases define:
 .PP
-CSqid ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'()-[]
+CSqid ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-[]
 .PP
 in your config file. Additionally this can be useful for accented characters
 and other non-RFC conformant requests.

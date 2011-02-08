@@ -26,10 +26,27 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
+static char *rcs_id = "$Id: http.c,v 1.9 2005/06/01 15:01:53 roseg Rel $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.9  2005/06/01 15:01:53  roseg
+ * Enhancements:
+ *   Added the VerifyList configuration flag (CA root certs + CRL)
+ *   CRL checking code
+ *   RewriteRedirect 2 - ignores port value for host matching
+ *   Added -c flag (check-only mode)
+ *   Added -v flag (verbose mode)
+ *   Added -p flag for pid file name
+ *
+ * Bug fixes:
+ *   fixed a potential buffer overflow problem (in checking the Host header)
+ *   added call to SSL_library_init
+ *   added a check for MSIE before forcing SSL shutdown
+ *   X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
+ *   added code for shorter linger on badly closed connections (IE work-around)
+ *   fixed the locking for session checking (mutex_lock/unlock)
+ *
  * Revision 1.8  2004/11/04 13:37:07  roseg
  * Changes:
  * - added support for non-blocking connect(2)
@@ -204,6 +221,7 @@ err_reply(BIO *c, char *head, char *txt)
     snprintf(cont, sizeof(cont), err_cont, head, head, txt);
     snprintf(rep, sizeof(rep), err_head, head, strlen(cont), cont);
     BIO_write(c, rep, strlen(rep));
+    BIO_flush(c);
     return;
 }
 
@@ -595,6 +613,11 @@ thr_http(void *arg)
     l.l_linger = 10;
     setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
 
+#ifdef  TCP_LINGER2
+    n = 5;
+    setsockopt(sock, SOL_TCP, TCP_LINGER2, (void *)&n, sizeof(n));
+#endif
+
     cl = NULL;
     be = NULL;
     x509 = NULL;
@@ -928,18 +951,18 @@ thr_http(void *arg)
                         pthread_exit(NULL);
                     }
                 }
-                BIO_free_all(bb);
-            }
-            if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
-                SSL_CIPHER_description(cipher, buf, MAXBUF);
-                strip_eol(buf);
-                if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
-                    logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
-                    clean_all();
-                    pthread_exit(NULL);
+                if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
+                    SSL_CIPHER_description(cipher, buf, MAXBUF);
+                    strip_eol(buf);
+                    if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
+                        logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
+                            inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
+                        err_reply(cl, h500, e500);
+                        clean_all();
+                        pthread_exit(NULL);
+                    }
                 }
+                BIO_free_all(bb);
             }
         }
         /* put additional client IP header */
@@ -1028,7 +1051,7 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(rewrite_redir && redir && v_host[0] && is_be(buf, &to_host, loc_path, grp)) {
+                    if(rewrite_redir && redir && v_host[0] && is_be(buf, &to_host, v_host, loc_path, grp)) {
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
@@ -1199,7 +1222,7 @@ thr_http(void *arg)
     /*
      * This may help with some versions of IE with a broken channel shutdown
      */
-    if(ssl != NULL)
+    if(ssl != NULL && strstr(u_agent, "MSIE") != NULL)
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();
