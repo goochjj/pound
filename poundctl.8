@@ -3,7 +3,7 @@
 poundctl \- control the pound(8) daemon
 .SH SYNOPSIS
 .TP
-.B poundctl \fI-c /path/to/socket\fR [\fI-L/-l\fR] [\fI-S/-s\fR] [\fI-B/-b\fR]
+.B poundctl \fI-c /path/to/socket\fR [\fI-L/-l\fR] [\fI-S/-s\fR] [\fI-B/-b\fR] [\fI-N/-n\fR]
 .SH DESCRIPTION
 .PP
 .B Poundctl
@@ -37,6 +37,13 @@ to answer requests.
 Enable/disable a back-end. A disabled back-end will not be passed requests to
 answer. Note however that existing sessions may still cause requests to be
 sent their way.
+.TP
+\fB\-N n m k r\fR
+Add a session to service m in listener n. The session key is k and it points to
+back-end r.
+.TP
+\fB\-n n m k\fR
+Remove a session from service m in listener n. The session key is k.
 .PP
 The parameters n, m and r refer to the number assigned to a particular listener,
 service and back-end in the listings. A listener number of -1 refers by convention

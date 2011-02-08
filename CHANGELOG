@@ -1,4 +1,21 @@
 ------------------------------------------------------------------------
+r41 | roseg | 2007-02-10 15:26:42 +0100 (Sat, 10 Feb 2007) | 14 lines
+
+Release 2.2.4
+
+Enhancements:
+  - modular tree library
+  - consolidated all timed functions into a single thread
+  - added gethostbyname cache
+  - added LogLevel 5 - same as 4 but with service name and back-end information (thanks to Joe Gooch for the suggestion)
+  - added session creation and removal to poundctl
+
+Bug fixes:
+  - added LOG_NDELAY to openlog()
+  - accept and immediately close connections to disabled listeners (thanks to Joe Gooch for the suggestion)
+  - fixed problem with -1 values in poundctl
+
+------------------------------------------------------------------------
 r40 | roseg | 2007-01-19 21:29:07 +0100 (Fri, 19 Jan 2007) | 5 lines
 
 Release 2.2.3

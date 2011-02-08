@@ -298,19 +298,18 @@ typedef struct _backend {
     struct _backend     *next;
 }   BACKEND;
 
-/* session key max size */
+typedef struct _tn {
+    char        *key;
+    void        *content;
+    time_t      last_acc;
+    int         children;
+    struct _tn  *left, *right;
+}   TREENODE;
+
+#define n_children(N)   ((N)? (N)->children: 0)
+
+/* maximal session key size */
 #define KEY_SIZE    127
-
-/* Session definition */
-typedef struct _sess {
-    char                key[KEY_SIZE + 1];  /* session key */
-    BACKEND             *to_host;           /* backend pointer */
-    time_t              last_acc;           /* time of last access */
-    int                 children;           /* number of children */
-    struct _sess        *left, *right;
-}   SESS;
-
-#define n_children(S)   ((S)? (S)->children: 0)
 
 /* service definition */
 typedef struct _service {
@@ -326,7 +325,7 @@ typedef struct _service {
     int                 sess_ttl;   /* session time-to-live */
     regex_t             sess_pat;   /* pattern to match the session data */
     char                *sess_parm; /* session cookie or parameter */
-    SESS                *sessions;  /* currently active sessions */
+    TREENODE            *sessions;  /* currently active sessions */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
 }   SERVICE;
@@ -391,6 +390,7 @@ typedef enum    {
     CTRL_EN_LSTN, CTRL_DE_LSTN,
     CTRL_EN_SVC, CTRL_DE_SVC,
     CTRL_EN_BE, CTRL_DE_BE,
+    CTRL_ADD_SESS, CTRL_DEL_SESS
 }   CTRL_CODE;
 
 typedef struct  {
@@ -398,6 +398,7 @@ typedef struct  {
     int         listener;
     int         service;
     int         backend;
+    char        key[KEY_SIZE + 1];
 }   CTRL_CMD;
 
 #ifdef  NEED_INADDRT
@@ -485,20 +486,15 @@ extern void upd_be(BACKEND *const be, const double);
 extern int  connect_nb(const int, const struct sockaddr *, const socklen_t, const int);
 
 /*
- * Check if dead hosts returned to life;
- * runs every alive_to seconds
- */
-extern void *thr_resurect(void *);
-
-/*
  * Rescale back-end priorities if needed
  * runs every 15 minutes
  */
 #ifndef NO_DYNSCALE
 
+#ifndef RESCALE_TO
 #define RESCALE_TO  900
+#endif
 
-extern void *thr_rescale(void *);
 #endif
 
 /*
@@ -520,27 +516,34 @@ extern void config_parse(const int, char **const);
 extern RSA  *RSA_tmp_callback(SSL *, int, int);
 
 /*
- * Pre-generate ephemeral RSA keys
+ * expiration stuff
  */
-extern void init_RSAgen(void);
+#ifndef EXPIRE_TO
+#define EXPIRE_TO   60
+#endif
+
+#ifndef HOST_TO
+#define HOST_TO     300
+#endif
 
 /*
- * Periodically regenerate ephemeral RSA keys
- * runs every T_RSA_KEYS seconds
+ * initialise the timer functions:
+ *  - host_mut
+ *  - RSA_mut and keys
  */
-extern void *thr_RSAgen(void *);
+extern void init_timer(void);
+
+/*
+ * run timed functions:
+ *  - RSAgen every T_RSA_KEYS seconds
+ *  - rescale every RESCALE_TO seconds
+ *  - resurrect every alive_to seconds
+ *  - expire every EXPIRE_TO seconds
+ */
+extern void *thr_timer(void *);
 
 /*
  * The controlling thread
  * listens to client requests and calls the appropriate functions
  */
 extern void *thr_control(void *);
-
-#define alloc_headers() ((char **)calloc(MAXHEADERS, sizeof(char *)))
-#define free_headers(H) free(H)
-
-#define alloc_buf() ((char *)malloc(MAXBUF))
-#define free_buf(B) free(B)
-
-#define alloc_sess() ((SESS *)malloc(sizeof(SESS)))
-#define free_sess(S) free(S)

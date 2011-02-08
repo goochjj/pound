@@ -30,6 +30,200 @@
 #include    "pound.h"
 
 /*
+ * Add a new key/content pair to a tree
+ * returns the new root
+ */
+static TREENODE *
+t_add(TREENODE *const root, const char *key, const void *content, const size_t cont_len)
+{
+    int cmp;
+
+    if(root == NULL) {
+        TREENODE  *res;
+
+        if((res = (TREENODE *)malloc(sizeof(TREENODE))) == NULL)
+            return NULL;
+        if((res->key = strdup(key)) == NULL) {
+            free(res);
+            return NULL;
+        }
+        if((res->content = malloc(cont_len)) == NULL) {
+            free(res->key);
+            free(res);
+            return NULL;
+        }
+        memcpy(res->content, content, cont_len);
+        res->last_acc = time(NULL);
+        res->children = 1;
+        res->left = res->right = NULL;
+        return res;
+    }
+    if((cmp = strcmp(root->key, key)) == 0)
+        return root;
+    if(cmp < 0)
+        root->left = t_add(root->left, key, content, cont_len);
+    else
+        root->right = t_add(root->right, key, content, cont_len);
+    root->children = n_children(root->left) + n_children(root->right) + 1;
+    return root;
+}
+
+/*
+ * Find a key
+ * returns the content in the parameter
+ * side-effect: update the time of last access
+ */
+static void *
+t_find(TREENODE *const root, const char *key)
+{
+    int cmp;
+
+    if(root == NULL)
+        return NULL;
+    if((cmp = strcmp(root->key, key)) == 0) {
+        root->last_acc = time(NULL);
+        return root->content;
+    }
+    if(cmp < 0)
+        return t_find(root->left, key);
+    return t_find(root->right, key);
+}
+
+/*
+ * Rebalance the tree
+ * returns the new root
+ */
+static TREENODE *
+t_balance(TREENODE *root)
+{
+    TREENODE    *t;
+
+    if(root == NULL || (root->left == NULL && root->right == NULL))
+        return root;
+    while(n_children(root->left) < (n_children(root->right) - 1)) {
+        t = root->right;
+        root->right = t->left;
+        t->left = root;
+        root = t;
+        if(root->left)
+            root->left->children = n_children(root->left->left) + n_children(root->left->right) + 1;
+        if(root->right)
+            root->right->children = n_children(root->right->left) + n_children(root->right->right) + 1;
+        root->children = n_children(root->left) + n_children(root->right) + 1;
+    }
+    while(n_children(root->right) < (n_children(root->left) - 1)) {
+        t = root->left;
+        root->left = t->right;
+        t->right = root;
+        root = t;
+        if(root->left)
+            root->left->children = n_children(root->left->left) + n_children(root->left->right) + 1;
+        if(root->right)
+            root->right->children = n_children(root->right->left) + n_children(root->right->right) + 1;
+        root->children = n_children(root->left) + n_children(root->right) + 1;
+    }
+    root->left = t_balance(root->left);
+    root->right = t_balance(root->right);
+    return root;
+}
+
+/*
+ * Delete a node
+ * returns the new root
+ */
+static TREENODE *
+t_del(TREENODE *const root)
+{
+    TREENODE    *t;
+
+    if(root->left == NULL) {
+        t = root->right;
+        free(root->key);
+        free(root->content);
+        free(root);
+        return t;
+    }
+    if(root->right == NULL) {
+        t = root->left;
+        free(root->key);
+        free(root->content);
+        free(root);
+        return t;
+    }
+    if(root->left->children < root->right->children) {
+        for(t = root->right; t->left != NULL; t = t->left)
+            t->children += root->left->children;
+        t->left = root->left;
+        t->children += root->left->children;
+        t = root->right;
+    } else {
+        for(t = root->left; t->right != NULL; t = t->right)
+            t->children += root->right->children;
+        t->right = root->right;
+        t->children += root->right->children;
+        t = root->left;
+    }
+    free(root->key);
+    free(root->content);
+    free(root);
+    return t;
+}
+
+/*
+ * Delete a key
+ * returns the new root
+ */
+static TREENODE *
+t_remove(TREENODE *const root, const char *key)
+{
+    int cmp;
+
+    if(root == NULL)
+        return NULL;
+    if((cmp = strcmp(root->key, key)) == 0)
+        return t_del(root);
+    if(cmp < 0)
+        root->left = t_remove(root->left, key);
+    else
+        root->right = t_remove(root->right, key);
+    return root;
+}
+
+/*
+ * Expire all old nodes
+ * returns the new root
+ */
+static TREENODE *
+t_expire(TREENODE *root, const time_t lim)
+{
+    if(root == NULL)
+        return NULL;
+    root->left = t_expire(root->left, lim);
+    root->right = t_expire(root->right, lim);
+    root->children = (root->left? root->left->children: 0) + (root->right? root->right->children: 0) + 1;
+    if(root->last_acc < lim)
+        root = t_del(root);
+    return root;
+}
+
+/*
+ * Remove all nodes with the given content
+ * returns the new root
+ */
+static TREENODE *
+t_clean(TREENODE *root, const void *content, const size_t cont_len)
+{
+    if(root == NULL)
+        return NULL;
+    root->left = t_clean(root->left, content, cont_len);
+    root->right = t_clean(root->right, content, cont_len);
+    root->children = (root->left? root->left->children: 0) + (root->right? root->right->children: 0) + 1;
+    if(memcmp(root->content, content, cont_len) == 0)
+        root = t_del(root);
+    return root;
+}
+
+/*
  * Log an error to the syslog or to stderr
  */
 #ifdef  HAVE_STDARG_H
@@ -196,155 +390,6 @@ check_header(const char *header, char *const content)
         return HEADER_ILLEGAL;
 }
 
-/*
- * Find a session in a tree
- */
-static SESS *
-sess_find(SESS *const root, const char *key)
-{
-    int cmp;
-
-    if(root == NULL)
-        return NULL;
-    if((cmp = strncmp(root->key, key, KEY_SIZE)) == 0)
-        return root;
-    if(cmp < 0)
-        return sess_find(root->left, key);
-    return sess_find(root->right, key);
-}
-
-/*
- * Add a new session
- */
-static SESS *
-sess_add(SESS *root, const char *key, BACKEND *const to_host)
-{
-    int cmp;
-
-    if(root == NULL) {
-        SESS    *res;
-
-        if((res = alloc_sess()) == NULL)
-            return NULL;
-        memset(res, 0, sizeof(SESS));
-        strncpy(res->key, key, KEY_SIZE);
-        res->to_host = to_host;
-        res->last_acc = time(NULL);
-        res->children = 1;
-        res->left = res->right = NULL;
-        return res;
-    }
-    if((cmp = strncmp(root->key, key, KEY_SIZE)) == 0)
-        return root;
-    if(cmp < 0)
-        root->left = sess_add(root->left, key, to_host);
-    else
-        root->right = sess_add(root->right, key, to_host);
-    root->children = n_children(root->left) + n_children(root->right) + 1;
-    return root;
-}
-
-static SESS *
-sess_del(SESS *root)
-{
-    SESS    *s;
-
-    if(root->left == NULL) {
-        s = root->right;
-        free(root);
-        return s;
-    }
-    if(root->right == NULL) {
-        s = root->left;
-        free(root);
-        return s;
-    }
-    if(root->left->children < root->right->children) {
-        for(s = root->right; s->left != NULL; s = s->left)
-            s->children += root->left->children;
-        s->left = root->left;
-        s->children += root->left->children;
-        s = root->right;
-    } else {
-        for(s = root->left; s->right != NULL; s = s->right)
-            s->children += root->right->children;
-        s->right = root->right;
-        s->children += root->right->children;
-        s = root->left;
-    }
-    free(root);
-    return s;
-}
-
-/*
- * Clean stale (expired) sessions
- */
-static SESS *
-sess_clean(SESS *root, const time_t lim)
-{
-    if(root == NULL)
-        return NULL;
-    root->left = sess_clean(root->left, lim);
-    root->right = sess_clean(root->right, lim);
-    root->children = (root->left? root->left->children: 0) + (root->right? root->right->children: 0) + 1;
-    if(root->last_acc >= lim)
-        return root;
-    return sess_del(root);
-}
-
-/*
- * Clean dead back-ends
- */
-static SESS *
-sess_dead(SESS *root, const BACKEND *be)
-{
-    if(root == NULL)
-        return NULL;
-    root->left = sess_dead(root->left, be);
-    root->right = sess_dead(root->right, be);
-    root->children = (root->left? root->left->children: 0) + (root->right? root->right->children: 0) + 1;
-    if(root->to_host != be)
-        return root;
-    return sess_del(root);
-}
-
-/*
- * Rebalance the session tree
- */
-static SESS *
-sess_balance(SESS *root)
-{
-    SESS    *s;
-
-    if(root == NULL || (root->left == NULL && root->right == NULL))
-        return root;
-    while(n_children(root->left) < (n_children(root->right) - 1)) {
-        s = root->right;
-        root->right = s->left;
-        s->left = root;
-        root = s;
-        if(root->left)
-            root->left->children = n_children(root->left->left) + n_children(root->left->right) + 1;
-        if(root->right)
-            root->right->children = n_children(root->right->left) + n_children(root->right->right) + 1;
-        root->children = n_children(root->left) + n_children(root->right) + 1;
-    }
-    while(n_children(root->right) < (n_children(root->left) - 1)) {
-        s = root->left;
-        root->left = s->right;
-        s->right = root;
-        root = s;
-        if(root->left)
-            root->left->children = n_children(root->left->left) + n_children(root->left->right) + 1;
-        if(root->right)
-            root->right->children = n_children(root->right->left) + n_children(root->right->right) + 1;
-        root->children = n_children(root->left) + n_children(root->right) + 1;
-    }
-    root->left = sess_balance(root->left);
-    root->right = sess_balance(root->right);
-    return root;
-}
-
 static int
 match_service(const SERVICE *svc, const char *request, char **const headers)
 {
@@ -471,7 +516,6 @@ BACKEND *
 get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *request, char **const headers)
 {
     BACKEND     *res;
-    SESS        *sp;
     char        key[KEY_SIZE + 1];
     int         ret_val;
 
@@ -488,24 +532,18 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host);
-        if((sp = sess_find(svc->sessions, key)) == NULL) {
+        if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
             /* no session yet - create one */
             res = rand_backend(svc->backends, random() % svc->tot_pri);
-            svc->sessions = sess_add(svc->sessions, key, res);
-        } else {
-            res = sp->to_host;
-            sp->last_acc = time(NULL);
+            svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
         }
         break;
     case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
-            if((sp = sess_find(svc->sessions, key)) == NULL) {
+            if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                svc->sessions = sess_add(svc->sessions, key, res);
-            } else {
-                res = sp->to_host;
-                sp->last_acc = time(NULL);
+                svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
             }
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -514,13 +552,10 @@ get_backend(SERVICE *const svc, const struct in_addr *from_host, const char *req
     default:
         /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
-            if((sp = sess_find(svc->sessions, key)) == NULL) {
+            if((res = (BACKEND *)t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
-                svc->sessions = sess_add(svc->sessions, key, res);
-            } else {
-                res = sp->to_host;
-                sp->last_acc = time(NULL);
+                svc->sessions = t_add(svc->sessions, key, res, sizeof(res));
             }
         } else {
             res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -547,8 +582,8 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() lock: %s", strerror(ret_val));
     if(get_HEADERS(key, svc, headers))
-        if(sess_find(svc->sessions, key) == NULL)
-            svc->sessions = sess_add(svc->sessions, key, be);
+        if(t_find(svc->sessions, key) == NULL)
+            svc->sessions = t_add(svc->sessions, key, be, sizeof(be));
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "upd_session() unlock: %s", strerror(ret_val));
     return;
@@ -572,7 +607,7 @@ kill_be(SERVICE *const svc, const BACKEND *be)
         if(b->alive && !b->disabled)
             svc->tot_pri += b->priority;
     }
-    svc->sessions = sess_dead(svc->sessions, be);
+    svc->sessions = t_clean(svc->sessions, be, sizeof(be));
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "kill_be() unlock: %s", strerror(ret_val));
     return;
@@ -626,13 +661,27 @@ disable_be(SERVICE *const svc, const BACKEND *be)
 }
 
 static pthread_mutex_t  host_mut;       /* mutex to protect gethostbyname */
+static TREENODE *host_root;
 
-void
-init_host_mut(void)
+static struct in_addr *
+get_host(char *const name)
 {
-    /* pthread_mutex_init() always returns 0 */
-    pthread_mutex_init(&host_mut, NULL);
-    return;
+    struct in_addr          *res;
+    static struct in_addr   tmp;
+    struct hostent          *he;
+    int                     ret_val;
+
+    if((res = (struct in_addr *)t_find(host_root, name)) != NULL)
+        return res;
+    if((he = gethostbyname(name)) == NULL || he->h_addr_list[0] == NULL) {
+        logmsg(LOG_WARNING, "gethostbyname(%s): %s", name, hstrerror(h_errno));
+        return NULL;
+    }
+    memcpy(&tmp, he->h_addr, sizeof(tmp));
+    host_root = t_add(host_root, name, (void *)&tmp, sizeof(tmp));
+    if((res = (struct in_addr *)t_find(host_root, name)) == NULL)
+        return &tmp;
+    return res;
 }
 
 /*
@@ -645,7 +694,7 @@ int
 need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be)
 {
     struct sockaddr_in  addr;
-    struct hostent      *he;
+    struct in_addr      *he_addr;
     regmatch_t          matches[4];
     char                *proto, *host, *port;
     int                 ret_val;
@@ -679,8 +728,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     /* this is to avoid the need for gethostbyname_r */
     if(ret_val = pthread_mutex_lock(&host_mut))
         logmsg(LOG_WARNING, "need_rewrite() lock: %s", strerror(ret_val));
-    if((he = gethostbyname(host)) == NULL || he->h_addr_list[0] == NULL) {
-        logmsg(LOG_WARNING, "gethostbyname(%s): %s", host, hstrerror(h_errno));
+    if((he_addr = get_host(host)) == NULL) {
         if(ret_val = pthread_mutex_unlock(&host_mut))
             logmsg(LOG_WARNING, "need_rewrite() unlock: %s", strerror(ret_val));
         return 0;
@@ -688,7 +736,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     /*
      * prepare the address
      */
-    memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
+    memcpy(&addr.sin_addr.s_addr, he_addr, sizeof(addr.sin_addr.s_addr));
     if(ret_val = pthread_mutex_unlock(&host_mut))
         logmsg(LOG_WARNING, "need_rewrite() unlock: %s", strerror(ret_val));
 
@@ -788,161 +836,190 @@ connect_nb(const int sockfd, const struct sockaddr *serv_addr, const socklen_t a
  * Check if dead hosts returned to life;
  * runs every alive seconds
  */
-void *
-thr_resurect(void *arg)
+static void
+do_resurect(void)
 {
     LISTENER    *lstn;
     SERVICE     *svc;
     BACKEND     *be;
-    struct  sockaddr    *addr;
-    struct  sockaddr_in z_addr;
-    time_t      last_time, cur_time;
-    int         n, sock;
+    struct      sockaddr    *addr;
+    struct      sockaddr_in z_addr;
+    int         sock;
     char        buf[MAXBUF];
     int         ret_val;
 
-    for(last_time = time(NULL) - alive_to;;) {
-        cur_time = time(NULL);
-        if((n = alive_to - (cur_time - last_time)) > 0)
-            sleep(n);
-        last_time = time(NULL);
-
-        /* remove stale sessions */
-        for(lstn = listeners; lstn; lstn = lstn->next)
-        for(svc = lstn->services; svc; svc = svc->next)
-            if(svc->sess_type != SESS_NONE) {
-                if(ret_val = pthread_mutex_lock(&svc->mut))
-                    logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
-                svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
-                svc->sessions = sess_balance(svc->sessions);
-                if(ret_val = pthread_mutex_unlock(&svc->mut))
-                    logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
-            }
-        for(svc = services; svc; svc = svc->next)
-            if(svc->sess_type != SESS_NONE) {
-                if(ret_val = pthread_mutex_lock(&svc->mut))
-                    logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
-                svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
-                svc->sessions = sess_balance(svc->sessions);
-                if(ret_val = pthread_mutex_unlock(&svc->mut))
-                    logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
-            }
-
-        /* check hosts still alive - HAport */
-        memset(&z_addr, 0, sizeof(z_addr));
-        for(lstn = listeners; lstn; lstn = lstn->next)
-        for(svc = lstn->services; svc; svc = svc->next)
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type != BACK_END)
-                continue;
-            if(!be->alive)
-                /* already dead */
-                continue;
-            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
-                /* no HA port */
-                continue;
-            /* try connecting */
-            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-                continue;
-            if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
-                kill_be(svc, be);
-                addr2str(buf, MAXBUF - 1, &be->HA.sin_addr);
-                logmsg(LOG_NOTICE, "BackEnd %s:%hd is dead (HA)", buf, ntohs(be->HA.sin_port));
-            }
-            shutdown(sock, 2);
-            close(sock);
+    /* check hosts still alive - HAport */
+    memset(&z_addr, 0, sizeof(z_addr));
+    for(lstn = listeners; lstn; lstn = lstn->next)
+    for(svc = lstn->services; svc; svc = svc->next)
+    for(be = svc->backends; be; be = be->next) {
+        if(be->be_type != BACK_END)
+            continue;
+        if(!be->alive)
+            /* already dead */
+            continue;
+        if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+            /* no HA port */
+            continue;
+        /* try connecting */
+        if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+            continue;
+        if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
+            kill_be(svc, be);
+            addr2str(buf, MAXBUF - 1, &be->HA.sin_addr);
+            logmsg(LOG_NOTICE, "BackEnd %s:%hd is dead (HA)", buf, ntohs(be->HA.sin_port));
         }
-        for(svc = services; svc; svc = svc->next)
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type != BACK_END)
-                continue;
-            if(!be->alive)
-                /* already dead */
-                continue;
-            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
-                /* no HA port */
-                continue;
-            /* try connecting */
-            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-                continue;
-            if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
-                kill_be(svc, be);
-                addr2str(buf, MAXBUF - 1, &be->HA.sin_addr);
-                logmsg(LOG_NOTICE, "BackEnd %s:%hd is dead (HA)", buf, ntohs(be->HA.sin_port));
-            }
-            shutdown(sock, 2);
-            close(sock);
-        }
-        /* check hosts alive again */
-        for(lstn = listeners; lstn; lstn = lstn->next)
-        for(svc = lstn->services; svc; svc = svc->next) {
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END)
-                    continue;
-                if(be->alive)
-                    continue;
-                if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-                    continue;
-                if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
-                    if(be->domain == PF_INET)
-                        addr = (struct sockaddr *)&be->addr.in;
-                    else
-                        addr = (struct sockaddr *)&be->addr.un;
-                else
-                    addr = (struct sockaddr *)&be->HA;
-                if(connect_nb(sock, addr, (socklen_t)sizeof(*addr), be->to) == 0) {
-                    be->alive = 1;
-                    if(be->domain == PF_INET) {
-                        addr2str(buf, MAXBUF - 1, &be->addr.in.sin_addr);
-                        logmsg(LOG_NOTICE, "BackEnd %s:%hd resurrect", buf, ntohs(be->addr.in.sin_port));
-                    } else
-                        logmsg(LOG_NOTICE, "BackEnd %s resurrect", be->addr.un.sun_path);
-                }
-                shutdown(sock, 2);
-                close(sock);
-            }
-            if(ret_val = pthread_mutex_lock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
-            svc->tot_pri = 0;
-            for(be = svc->backends; be; be = be->next)
-                if(be->alive && !be->disabled)
-                    svc->tot_pri += be->priority;
-            if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
-        }
-        for(svc = services; svc; svc = svc->next) {
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END)
-                    continue;
-                if(be->alive)
-                    continue;
-                if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-                    continue;
-                if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
-                    if(be->domain == PF_INET)
-                        addr = (struct sockaddr *)&be->addr.in;
-                    else
-                        addr = (struct sockaddr *)&be->addr.un;
-                else
-                    addr = (struct sockaddr *)&be->HA;
-                if(connect_nb(sock, addr, (socklen_t)sizeof(*addr), be->to) == 0) {
-                    be->alive = 1;
-                    str_be(buf, MAXBUF - 1, be);
-                    logmsg(LOG_NOTICE, "BackEnd %s resurrect", buf);
-                }
-                shutdown(sock, 2);
-                close(sock);
-            }
-            if(ret_val = pthread_mutex_lock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
-            svc->tot_pri = 0;
-            for(be = svc->backends; be; be = be->next)
-                if(be->alive && !be->disabled)
-                    svc->tot_pri += be->priority;
-            if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
-        }
+        shutdown(sock, 2);
+        close(sock);
     }
+
+    for(svc = services; svc; svc = svc->next)
+    for(be = svc->backends; be; be = be->next) {
+        if(be->be_type != BACK_END)
+            continue;
+        if(!be->alive)
+            /* already dead */
+            continue;
+        if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+            /* no HA port */
+            continue;
+        /* try connecting */
+        if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+            continue;
+        if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
+            kill_be(svc, be);
+            addr2str(buf, MAXBUF - 1, &be->HA.sin_addr);
+            logmsg(LOG_NOTICE, "BackEnd %s:%hd is dead (HA)", buf, ntohs(be->HA.sin_port));
+        }
+        shutdown(sock, 2);
+        close(sock);
+    }
+
+    /* check hosts alive again */
+    for(lstn = listeners; lstn; lstn = lstn->next)
+    for(svc = lstn->services; svc; svc = svc->next) {
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END)
+                continue;
+            if(be->alive)
+                continue;
+            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+                continue;
+            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                if(be->domain == PF_INET)
+                    addr = (struct sockaddr *)&be->addr.in;
+                else
+                    addr = (struct sockaddr *)&be->addr.un;
+            else
+                addr = (struct sockaddr *)&be->HA;
+            if(connect_nb(sock, addr, (socklen_t)sizeof(*addr), be->to) == 0) {
+                be->alive = 1;
+                if(be->domain == PF_INET) {
+                    addr2str(buf, MAXBUF - 1, &be->addr.in.sin_addr);
+                    logmsg(LOG_NOTICE, "BackEnd %s:%hd resurrect", buf, ntohs(be->addr.in.sin_port));
+                } else
+                    logmsg(LOG_NOTICE, "BackEnd %s resurrect", be->addr.un.sun_path);
+            }
+            shutdown(sock, 2);
+            close(sock);
+        }
+        if(ret_val = pthread_mutex_lock(&svc->mut))
+            logmsg(LOG_WARNING, "do_resurect() lock: %s", strerror(ret_val));
+        svc->tot_pri = 0;
+        for(be = svc->backends; be; be = be->next)
+            if(be->alive && !be->disabled)
+                svc->tot_pri += be->priority;
+        if(ret_val = pthread_mutex_unlock(&svc->mut))
+            logmsg(LOG_WARNING, "do_resurect() unlock: %s", strerror(ret_val));
+    }
+
+    for(svc = services; svc; svc = svc->next) {
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END)
+                continue;
+            if(be->alive)
+                continue;
+            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+                continue;
+            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                if(be->domain == PF_INET)
+                    addr = (struct sockaddr *)&be->addr.in;
+                else
+                    addr = (struct sockaddr *)&be->addr.un;
+            else
+                addr = (struct sockaddr *)&be->HA;
+            if(connect_nb(sock, addr, (socklen_t)sizeof(*addr), be->to) == 0) {
+                be->alive = 1;
+                str_be(buf, MAXBUF - 1, be);
+                logmsg(LOG_NOTICE, "BackEnd %s resurrect", buf);
+            }
+            shutdown(sock, 2);
+            close(sock);
+        }
+        if(ret_val = pthread_mutex_lock(&svc->mut))
+            logmsg(LOG_WARNING, "do_resurect() lock: %s", strerror(ret_val));
+        svc->tot_pri = 0;
+        for(be = svc->backends; be; be = be->next)
+            if(be->alive && !be->disabled)
+                svc->tot_pri += be->priority;
+        if(ret_val = pthread_mutex_unlock(&svc->mut))
+            logmsg(LOG_WARNING, "do_resurect() unlock: %s", strerror(ret_val));
+    }
+    
+    return;
+}
+
+/*
+ * Check if dead hosts returned to life;
+ * runs every alive seconds
+ */
+static void
+do_expire(void)
+{
+    LISTENER    *lstn;
+    SERVICE     *svc;
+    time_t      cur_time;
+    int         ret_val;
+
+    /* remove stale sessions */
+    cur_time = time(NULL);
+
+    for(lstn = listeners; lstn; lstn = lstn->next)
+    for(svc = lstn->services; svc; svc = svc->next)
+        if(svc->sess_type != SESS_NONE) {
+            if(ret_val = pthread_mutex_lock(&svc->mut)) {
+                logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
+                continue;
+            }
+            svc->sessions = t_expire(svc->sessions, cur_time - svc->sess_ttl);
+            svc->sessions = t_balance(svc->sessions);
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
+        }
+
+    for(svc = services; svc; svc = svc->next)
+        if(svc->sess_type != SESS_NONE) {
+            if(ret_val = pthread_mutex_lock(&svc->mut)) {
+                logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
+                continue;
+            }
+            svc->sessions = t_expire(svc->sessions, cur_time - svc->sess_ttl);
+            svc->sessions = t_balance(svc->sessions);
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
+        }
+
+    /* remove stale hosts */
+    if(ret_val = pthread_mutex_lock(&host_mut)) {
+        logmsg(LOG_WARNING, "do_expire() lock: %s", strerror(ret_val));
+        return;
+    }
+    host_root = t_expire(host_root, cur_time - HOST_TO);
+    host_root = t_balance(host_root);
+    if(ret_val = pthread_mutex_unlock(&host_mut))
+        logmsg(LOG_WARNING, "do_expire() unlock: %s", strerror(ret_val));
+
+    return;
 }
 
 /*
@@ -950,94 +1027,88 @@ thr_resurect(void *arg)
  * runs every 15 minutes
  */
 #ifndef NO_DYNSCALE
-void *
-thr_rescale(void *arg)
+static void
+do_rescale(void)
 {
     LISTENER    *lstn;
     SERVICE     *svc;
     BACKEND     *be;
-    time_t      last_time, cur_time;
     int         n, ret_val;
     double      average, sq_average;
 
-    for(last_time = time(NULL) - alive_to;;) {
-        cur_time = time(NULL);
-        if((n = RESCALE_TO - (cur_time - last_time)) > 0)
-            sleep(n);
-        last_time = time(NULL);
-
-        /* scale the back-end priorities */
-        for(lstn = listeners; lstn; lstn = lstn->next)
-        for(svc = lstn->services; svc; svc = svc->next) {
-            average = sq_average = 0.0;
-            n = 0;
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END || !be->alive || be->disabled)
-                    continue;
-                average += be->t_average;
-                sq_average += be->t_average * be->t_average;
-                n++;
-            }
-            if(n <= 1)
+    /* scale the back-end priorities */
+    for(lstn = listeners; lstn; lstn = lstn->next)
+    for(svc = lstn->services; svc; svc = svc->next) {
+        average = sq_average = 0.0;
+        n = 0;
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END || !be->alive || be->disabled)
                 continue;
-            sq_average /= n;
-            average /= n;
-            sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
-            if(ret_val = pthread_mutex_lock(&svc->mut)) {
-                logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
-                continue;
-            }
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END || !be->alive || be->disabled)
-                    continue;
-                if(be->t_average < (average - sq_average)) {
-                    be->priority++;
-                    svc->tot_pri++;
-                }
-                if(be->t_average > (average + sq_average) && be->priority > 1) {
-                    be->priority--;
-                    svc->tot_pri--;
-                }
-            }
-            if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
+            average += be->t_average;
+            sq_average += be->t_average * be->t_average;
+            n++;
         }
-
-        for(svc = services; svc; svc = svc->next) {
-            average = sq_average = 0.0;
-            n = 0;
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END || !be->alive || be->disabled)
-                    continue;
-                average += be->t_average;
-                sq_average += be->t_average * be->t_average;
-                n++;
-            }
-            if(n <= 1)
-                continue;
-            sq_average /= n;
-            average /= n;
-            sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
-            if(ret_val = pthread_mutex_lock(&svc->mut)) {
-                logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
-                continue;
-            }
-            for(be = svc->backends; be; be = be->next) {
-                if(be->be_type != BACK_END || !be->alive || be->disabled)
-                    continue;
-                if(be->t_average < (average - sq_average)) {
-                    be->priority++;
-                    svc->tot_pri++;
-                }
-                if(be->t_average > (average + sq_average) && be->priority > 1) {
-                    be->priority--;
-                    svc->tot_pri--;
-                }
-            }
-            if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
+        if(n <= 1)
+            continue;
+        sq_average /= n;
+        average /= n;
+        sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
+        if(ret_val = pthread_mutex_lock(&svc->mut)) {
+            logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
+            continue;
         }
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END || !be->alive || be->disabled)
+                continue;
+            if(be->t_average < (average - sq_average)) {
+                be->priority++;
+                svc->tot_pri++;
+            }
+            if(be->t_average > (average + sq_average) && be->priority > 1) {
+                be->priority--;
+                svc->tot_pri--;
+            }
+        }
+        if(ret_val = pthread_mutex_unlock(&svc->mut))
+            logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
     }
+
+    for(svc = services; svc; svc = svc->next) {
+        average = sq_average = 0.0;
+        n = 0;
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END || !be->alive || be->disabled)
+                continue;
+            average += be->t_average;
+            sq_average += be->t_average * be->t_average;
+            n++;
+        }
+        if(n <= 1)
+            continue;
+        sq_average /= n;
+        average /= n;
+        sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
+        if(ret_val = pthread_mutex_lock(&svc->mut)) {
+            logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
+            continue;
+        }
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END || !be->alive || be->disabled)
+                continue;
+            if(be->t_average < (average - sq_average)) {
+                be->priority++;
+                svc->tot_pri++;
+            }
+            if(be->t_average > (average + sq_average) && be->priority > 1) {
+                be->priority--;
+                svc->tot_pri--;
+            }
+        }
+        if(ret_val = pthread_mutex_unlock(&svc->mut))
+            logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
+    }
+
+    return;
 }
 #endif  /* NO_DYNSCALE */
 
@@ -1063,13 +1134,44 @@ RSA_tmp_callback(/* not used */SSL *ssl, /* not used */int is_export, int keylen
 }
 
 /*
- * Pre-generate ephemeral RSA keys
+ * Periodically regenerate ephemeral RSA keys
+ * runs every T_RSA_KEYS seconds
+ */
+static void
+do_RSAgen(void)
+{
+    int n, ret_val;
+
+    if(ret_val = pthread_mutex_lock(&RSA_mut))
+        logmsg(LOG_WARNING, "thr_RSAgen() lock: %s", strerror(ret_val));
+    for(n = 0; n < N_RSA_KEYS; n++) {
+        RSA_free(RSA512_keys[n]);
+        RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
+        RSA_free(RSA1024_keys[n]);
+        RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+    }
+    if(ret_val = pthread_mutex_unlock(&RSA_mut))
+        logmsg(LOG_WARNING, "thr_RSAgen() unlock: %s", strerror(ret_val));
+    return;
+}
+
+static time_t   last_RSA, last_rescale, last_alive, last_expire;
+
+/*
+ * initialise the timer functions:
+ *  - host_mut
+ *  - RSA_mut and keys
  */
 void
-init_RSAgen()
+init_timer(void)
 {
     int n;
 
+    last_RSA = last_rescale = last_alive = last_expire = time(NULL);
+
+    /*
+     * Pre-generate ephemeral RSA keys
+     */
     for(n = 0; n < N_RSA_KEYS; n++) {
         if((RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL)) == NULL) {
             logmsg(LOG_WARNING,"RSA_generate(%d, 512) failed", n);
@@ -1082,30 +1184,58 @@ init_RSAgen()
     }
     /* pthread_mutex_init() always returns 0 */
     pthread_mutex_init(&RSA_mut, NULL);
+
+    /* pthread_mutex_init() always returns 0 */
+    pthread_mutex_init(&host_mut, NULL);
+
     return;
 }
 
 /*
- * Periodically regenerate ephemeral RSA keys
- * runs every T_RSA_KEYS seconds
+ * run timed functions:
+ *  - RSAgen every T_RSA_KEYS seconds
+ *  - rescale every RESCALE_TO seconds
+ *  - resurect every alive_to seconds
+ *  - expire every EXPIRE_TO seconds
  */
 void *
-thr_RSAgen(void *arg)
+thr_timer(void *arg)
 {
-    int n, ret_val;
+    time_t  last_time, cur_time;
+    int     n_wait, n_remain;
 
-    for(;;) {
-        sleep(T_RSA_KEYS);
-        if(ret_val = pthread_mutex_lock(&RSA_mut))
-            logmsg(LOG_WARNING, "thr_RSAgen() lock: %s", strerror(ret_val));
-        for(n = 0; n < N_RSA_KEYS; n++) {
-            RSA_free(RSA512_keys[n]);
-            RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
-            RSA_free(RSA1024_keys[n]);
-            RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+    n_wait = EXPIRE_TO;
+    if(n_wait > alive_to)
+        n_wait = alive_to;
+#ifndef NO_DYNSCALE
+    if(n_wait > RESCALE_TO)
+        n_wait = RESCALE_TO;
+#endif
+    if(n_wait > T_RSA_KEYS)
+        n_wait = T_RSA_KEYS;
+    for(last_time = time(NULL) - n_wait;;) {
+        cur_time = time(NULL);
+        if((n_remain = n_wait - (cur_time - last_time)) > 0)
+            sleep(n_remain);
+        last_time = time(NULL);
+        if((last_time - last_RSA) > T_RSA_KEYS) {
+            last_RSA = time(NULL);
+            do_RSAgen();
         }
-        if(ret_val = pthread_mutex_unlock(&RSA_mut))
-            logmsg(LOG_WARNING, "thr_RSAgen() unlock: %s", strerror(ret_val));
+#ifndef NO_DYNSCALE
+        if((last_time - last_rescale) > RESCALE_TO) {
+            last_rescale = time(NULL);
+            do_rescale();
+        }
+#endif
+        if((last_time - last_alive) > alive_to) {
+            last_alive = time(NULL);
+            do_resurect();
+        }
+        if((last_time - last_expire) > EXPIRE_TO) {
+            last_expire = time(NULL);
+            do_expire();
+        }
     }
 }
 
@@ -1113,23 +1243,26 @@ thr_RSAgen(void *arg)
  * write sessions to the control socket
  */
 static void
-dump_sess(const int control_sock, const SESS *sess, BACKEND *const backends)
+dump_sess(const int control_sock, const TREENODE *sess, BACKEND *const backends)
 {
-    SESS    s;
-    BACKEND *be;
-    int     n_be;
+    TREENODE    t;
+    BACKEND     *be;
+    int         n_be, sz;
 
     if(sess) {
         dump_sess(control_sock, sess->left, backends);
-        s = *sess;
+        t = *sess;
         for(n_be = 0, be = backends; be; be = be->next, n_be++)
-            if(be == s.to_host)
+            if(memcmp(be, t.content, sizeof(be)) == 0)
                 break;
         if(!be)
             /* should NEVER happen */
             n_be = 0;
-        s.to_host = (BACKEND *)n_be;
-        write(control_sock, (void *)&s, sizeof(SESS));
+        write(control_sock, (void *)&t, sizeof(TREENODE));
+        write(control_sock, (void *)&n_be, sizeof(n_be));
+        sz = strlen(t.key);
+        write(control_sock, (void *)&sz, sizeof(sz));
+        write(control_sock, (void *)t.key, sz);
         dump_sess(control_sock, sess->right, backends);
     }
     return;
@@ -1199,11 +1332,11 @@ thr_control(void *arg)
 {
     CTRL_CMD        cmd;
     struct sockaddr sa;
-    int             ctl, dummy;
+    int             ctl, dummy, ret_val;
     LISTENER        *lstn, dummy_lstn;
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
-    SESS            dummy_sess;
+    TREENODE        dummy_sess;
     struct pollfd   polls;
 
     /* just to be safe */
@@ -1216,7 +1349,7 @@ thr_control(void *arg)
     memset(&dummy_be, 0, sizeof(dummy_be));
     dummy_be.disabled = -1;
     memset(&dummy_sess, 0, sizeof(dummy_sess));
-    dummy_sess.to_host = (BACKEND *)-1;
+    dummy_sess.content = NULL;
     dummy = sizeof(sa);
     for(;;) {
         polls.fd = control_sock;
@@ -1251,7 +1384,7 @@ thr_control(void *arg)
                         if(dummy = pthread_mutex_unlock(&svc->mut))
                             logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                     }
-                    write(ctl, (void *)&dummy_sess, sizeof(SESS));
+                    write(ctl, (void *)&dummy_sess, sizeof(TREENODE));
                 }
                 write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             }
@@ -1268,7 +1401,7 @@ thr_control(void *arg)
                     if(dummy = pthread_mutex_unlock(&svc->mut))
                         logmsg(LOG_WARNING, "thr_control() unlock: %s", strerror(dummy));
                 }
-                write(ctl, (void *)&dummy_sess, sizeof(SESS));
+                write(ctl, (void *)&dummy_sess, sizeof(TREENODE));
             }
             write(ctl, (void *)&dummy_svc, sizeof(SERVICE));
             break;
@@ -1307,6 +1440,32 @@ thr_control(void *arg)
                 logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
             else
                 be->disabled = 1;
+            break;
+        case CTRL_ADD_SESS:
+            if((svc = sel_svc(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad service %d/%d", cmd.listener, cmd.service);
+                break;
+            }
+            if((be = sel_be(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad back-end %d/%d", cmd.listener, cmd.service);
+                break;
+            }
+            if(ret_val = pthread_mutex_lock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() add session lock: %s", strerror(ret_val));
+            svc->sessions = t_add(svc->sessions, cmd.key, be, sizeof(be));
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() add session unlock: %s", strerror(ret_val));
+            break;
+        case CTRL_DEL_SESS:
+            if((svc = sel_svc(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad service %d/%d", cmd.listener, cmd.service);
+                break;
+            }
+            if(ret_val = pthread_mutex_lock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session lock: %s", strerror(ret_val));
+            svc->sessions = t_remove(svc->sessions, cmd.key);
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
             break;
         default:
             logmsg(LOG_WARNING, "thr_control() unknown command");

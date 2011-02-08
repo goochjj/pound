@@ -10,8 +10,10 @@ usage(const char *arg0)
     fprintf(stderr, "\t-l n - disable listener n\n");
     fprintf(stderr, "\t-S n m - enable service m in service n (use -1 for global services)\n");
     fprintf(stderr, "\t-s n m - disable service m in service n (use -1 for global services)\n");
-    fprintf(stderr, "\t-B n m r - enable back-end in service m in listener n\n");
-    fprintf(stderr, "\t-b n m r - disable back-end in service m in listener n\n");
+    fprintf(stderr, "\t-B n m r - enable back-end r in service m in listener n\n");
+    fprintf(stderr, "\t-b n m r - disable back-end r in service m in listener n\n");
+    fprintf(stderr, "\t-N n m k r - add a session with key k and back-end r in service m in listener n\n");
+    fprintf(stderr, "\t-n n m k - remove a session with key k r in service m in listener n\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\tentering the command without arguments lists the current configuration.\n");
     exit(1);
@@ -40,20 +42,21 @@ get_sock(const char *sock_name)
 main(const int argc, char **argv)
 {
     CTRL_CMD    cmd;
-    int         sock, n_lstn, n_svc, n_be, n_sess;
-    char        *arg0, *sock_name;
-    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, is_set;
+    int         sock, n_lstn, n_svc, n_be, n_sess, i;
+    char        *arg0, *sock_name, buf[KEY_SIZE + 1];
+    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, is_set;
     LISTENER    lstn;
     SERVICE     svc;
     BACKEND     be;
-    SESS        sess;
+    TREENODE    sess;
 
     arg0 = *argv;
     sock_name = NULL;
-    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = 0;
+    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = 0;
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
-    while((c_opt = getopt(argc, argv, "c:LlSsBb")) > 0)
+    i = 0;
+    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNn")) > 0)
         switch(c_opt) {
         case 'c':
             sock_name = optarg;
@@ -88,9 +91,24 @@ main(const int argc, char **argv)
                 usage(arg0);
             de_be = is_set = 1;
             break;
+        case 'N':
+            if(is_set)
+                usage(arg0);
+            a_sess = is_set = 1;
+            break;
+        case 'n':
+            if(is_set)
+                usage(arg0);
+            d_sess = is_set = 1;
+            break;
         default:
-            fprintf(stderr, "bad flag -%c", optopt);
-            usage(arg0);
+            if(optopt == '1') {
+                optind--;
+                i = 1;
+            } else {
+                fprintf(stderr, "bad flag -%c", optopt);
+                usage(arg0);
+            }
             break;
         }
 
@@ -116,6 +134,24 @@ main(const int argc, char **argv)
         cmd.listener = atoi(argv[optind++]);
         cmd.service = atoi(argv[optind++]);
         cmd.backend = atoi(argv[optind++]);
+    }
+    if(a_sess) {
+        if(optind != (argc - 4))
+            usage(arg0);
+        cmd.cmd = CTRL_ADD_SESS;
+        cmd.listener = atoi(argv[optind++]);
+        cmd.service = atoi(argv[optind++]);
+        memset(cmd.key, 0, KEY_SIZE + 1);
+        strncpy(cmd.key, argv[optind++], KEY_SIZE);
+        cmd.backend = atoi(argv[optind++]);
+    }
+    if(d_sess) {
+        if(optind != (argc - 3))
+            usage(arg0);
+        cmd.cmd = CTRL_DEL_SESS;
+        cmd.listener = atoi(argv[optind++]);
+        cmd.service = atoi(argv[optind++]);
+        strncpy(cmd.key, argv[optind++], KEY_SIZE);
     }
     if(!is_set) {
         if(optind != argc)
@@ -153,10 +189,14 @@ main(const int argc, char **argv)
                             be.disabled? "*D": "");
                 }
                 n_sess = 0;
-                while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
-                    if((int)sess.to_host < 0)
+                while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
+                    if(sess.content == NULL)
                         break;
-                    printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);
+                    read(sock, &n_be, sizeof(n_be));
+                    read(sock, &i, sizeof(i));
+                    memset(buf, 0, KEY_SIZE + 1);
+                    read(sock, buf, i);
+                    printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
                 }
             }
         }
@@ -181,10 +221,14 @@ main(const int argc, char **argv)
                         be.disabled? "*D": "");
             }
             n_sess = 0;
-            while(read(sock, (void *)&sess, sizeof(SESS)) == sizeof(SESS)) {
-                if((int)sess.to_host < 0)
+            while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
+                if(sess.content == NULL)
                     break;
-                printf("    %3d. Session %s -> %d\n", n_sess++, sess.key, (int)sess.to_host);
+                read(sock, &n_be, sizeof(n_be));
+                read(sock, &i, sizeof(i));
+                memset(buf, 0, KEY_SIZE + 1);
+                read(sock, buf, i);
+                printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
             }
         }
     }

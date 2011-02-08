@@ -159,8 +159,7 @@ main(const int argc, char **argv)
     l_init();
     CRYPTO_set_id_callback(l_id);
     CRYPTO_set_locking_callback(l_lock);
-    init_host_mut();
-    init_RSAgen();
+    init_timer();
 
     /* prepare regular expressions */
     if(regcomp(&HEADER, "^([a-z0-9!#$%&'*+.^_`|~-]+):[ \t]*(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -188,7 +187,7 @@ main(const int argc, char **argv)
     config_parse(argc, argv);
 
     if(log_facility != -1)
-        openlog("pound", LOG_CONS, LOG_DAEMON);
+        openlog("pound", LOG_CONS | LOG_NDELAY, LOG_DAEMON);
 
     /* open HTTP listeners */
     for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
@@ -323,23 +322,9 @@ main(const int argc, char **argv)
                 exit(1);
             }
 #endif
-            /* start resurector */
-            if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
+            /* start timer */
+            if(pthread_create(&thr, &attr, thr_timer, NULL)) {
                 logmsg(LOG_ERR, "create thr_resurect: %s - aborted", strerror(errno));
-                exit(1);
-            }
-
-#ifndef NO_DYNSCALE
-            /* start rescaler */
-            if(pthread_create(&thr, &attr, thr_rescale, NULL)) {
-                logmsg(LOG_ERR, "create thr_rescale: %s - aborted", strerror(errno));
-                exit(1);
-            }
-#endif
-
-            /* start the RSA stuff */
-            if(pthread_create(&thr, &attr, thr_RSAgen, NULL)) {
-                logmsg(LOG_ERR, "create thr_RSAgen: %s - aborted", strerror(errno));
                 exit(1);
             }
 
@@ -355,10 +340,7 @@ main(const int argc, char **argv)
             /* and start working */
             for(;;) {
                 for(lstn = listeners, i = 0; i < n_listeners; lstn = lstn->next, i++) {
-                    if(lstn->disabled)
-                        polls[i].events = 0;
-                    else
-                        polls[i].events = POLLIN | POLLPRI;
+                    polls[i].events = POLLIN | POLLPRI;
                     polls[i].revents = 0;
                 }
                 if(poll(polls, n_listeners, -1) < 0) {
@@ -374,6 +356,12 @@ main(const int argc, char **argv)
                             } else if (clnt_addr.sin_family != AF_INET) {
                                 /* may happen on FreeBSD, I am told */
                                 logmsg(LOG_WARNING, "HTTP connection prematurely closed by peer");
+                                close(clnt);
+                            } else if(lstn->disabled) {
+                                /*
+                                addr2str(tmp, MAXBUF - 1, &clnt_addr.sin_addr);
+                                logmsg(LOG_WARNING, "HTTP disabled listener from %s", tmp);
+                                */
                                 close(clnt);
                             } else {
                                 thr_arg *arg;
