@@ -986,22 +986,12 @@ parse_file(FILE *const f_conf)
             ENGINE_free(e);
 #endif
         } else if(!regexec(&Control, lin, 4, matches, 0)) {
-            struct sockaddr_un  ctrl;
-
-            memset(&ctrl, 0, sizeof(ctrl));
-            ctrl.sun_family = AF_UNIX;
+            if(ctrl_name != NULL) {
+                logmsg(LOG_ERR, "line %d: Control multiply defined - aborted", n_lin);
+                exit(1);
+            }
             lin[matches[1].rm_eo] = '\0';
-            strncpy(ctrl.sun_path, lin + matches[1].rm_so, sizeof(ctrl.sun_path) - 1);
-            (void)unlink(ctrl.sun_path);
-            if((control_sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-                logmsg(LOG_ERR, "Control \"%s\" create: %s", ctrl.sun_path, strerror(errno));
-                exit(1);
-            }
-            if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
-                logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
-                exit(1);
-            }
-            listen(control_sock, 512);
+            ctrl_name = strdup(lin + matches[1].rm_so);
         } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
             if(listeners == NULL)
                 listeners = parse_HTTP(f_conf);
@@ -1175,6 +1165,7 @@ config_parse(const int argc, char **const argv)
     user = NULL;
     group = NULL;
     root_jail = NULL;
+    ctrl_name = NULL;
 
     alive_to = 30;
     daemonize = 1;

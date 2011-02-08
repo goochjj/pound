@@ -232,7 +232,8 @@
 extern char *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
-            *pid_name;          /* file to record pid in */
+            *pid_name,          /* file to record pid in */
+            *ctrl_name;         /* control socket name */
 
 extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
@@ -245,7 +246,6 @@ extern regex_t  HEADER,     /* Allowed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN,   /* responses for which we ignore content */
-                /* RESP_REDIR, /* responses for which we rewrite Location */
                 LOCATION,   /* the host we are redirected to */
                 AUTHORIZATION;  /* the Authorisation header */
 

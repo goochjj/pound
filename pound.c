@@ -33,7 +33,8 @@
 char        *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
-            *pid_name;          /* file to record pid in */
+            *pid_name,          /* file to record pid in */
+            *ctrl_name;         /* control socket name */
 
 int         alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
@@ -50,7 +51,6 @@ regex_t HEADER,             /* Allowed header */
         CHUNK_HEAD,         /* chunk header line */
         RESP_SKIP,          /* responses for which we skip response */
         RESP_IGN,           /* responses for which we ignore content */
-        /* RESP_REDIR,         /* responses for which we rewrite Location */
         LOCATION,           /* the host we are redirected to */
         AUTHORIZATION;      /* the Authorisation header */
 
@@ -115,6 +115,8 @@ h_term(const int sig)
     logmsg(LOG_NOTICE, "received signal %d - exiting...", sig);
     if(son > 0)
         kill(son, sig);
+    if(ctrl_name != NULL)
+        (void)unlink(ctrl_name);
     exit(0);
 }
 
@@ -134,6 +136,8 @@ h_shut(const int sig)
         kill(son, sig);
         while(wait(&status) != son)
             logmsg(LOG_ERR, "MONITOR: bad wait (%s)", strerror(errno));
+        if(ctrl_name != NULL)
+            (void)unlink(ctrl_name);
         exit(0);
     } else
         shut_down = 1;
@@ -191,7 +195,6 @@ main(const int argc, char **argv)
     || regcomp(&CHUNK_HEAD, "^([0-9a-f]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[456]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    /* || regcomp(&RESP_REDIR, "^HTTP/1.[01] 30[1237].*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED) */
     || regcomp(&LOCATION, "(http|https)://([^/]+)(.*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AUTHORIZATION, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
@@ -213,6 +216,23 @@ main(const int argc, char **argv)
 
     if(log_facility != -1)
         openlog("pound", LOG_CONS | LOG_NDELAY, LOG_DAEMON);
+    if(ctrl_name != NULL) {
+        struct sockaddr_un  ctrl;
+
+        memset(&ctrl, 0, sizeof(ctrl));
+        ctrl.sun_family = AF_UNIX;
+        strncpy(ctrl.sun_path, ctrl_name, sizeof(ctrl.sun_path) - 1);
+        (void)unlink(ctrl.sun_path);
+        if((control_sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+            logmsg(LOG_ERR, "Control \"%s\" create: %s", ctrl.sun_path, strerror(errno));
+            exit(1);
+        }
+        if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
+            logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
+            exit(1);
+        }
+        listen(control_sock, 512);
+    }
 
     /* open HTTP listeners */
     for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
@@ -370,6 +390,8 @@ main(const int argc, char **argv)
                         close(lstn->sock);
                     sleep(grace);
                     logmsg(LOG_NOTICE, "grace period expired - exiting...");
+                    if(ctrl_name != NULL)
+                        (void)unlink(ctrl_name);
                     exit(0);
                 }
                 for(lstn = listeners, i = 0; i < n_listeners; lstn = lstn->next, i++) {

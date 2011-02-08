@@ -410,8 +410,7 @@ log_bytes(char *res, const long cnt)
 void *
 thr_http(void *arg)
 {
-    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, redir,
-                        force_10;
+    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, force_10;
     LISTENER            *lstn;
     SERVICE             *svc;
     BACKEND             *backend, *cur_backend;
@@ -1012,8 +1011,6 @@ thr_http(void *arg)
             /* some response codes (1xx, 204, 304) have no content */
             if(!no_cont && !regexec(&RESP_IGN, response, 0, NULL, 0))
                 no_cont = 1;
-            /* check for redirection */
-            /* redir = !regexec(&RESP_REDIR, response, 0, NULL, 0); */
 
             for(chunked = 0, cont = -1L, n = 1; n < MAXHEADERS && headers[n]; n++) {
                 switch(check_header(headers[n], buf)) {
