@@ -1,6 +1,6 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002-2007 Apsis GmbH
+ * Copyright (C) 2002-2010 Apsis GmbH
  *
  * This file is part of Pound.
  *
@@ -22,7 +22,6 @@
  * P.O.Box
  * 8707 Uetikon am See
  * Switzerland
- * Tel: +41-44-920 4904
  * EMail: roseg@apsis.ch
  */
 

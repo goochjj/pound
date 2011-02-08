@@ -1,6 +1,6 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002-2007 Apsis GmbH
+ * Copyright (C) 2002-2010 Apsis GmbH
  *
  * This file is part of Pound.
  *
@@ -22,13 +22,13 @@
  * P.O.Box
  * 8707 Uetikon am See
  * Switzerland
- * Tel: +41-44-920 4904
  * EMail: roseg@apsis.ch
  */
 #define NO_EXTERNALS 1
 #include    "pound.h"
 
 static int  xml_out = 0;
+static int  host_names = 0;
 
 static void
 usage(const char *arg0)
@@ -45,7 +45,8 @@ usage(const char *arg0)
     fprintf(stderr, "\t-n n m k - remove a session with key k r in service m in listener n\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\tentering the command without arguments lists the current configuration.\n");
-    fprintf(stderr, "\tthe -X flags results in XML output.\n");
+    fprintf(stderr, "\tthe -X flag results in XML output.\n");
+    fprintf(stderr, "\tthe -H flag shows symbolic host names instead of addresses.\n");
     exit(1);
 }
 
@@ -66,12 +67,16 @@ prt_addr(const struct addrinfo *addr)
     case AF_INET:
         src = (void *)&((struct sockaddr_in *)addr->ai_addr)->sin_addr.s_addr;
         port = ntohs(((struct sockaddr_in *)addr->ai_addr)->sin_port);
+        if(host_names && !getnameinfo(addr->ai_addr, addr->ai_addrlen, buf, UNIX_PATH_MAX - 1, NULL, 0, 0))
+            break;
         if(inet_ntop(AF_INET, src, buf, UNIX_PATH_MAX - 1) == NULL)
             strncpy(buf, "(UNKNOWN)", UNIX_PATH_MAX - 1);
         break;
     case AF_INET6:
         src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr;
         port = ntohs(((struct sockaddr_in6 *)addr->ai_addr)->sin6_port);
+        if(host_names && !getnameinfo(addr->ai_addr, addr->ai_addrlen, buf, UNIX_PATH_MAX - 1, NULL, 0, 0))
+            break;
         if(inet_ntop(AF_INET6, src, buf, UNIX_PATH_MAX - 1) == NULL)
             strncpy(buf, "(UNKNOWN)", UNIX_PATH_MAX - 1);
         break;
@@ -221,7 +226,7 @@ main(const int argc, char **argv)
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
     i = 0;
-    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNnX")) > 0)
+    while(!i && (c_opt = getopt(argc, argv, "c:LlSsBbNnXH")) > 0)
         switch(c_opt) {
         case 'c':
             sock_name = optarg;
@@ -268,6 +273,9 @@ main(const int argc, char **argv)
             if(is_set)
                 usage(arg0);
             d_sess = is_set = 1;
+            break;
+        case 'H':
+            host_names = 1;
             break;
         default:
             if(optopt == '1') {

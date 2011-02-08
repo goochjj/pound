@@ -1,4 +1,14 @@
 ------------------------------------------------------------------------
+r66 | roseg | 2010-01-04 17:20:55 +0100 (Mon, 04 Jan 2010) | 7 lines
+
+Release 2.5e
+
+Enhancements:
+  - added support for symbolic host names in poundctl
+
+Bug fixes:
+
+------------------------------------------------------------------------
 r65 | roseg | 2009-12-07 17:01:21 +0100 (Mon, 07 Dec 2009) | 9 lines
 
 Release 2.5d
