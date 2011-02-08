@@ -479,7 +479,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host, 1);
         if(svc->sess_ttl < 0)
-            return hash_backend(svc->backends, svc->abs_pri, key);
+            res = hash_backend(svc->backends, svc->abs_pri, key);
         else if((vp = t_find(svc->sessions, key)) == NULL) {
             /* no session yet - create one */
             res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -491,7 +491,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
             if(svc->sess_ttl < 0)
-                return hash_backend(svc->backends, svc->abs_pri, key);
+                res = hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -506,7 +506,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
         /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
             if(svc->sess_ttl < 0)
-                return hash_backend(svc->backends, svc->abs_pri, key);
+                res = hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
                 res = rand_backend(svc->backends, random() % svc->tot_pri);
@@ -552,7 +552,7 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
  *  disable_only == -1:  mark as enabled
  */
 void
-kill_be(SERVICE *const svc, const BACKEND *be, const int disable_only)
+kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
 {
     BACKEND *b;
     int     ret_val;
@@ -562,22 +562,24 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_only)
     svc->tot_pri = 0;
     for(b = svc->backends; b; b = b->next) {
         if(b == be)
-            switch(disable_only) {
-            case 1:
+            switch(disable_mode) {
+            case BE_DISABLE:
                 b->disabled = 1;
                 break;
-            case -1:
+            case BE_KILL:
+                b->alive = 0;
+                t_clean(svc->sessions, &be, sizeof(be));
+                break;
+            case BE_ENABLE:
                 b->disabled = 0;
                 break;
             default:
-                b->alive = 0;
+                logmsg(LOG_WARNING, "kill_be(): unknown mode %d", disable_mode);
                 break;
             }
         if(b->alive && !b->disabled)
             svc->tot_pri += b->priority;
     }
-    if(disable_only >= 0)
-        t_clean(svc->sessions, &be, sizeof(be));
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "kill_be() unlock: %s", strerror(ret_val));
     return;
@@ -614,10 +616,15 @@ int
 get_host(char *const name, struct addrinfo *res)
 {
     struct addrinfo *chain, *ap;
+    struct addrinfo hints;
     int             ret_val;
 
 #ifdef  HAVE_INET_NTOP
-    if((ret_val = getaddrinfo(name, NULL, NULL, &chain)) == 0) {
+    memset (&hints, 0, sizeof(hints));
+    hints.ai_family = PF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_CANONNAME;
+    if((ret_val = getaddrinfo(name, NULL, &hints, &chain)) == 0) {
         for(ap = chain; ap != NULL; ap = ap->ai_next)
             if(ap->ai_socktype == SOCK_STREAM)
                 break;
@@ -882,7 +889,7 @@ do_resurect(void)
             continue;
         }
         if(connect_nb(sock, &be->ha_addr, be->to) != 0) {
-            kill_be(svc, be, 0);
+            kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
         }
@@ -918,7 +925,7 @@ do_resurect(void)
             continue;
         }
         if(connect_nb(sock, &be->ha_addr, be->to) != 0) {
-            kill_be(svc, be, 0);
+            kill_be(svc, be, BE_KILL);
             str_be(buf, MAXBUF - 1, be);
             logmsg(LOG_NOTICE, "BackEnd %s is dead (HA)", buf);
         }
@@ -1584,7 +1591,7 @@ thr_control(void *arg)
             if((be = sel_be(&cmd)) == NULL)
                 logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
             else
-                kill_be(svc, be, -1);
+                kill_be(svc, be, BE_ENABLE);
             break;
         case CTRL_DE_BE:
             if((svc = sel_svc(&cmd)) == NULL) {
@@ -1594,7 +1601,7 @@ thr_control(void *arg)
             if((be = sel_be(&cmd)) == NULL)
                 logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
             else
-                kill_be(svc, be, 1);
+                kill_be(svc, be, BE_DISABLE);
             break;
         case CTRL_ADD_SESS:
             if((svc = sel_svc(&cmd)) == NULL) {

@@ -772,7 +772,7 @@ thr_http(void *arg)
                 str_be(buf, MAXBUF - 1, backend);
                 logmsg(LOG_WARNING, "(%lx) backend %s connect: %s", pthread_self(), buf, strerror(errno));
                 close(sock);
-                kill_be(svc, backend, 0);
+                kill_be(svc, backend, BE_KILL);
                 if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
@@ -1156,7 +1156,7 @@ thr_http(void *arg)
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend)) {
-                        snprintf(buf, MAXBUF, "Location: %s://%s%s",
+                        snprintf(buf, MAXBUF, "Location: %s://%s/%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
@@ -1170,7 +1170,7 @@ thr_http(void *arg)
                     break;
                 case HEADER_CONTLOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, lstn, cur_backend)) {
-                        snprintf(buf, MAXBUF, "Content-location: %s://%s%s",
+                        snprintf(buf, MAXBUF, "Content-location: %s://%s/%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {

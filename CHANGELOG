@@ -1,4 +1,20 @@
 ------------------------------------------------------------------------
+r58 | roseg | 2008-04-24 16:31:28 +0200 (Thu, 24 Apr 2008) | 13 lines
+
+Release 2.4.2
+
+Stable release 2.4.2
+
+Enhancements:
+
+Bug fixes:
+  - fixed problem with session TTL -1 (thanks to Scott Royston for pointing it out)
+  - fixed problem with back-end killing on failed connect
+  - fixed a small problem in the poundctl XML output (thanks to johnlr for the fix)
+  - added hints in call to getaddrinfo() (for Solaris 10 support)
+  - fixed redirection problem (missing slash in Location/Content-location)
+
+------------------------------------------------------------------------
 r57 | roseg | 2008-04-05 11:45:41 +0200 (Sat, 05 Apr 2008) | 12 lines
 
 Release 2.4.1

@@ -145,7 +145,7 @@ sess_prt(const int sock)
                     escaped[j++] = '"';
                 } else
                     escaped[j++] = buf[i];
-            buf[j] = '\0';
+            escaped[j] = '\0';
             printf("<session index=\"%d\" key=\"%s\" backend=\"%d\" />\n", n_sess++, escaped, n_be);
         } else
             printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);

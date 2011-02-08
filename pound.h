@@ -471,6 +471,9 @@ extern void upd_session(SERVICE *const, char **const, BACKEND *const);
  */
 extern int  check_header(const char *, char *);
 
+#define BE_DISABLE  -1
+#define BE_KILL     1
+#define BE_ENABLE   0
 /*
  * mark a backend host as dead;
  * do nothing if no resurection code is active
