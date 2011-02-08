@@ -114,9 +114,10 @@ be_prt(const int sock)
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
         if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" average=\"%.3f\" priority=\"%d\"%s%s />\n", n_be++,
-                prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "": " DEAD",
-                be.disabled? " DISABLED": "");
+            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
+                n_be++,
+                prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "yes": "DEAD",
+                be.disabled? "DISABLED": "active");
         else
             printf("    %3d. Backend %s %s (%d %.3f sec) %s\n", n_be++, prt_addr(&be.addr),
                 be.disabled? "DISABLED": "active", be.priority, be.t_average / 1000000, be.alive? "alive": "DEAD");
@@ -170,7 +171,8 @@ svc_prt(const int sock)
             break;
         if(xml_out) {
             if(svc.name[0])
-                printf("<service index=\"%d\" name=\"%s\"%s>\n", n_svc++, svc.name, svc.disabled? " DISABLED": "");
+                printf("<service index=\"%d\" name=\"%s\" status=\"%s\">\n",
+                    n_svc++, svc.name, svc.disabled? "DISABLED": "active");
             else
                 printf("<service index=\"%d\"%s>\n", n_svc++, svc.disabled? " DISABLED": "");
         } else {
@@ -348,8 +350,9 @@ main(const int argc, char **argv)
             read(sock, &a, lstn.addr.ai_addrlen);
             lstn.addr.ai_addr = (struct sockaddr *)&a;
             if(xml_out)
-                printf("<listener index=\"%d\" %s address=\"%s\"%s>\n", n_lstn++, lstn.ctx? "HTTPS": "HTTP",
-                    prt_addr(&lstn.addr), lstn.disabled? " DISABLED": "");
+                printf("<listener index=\"%d\" protocol=\"%s\" address=\"%s\" status=\"%s\">\n",
+                    n_lstn++, lstn.ctx? "HTTPS": "http",
+                    prt_addr(&lstn.addr), lstn.disabled? "DISABLED": "active");
             else
                 printf("%3d. %s Listener %s %s\n", n_lstn++, lstn.ctx? "HTTPS" : "http",
                     prt_addr(&lstn.addr), lstn.disabled? "*D": "a");

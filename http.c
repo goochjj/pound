@@ -1142,7 +1142,7 @@ thr_http(void *arg)
         /* if we have a redirector */
         if(cur_backend->be_type) {
             memset(buf, 0, sizeof(buf));
-            if(cur_backend->redir_req)
+            if(!cur_backend->redir_req)
                 snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
             else 
                 strncpy(buf, cur_backend->url, sizeof(buf) - 1);

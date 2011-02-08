@@ -1,4 +1,16 @@
 ------------------------------------------------------------------------
+r67 | roseg | 2010-02-02 12:49:00 +0100 (Tue, 02 Feb 2010) | 9 lines
+
+Release 2.5
+
+Enhancements:
+
+Bug fixes:
+  - fixed XML format to avoid problems with brain-dead parsers
+  - fixed Redirect to accept "/" as a path, so that "Redirect http://x/" is
+    considered an absolute path, but "Redirect http://x" is not
+
+------------------------------------------------------------------------
 r66 | roseg | 2010-01-04 17:20:55 +0100 (Mon, 04 Jan 2010) | 7 lines
 
 Release 2.5e

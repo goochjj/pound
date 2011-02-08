@@ -537,10 +537,9 @@ parse_service(const char *svc_name)
             /* split the URL into its fields */
             if(regexec(&LOCATION, be->url, 4, matches, 0))
                 conf_err("Redirect bad URL - aborted");
-            if(be->url[matches[3].rm_so] == '/')
-                matches[3].rm_so++;
-            /* if the path component is empty or a sigle slash */
-            be->redir_req = ((matches[3].rm_eo - matches[3].rm_so) < 1);
+            if((be->redir_req = matches[3].rm_eo - matches[3].rm_so) == 1)
+                /* the path is a single '/', so remove it */
+                be->url[matches[3].rm_so] = '\0';
         } else if(!regexec(&RedirectN, lin, 4, matches, 0)) {
             if(res->backends) {
                 for(be = res->backends; be->next; be = be->next)
@@ -564,10 +563,9 @@ parse_service(const char *svc_name)
             /* split the URL into its fields */
             if(regexec(&LOCATION, be->url, 4, matches, 0))
                 conf_err("Redirect bad URL - aborted");
-            if(be->url[matches[3].rm_so] == '/')
-                matches[3].rm_so++;
-            /* if the path component is empty or a sigle slash */
-            be->redir_req = ((matches[3].rm_eo - matches[3].rm_so) < 1);
+            if((be->redir_req = matches[3].rm_eo - matches[3].rm_so) == 1)
+                /* the path is a single '/', so remove it */
+                be->url[matches[3].rm_so] = '\0';
         } else if(!regexec(&BackEnd, lin, 4, matches, 0)) {
             if(res->backends) {
                 for(be = res->backends; be->next; be = be->next)
