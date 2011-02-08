@@ -26,10 +26,23 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.10 2006/02/01 11:19:51 roseg Rel $";
+static char *rcs_id = "$Id: config.c,v 2.0 2006/02/01 11:45:28 roseg Rel $";
 
 /*
  * $Log: config.c,v $
+ * Revision 2.0  2006/02/01 11:45:28  roseg
+ * Enhancements:
+ *   - new configuration file syntax, offering significant improvements.
+ *   - the ability to define listener-specific back-ends. In most cases this
+ *     should eliminate the need for multiple Pound instances.
+ *   - a new type of back-end: the redirector allows you to respond with a
+ *     redirect without involving any back-end server.
+ *   - most "secondary" properties (such as error messages, client time-out,
+ *     etc.) are now private to listeners.
+ *   - HAport has an optional address, different from the main back-end
+ *   - added a -V flag for version
+ *   - session keeping on a specific Header
+ *
  * Revision 1.10  2006/02/01 11:19:51  roseg
  * Enhancements:
  *   added NoDaemon configuration directive (replaces compile-time switch)
@@ -255,6 +268,330 @@ static CODE facilitynames[] = {
 };
 #endif
 
+static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, WebDAV, Client, CheckURL;
+static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, Change30x;
+static regex_t  Service, URL, HeadRequire, HeadDeny, BackEnd, Priority, HAport, HAportAddr, Redirect, TimeOut;
+static regex_t  Session, Type, TTL, ID;
+static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, NoHTTPS11;
+
+static regmatch_t   matches[5];
+
+/*
+ * parse a back-end
+ */
+BACKEND *
+parse_be(FILE *f_conf)
+{
+    char        lin[MAXBUF];
+    BACKEND     *res;
+    int         has_addr, has_port;
+    struct hostent      *host;
+
+    if((res = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
+        logmsg(LOG_ERR, "BackEnd config: out of memory - aborted");
+        exit(1);
+    }
+    memset(res, 0, sizeof(BACKEND));
+    res->be_type = BACK_END;
+    res->to = 15;
+    res->alive = 1;
+    memset(&res->addr, 0, sizeof(res->addr));
+    res->priority = 1;
+    memset(&res->HA, 0, sizeof(res->HA));
+    res->url = NULL;
+    res->next = NULL;
+    has_addr = has_port = 0;
+    while(fgets(lin, MAXBUF, f_conf)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
+            /* comment or empty line */
+            continue;
+        } else if(!regexec(&Address, lin, 4, matches, 0)) {
+            res->addr.sin_family = AF_INET;
+            lin[matches[1].rm_eo] = '\0';
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
+                logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
+                exit(1);
+            }
+            memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
+            has_addr = 1;
+        } else if(!regexec(&Port, lin, 4, matches, 0)) {
+            res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
+            has_port = 1;
+        } else if(!regexec(&Priority, lin, 4, matches, 0)) {
+            res->priority = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
+            res->to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&HAport, lin, 4, matches, 0)) {
+            memcpy(&res->HA, &res->addr, sizeof(res->HA));
+            res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
+        } else if(!regexec(&HAportAddr, lin, 4, matches, 0)) {
+            res->HA.sin_family = AF_INET;
+            lin[matches[1].rm_eo] = '\0';
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
+                logmsg(LOG_ERR, "Unknown HAport host \"%s\"", lin + matches[1].rm_so);
+                exit(1);
+            }
+            memcpy(&res->HA.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->HA.sin_addr.s_addr));
+            res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[2].rm_so));
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            if(!has_addr || !has_port) {
+                logmsg(LOG_ERR, "BackEnd missing Address or Port - aborted");
+                exit(1);
+            }
+            return res;
+        } else {
+            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            exit(1);
+        }
+    }
+
+    logmsg(LOG_ERR, "BackEnd premature EOF");
+    exit(1);
+    return NULL;
+}
+
+/*
+ * parse a session
+ */
+void
+parse_sess(FILE *f_conf, SERVICE *svc)
+{
+    char        lin[MAXBUF], *cp;
+
+    while(fgets(lin, MAXBUF, f_conf)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
+            /* comment or empty line */
+            continue;
+        } else if(!regexec(&Type, lin, 4, matches, 0)) {
+            if(svc->sess_type != S_NONE) {
+                logmsg(LOG_ERR, "Multiple Session types in one Service - aborted");
+                exit(1);
+            }
+            lin[matches[1].rm_eo] = '\0';
+            cp = lin + matches[1].rm_so;
+            if(!strcasecmp(cp, "IP"))
+                svc->sess_type = S_IP;
+            else if(!strcasecmp(cp, "COOKIE"))
+                svc->sess_type = S_COOKIE;
+            else if(!strcasecmp(cp, "PARM"))
+                svc->sess_type = S_PARM;
+            else if(!strcasecmp(cp, "BASIC"))
+                svc->sess_type = S_BASIC;
+            else if(!strcasecmp(cp, "HEADER"))
+                svc->sess_type = S_HEADER;
+            else {
+                logmsg(LOG_ERR, "Unknown Session type \"%s\" - aborted", cp);
+                exit(1);
+            }
+        } else if(!regexec(&TTL, lin, 4, matches, 0)) {
+            svc->sess_ttl = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ID, lin, 4, matches, 0)) {
+            if(svc->sess_type != S_COOKIE && svc->sess_type != S_PARM && svc->sess_type != S_HEADER) {
+                logmsg(LOG_ERR, "no ID permitted unless COOKIE/PARM/HEADER Session - aborted");
+                exit(1);
+            }
+            lin[matches[1].rm_eo] = '\0';
+            if((svc->sess_parm = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "ID config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            if(svc->sess_type == S_NONE) {
+                logmsg(LOG_ERR, "Session type not defined - aborted");
+                exit(1);
+            }
+            if(svc->sess_ttl <= 0) {
+                logmsg(LOG_ERR, "Session TTL not defined - aborted");
+                exit(1);
+            }
+            if((svc->sess_type == S_COOKIE || svc->sess_type == S_PARM || svc->sess_type == S_HEADER)
+            && svc->sess_parm == NULL) {
+                logmsg(LOG_ERR, "Session ID not defined - aborted");
+                exit(1);
+            }
+            if(svc->sess_type == S_COOKIE) {
+                snprintf(lin, MAXBUF - 1, "Cookie:.*[ \t]%s=([^;]*)", svc->sess_parm);
+                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                    logmsg(LOG_ERR, "COOKIE pattern \"%s\" failed - aborted", lin);
+                    exit(1);
+                }
+            } else if(svc->sess_type == S_PARM) {
+                snprintf(lin, MAXBUF - 1, "[?&]%s=([^&;#]*)", svc->sess_parm);
+                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                    logmsg(LOG_ERR, "PARM pattern \"%s\" failed - aborted", lin);
+                    exit(1);
+                }
+            } else if(svc->sess_type == S_BASIC) {
+                snprintf(lin, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
+                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                    logmsg(LOG_ERR, "BASIC pattern \"%s\" failed - aborted", lin);
+                    exit(1);
+                }
+            } else if(svc->sess_type == S_HEADER) {
+                snprintf(lin, MAXBUF - 1, "%s:[ \t]*([^ \t]*)[ \t]*", svc->sess_parm);
+                if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                    logmsg(LOG_ERR, "HEADER pattern \"%s\" failed - aborted", lin);
+                    exit(1);
+                }
+            }
+            return;
+        } else {
+            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            exit(1);
+        }
+    }
+
+    logmsg(LOG_ERR, "Session premature EOF");
+    exit(1);
+    return;
+}
+
+/*
+ * parse a service
+ */
+SERVICE *
+parse_service(FILE *f_conf)
+{
+    char        lin[MAXBUF];
+    SERVICE     *res;
+    BACKEND     *be;
+    MATCHER     *m;
+
+    if((res = (SERVICE *)malloc(sizeof(SERVICE))) == NULL) {
+        logmsg(LOG_ERR, "Service config: out of memory - aborted");
+        exit(1);
+    }
+    memset(res, 0, sizeof(SERVICE));
+    res->sess_type = S_NONE;
+    while(fgets(lin, MAXBUF, f_conf)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
+            /* comment or empty line */
+            continue;
+        } else if(!regexec(&URL, lin, 4, matches, 0)) {
+            if(res->url) {
+                for(m = res->url; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "URL config: out of memory - aborted");
+                    exit(1);
+                }
+                m = m->next;
+            } else {
+                if((res->url = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "URL config: out of memory - aborted");
+                    exit(1);
+                }
+                m = res->url;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "URL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
+            if(res->req_head) {
+                for(m = res->req_head; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRequire config: out of memory - aborted");
+                    exit(1);
+                }
+                m = m->next;
+            } else {
+                if((res->req_head = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRequire config: out of memory - aborted");
+                    exit(1);
+                }
+                m = res->req_head;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "HeadRequire bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&HeadDeny, lin, 4, matches, 0)) {
+            if(res->deny_head) {
+                for(m = res->deny_head; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadDeny config: out of memory - aborted");
+                    exit(1);
+                }
+                m = m->next;
+            } else {
+                if((res->deny_head = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadDeny config: out of memory - aborted");
+                    exit(1);
+                }
+                m = res->deny_head;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "HeadDeny bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&Redirect, lin, 4, matches, 0)) {
+            if(res->backends) {
+                for(be = res->backends; be->next; be = be->next)
+                    ;
+                if((be->next = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
+                    logmsg(LOG_ERR, "Redirect config: out of memory - aborted");
+                    exit(1);
+                }
+                be = be->next;
+            } else {
+                if((res->backends = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
+                    logmsg(LOG_ERR, "Redirect config: out of memory - aborted");
+                    exit(1);
+                }
+                be = res->backends;
+            }
+            memset(be, 0, sizeof(BACKEND));
+            be->be_type = REDIRECTOR;
+            be->priority = 1;
+            be->alive = 1;
+            lin[matches[1].rm_eo] = '\0';
+            if((be->url = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "Redirector config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&BackEnd, lin, 4, matches, 0)) {
+            if(res->backends) {
+                for(be = res->backends; be->next; be = be->next)
+                    ;
+                be->next = parse_be(f_conf);
+            } else
+                res->backends = parse_be(f_conf);
+        } else if(!regexec(&Session, lin, 4, matches, 0)) {
+            parse_sess(f_conf, res);
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            for(be = res->backends; be; be = be->next)
+                res->tot_pri += be->priority;
+            return res;
+        } else {
+            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            exit(1);
+        }
+    }
+
+    logmsg(LOG_ERR, "Service premature EOF");
+    exit(1);
+    return NULL;
+}
+
+/*
+ * return the file contents as a string
+ */
 static char *
 file2str(char *fname)
 {
@@ -263,19 +600,19 @@ file2str(char *fname)
     int     fin;
 
     if(stat(fname, &st)) {
-        logmsg(LOG_ERR, "can't stat Err50x file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "can't stat Err file \"%s\" (%s) - aborted", fname, strerror(errno));
         exit(1);
     }
     if((fin = open(fname, O_RDONLY)) < 0) {
-        logmsg(LOG_ERR, "can't open Err50x file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "can't open Err file \"%s\" (%s) - aborted", fname, strerror(errno));
         exit(1);
     }
     if((res = malloc(st.st_size + 1)) == NULL) {
-        logmsg(LOG_ERR, "can't alloc Err50x file \"%s\" (out of memory) - aborted", fname);
+        logmsg(LOG_ERR, "can't alloc Err file \"%s\" (out of memory) - aborted", fname);
         exit(1);
     }
     if(read(fin, res, st.st_size) != st.st_size) {
-        logmsg(LOG_ERR, "can't read Err50x file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "can't read Err file \"%s\" (%s) - aborted", fname, strerror(errno));
         exit(1);
     }
     res[st.st_size] = '\0';
@@ -283,221 +620,363 @@ file2str(char *fname)
     return res;
 }
 
-static void
-parse_file(char *fname)
+/*
+ * parse an HTTP listener
+ */
+LISTENER *
+parse_HTTP(FILE *f_conf)
 {
-    FILE                *fconf;
-    char                lin[MAXBUF], pat[MAXBUF];
-    regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders, MaxRequest, HeadRemove,
-                        SSL_CAlist, SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
-                        SSL_Verifylist, User, Group, RootJail, ExtendedHTTP, WebDAV, LogFacility, LogLevel, Alive,
-                        Server, Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
-                        Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
-                        RewriteRedir, NoDaemon;
-    regex_t             *req, *deny;
-    regmatch_t          matches[5];
-    struct sockaddr_in  addr, alive_addr;
+    char        lin[MAXBUF];
+    LISTENER    *res;
+    SERVICE     *svc;
+    MATCHER     *m;
     struct hostent      *host;
-    BACKEND             *be;
-    int                 j, k, tot_be, tot_groups, tot_req, tot_deny, in_group, n_http, n_https;
+    int         has_addr, has_port;
 
-    if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([0123])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SSL_Verifylist, "^[ \t]*VerifyList[ \t]+([^ \t]+)[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-#if HAVE_OPENSSL_ENGINE_H
-    || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-#endif
-    || regcomp(&SessionIP, "^[ \t]*Session[ \t]+IP[ \t]+([0-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SessionURL, "^[ \t]*Session[ \t]+URL[ \t]+([^ \t]+)[ \t]+([0-9-][0-9]*)[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SessionCOOKIE, "^[ \t]*Session[ \t]+Cookie[ \t]+([^ \t]+)[ \t]+([0-9-][0-9]*)[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&SessionBASIC, "^[ \t]*Session[ \t]+Basic[ \t]+([0-9-][0-9]*)[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&User, "^[ \t]*User[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Group, "^[ \t]*Group[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&ExtendedHTTP, "^[ \t]*ExtendedHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&NO11SSL, "^[ \t]*NoHTTPS11[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Server, "^[ \t]*Server[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&UrlGroup, "^[ \t]*UrlGroup[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]+([^,]+),([0-9]+),([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&BackEndHA, "^[ \t]*BackEnd[ \t]+([^,]+),([0-9]+),([1-9]),([0-9]+)[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+([^ \t]+)[ \t]+\"([^\"]+)\"[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+([^ \t]+)[ \t]+\"([^\"]+)\"[ \t]*$",
-        REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&EndGroup, "^[ \t]*EndGroup[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CS_SEGMENT, "^[ \t]*CSsegment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CS_PARM, "^[ \t]*CSparameter[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CS_QID, "^[ \t]*CSqid[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CS_QVAL, "^[ \t]*CSqval[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CS_FRAG, "^[ \t]*CSfragment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RewriteRedir, "^[ \t]*RewriteRedirect[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&NoDaemon, "^[ \t]*NoDaemon[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    ) {
-        logmsg(LOG_ERR, "bad config Regex - aborted");
+    if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL) {
+        logmsg(LOG_ERR, "ListenHTTP config: out of memory - aborted");
         exit(1);
     }
-
-    if((fconf = fopen(fname, "rt")) == NULL) {
-        logmsg(LOG_ERR, "can't open configuration file \"%s\" (%s) - aborted", fname, strerror(errno));
+    memset(res, 0, sizeof(LISTENER));
+    res->to = 10;
+    res->err414 = "Request URI is too long";
+    res->err500 = "An internal server error occurred. Please try again later.";
+    res->err501 = "This method may not be used.";
+    res->err503 = "The service is not available. Please try again later.";
+    if(regcomp(&res->url_pat, ".*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+        logmsg(LOG_ERR, "CheckURL bad default pattern - aborted");
         exit(1);
     }
-
-    /* first pass - just find number of groups and backends so we can allocate correctly */
-    for(n_http = n_https = tot_be = tot_groups = n_head_off = tot_req = tot_deny = 0; fgets(lin, MAXBUF, fconf); ) {
-        if(!regexec(&ListenHTTP, lin, 4, matches, 0))
-            n_http++;
-        else if(!regexec(&ListenHTTPS, lin, 4, matches, 0))
-            n_https++;
-        else if(!regexec(&UrlGroup, lin, 4, matches, 0))
-            tot_groups++;
-        else if(!regexec(&BackEnd, lin, 4, matches, 0))
-            tot_be += atoi(lin + matches[3].rm_so);
-        else if(!regexec(&BackEndHA, lin, 5, matches, 0))
-            tot_be += atoi(lin + matches[3].rm_so);
-        else if(!regexec(&HeadRemove, lin, 4, matches, 0))
-            n_head_off++;
-        else if(!regexec(&HeadRequire, lin, 4, matches, 0))
-            tot_req++;
-        else if(!regexec(&HeadDeny, lin, 4, matches, 0))
-            tot_deny++;
-    }
-    rewind(fconf);
-
-    if((http = (char **)malloc(sizeof(char *) * (n_http + 1))) == NULL
-    || (https = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL
-    || (cert = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL
-    || (ciphers = (char **)malloc(sizeof(char *) * (n_https + 1))) == NULL) {
-        logmsg(LOG_ERR, "listen setup: out of memory - aborted");
-        exit(1);
-    }
-    http[n_http] = https[n_https] = cert[n_https] = NULL;
-
-    if((groups = (GROUP **)malloc(sizeof(GROUP *) * (tot_groups + 1))) == NULL) {
-        logmsg(LOG_ERR, "groups setup: out of memory - aborted");
-        exit(1);
-    }
-    groups[tot_groups] = NULL;
-
-    if((be = (BACKEND *)malloc(sizeof(BACKEND) * tot_be)) == NULL) {
-        logmsg(LOG_ERR, "backend setup: out of memory - aborted");
-        exit(1);
-    }
-    if(tot_req > 0) {
-        if((req = (regex_t *)malloc(sizeof(regex_t) * tot_req)) == NULL) {
-            logmsg(LOG_ERR, "req setup: out of memory - aborted");
-            exit(1);
-        }
-    } else
-        req = NULL;
-    if(tot_deny > 0) {
-        if((deny = (regex_t *)malloc(sizeof(regex_t) * tot_deny)) == NULL) {
-            logmsg(LOG_ERR, "deny setup: out of memory - aborted");
-            exit(1);
-        }
-    } else
-        deny = NULL;
-    if(n_head_off > 0 && (head_off = (regex_t *)malloc(sizeof(regex_t) * n_head_off)) == NULL) {
-        logmsg(LOG_ERR, "HeadRemove setup: out of memory - aborted");
-        exit(1);
-    }
-    n_head_off = 0;
-
-    n_http = n_https = tot_groups = in_group = 0;
-    while(fgets(lin, MAXBUF, fconf)) {
+    has_addr = has_port = 0;
+    while(fgets(lin, MAXBUF, f_conf)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
             /* comment or empty line */
             continue;
-        } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
+        } else if(!regexec(&Address, lin, 4, matches, 0)) {
+            res->addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
-            if((http[n_http++] = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "ListenHTTP config: out of memory - aborted");
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
+                logmsg(LOG_ERR, "Unknown Listener address \"%s\"", lin + matches[1].rm_so);
                 exit(1);
             }
-        } else if(!regexec(&ListenHTTPS, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = lin[matches[2].rm_eo] = '\0';
-            if((https[n_https] = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "ListenHTTPS config: out of memory - aborted");
+            memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
+            has_addr = 1;
+        } else if(!regexec(&Port, lin, 4, matches, 0)) {
+            res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
+            has_port = 1;
+        } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
+            res->xHTTP = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&WebDAV, lin, 4, matches, 0)) {
+            res->webDAV = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Client, lin, 4, matches, 0)) {
+            res->to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            regfree(&res->url_pat);
+            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "CheckURL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
                 exit(1);
             }
-            if((cert[n_https] = strdup(lin + matches[2].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "ListenHTTPS CERT config: out of memory - aborted");
-                exit(1);
-            }
-            if(matches[3].rm_so < matches[3].rm_eo) {
-                lin[matches[3].rm_eo] = '\0';
-                if((ciphers[n_https] = strdup(lin + matches[3].rm_so)) == NULL) {
-                    logmsg(LOG_ERR, "ListenHTTPS CIPHER config: out of memory - aborted");
-                    exit(1);
-                }
-            } else
-                ciphers[n_https] = NULL;
-            n_https++;
-#if HAVE_OPENSSL_ENGINE_H
-        } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            if((ssl_engine = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "SSLEngine config: out of memory - aborted");
-                exit(1);
-            }
-#endif
-        } else if(!regexec(&HTTPSHeaders, lin, 4, matches, 0)) {
-            https_headers = atoi(lin + matches[1].rm_so);
-            if(matches[2].rm_eo != matches[2].rm_so) {
-                lin[matches[2].rm_eo] = '\0';
-                if((https_header = strdup(lin + matches[2].rm_so)) == NULL) {
-                    logmsg(LOG_ERR, "HTTPSHeaders config: out of memory - aborted");
-                    exit(1);
-                }
-            } else
-                https_header = NULL;
-        } else if(!regexec(&SSL_CAlist, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            if((ssl_CAlst = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CAlist config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&SSL_Verifylist, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            if((ssl_Verifylst = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "Verifylist config: out of memory - aborted");
-                exit(1);
-            }
-            ssl_vdepth = atoi(lin + matches[2].rm_so);
-        } else if(!regexec(&Err500, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            e500 = file2str(lin + matches[1].rm_so);
-        } else if(!regexec(&Err501, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            e501 = file2str(lin + matches[1].rm_so);
-        } else if(!regexec(&Err503, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            e503 = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&Err414, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            e414 = file2str(lin + matches[1].rm_so);
+            res->err414 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err500, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err500 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err501, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err501 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err503, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
+            res->max_req = atol(lin + matches[1].rm_so);
+        } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
+            if(res->head_off) {
+                for(m = res->head_off; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    exit(1);
+                }
+                m = m->next;
+            } else {
+                if((res->head_off = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    exit(1);
+                }
+                m = res->head_off;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&Change30x, lin, 4, matches, 0)) {
+            res->change30x = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Service, lin, 4, matches, 0)) {
+            if(res->services == NULL)
+                res->services = parse_service(f_conf);
+            else {
+                for(svc = res->services; svc->next; svc = svc->next)
+                    ;
+                svc->next = parse_service(f_conf);
+            }
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            if(!has_addr || !has_port) {
+                logmsg(LOG_ERR, "ListenHTTP missing Address or Port - aborted");
+                exit(1);
+            }
+            return res;
+        } else {
+            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            exit(1);
+        }
+    }
+
+    logmsg(LOG_ERR, "ListenHTTP premature EOF");
+    exit(1);
+    return NULL;
+}
+/*
+ * Dummy certificate verification - always OK
+ */
+static int
+verify_OK(int pre_ok, X509_STORE_CTX *ctx)
+{
+    return 1;
+}
+
+/*
+ * parse an HTTPS listener
+ */
+LISTENER *
+parse_HTTPS(FILE *f_conf)
+{
+    char        lin[MAXBUF];
+    LISTENER    *res;
+    SERVICE     *svc;
+    MATCHER     *m;
+    struct hostent      *host;
+    int         has_addr, has_port, has_cert;
+
+    if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL) {
+        logmsg(LOG_ERR, "ListenHTTPS config: out of memory - aborted");
+        exit(1);
+    }
+    memset(res, 0, sizeof(LISTENER));
+    if((res->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
+        logmsg(LOG_ERR, "SSL_CTX_new failed - aborted");
+        exit(1);
+    }
+
+    res->to = 10;
+    res->err414 = "Request URI is too long";
+    res->err500 = "An internal server error occurred. Please try again later.";
+    res->err501 = "This method may not be used.";
+    res->err503 = "The service is not available. Please try again later.";
+    if(regcomp(&res->url_pat, ".*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+        logmsg(LOG_ERR, "CheckURL bad default pattern - aborted");
+        exit(1);
+    }
+    has_addr = has_port = has_cert = 0;
+    while(fgets(lin, MAXBUF, f_conf)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
+            /* comment or empty line */
+            continue;
+        } else if(!regexec(&Address, lin, 4, matches, 0)) {
+            res->addr.sin_family = AF_INET;
+            lin[matches[1].rm_eo] = '\0';
+            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
+                logmsg(LOG_ERR, "Unknown Listener address \"%s\"", lin + matches[1].rm_so);
+                exit(1);
+            }
+            memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
+            has_addr = 1;
+        } else if(!regexec(&Port, lin, 4, matches, 0)) {
+            res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
+            has_port = 1;
+        } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
+            res->xHTTP = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&WebDAV, lin, 4, matches, 0)) {
+            res->webDAV = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Client, lin, 4, matches, 0)) {
+            res->to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            regfree(&res->url_pat);
+            if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "CheckURL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&Err414, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err414 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err500, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err500 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err501, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err501 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err503, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->err503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
+            res->max_req = atol(lin + matches[1].rm_so);
+        } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
+            if(res->head_off) {
+                for(m = res->head_off; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    exit(1);
+                }
+                m = m->next;
+            } else {
+                if((res->head_off = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
+                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    exit(1);
+                }
+                m = res->head_off;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            lin[matches[1].rm_eo] = '\0';
+            if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&Change30x, lin, 4, matches, 0)) {
+            res->change30x = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Cert, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1) {
+                logmsg(LOG_ERR, "SSL_CTX_use_certificate_chain_file \"%s\" failed - aborted",
+                    lin + matches[1].rm_so);
+                exit(1);
+            }
+            if(SSL_CTX_use_PrivateKey_file(res->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1) {
+                logmsg(LOG_ERR, "SSL_CTX_use_PrivateKey_file \"%s\" failed - aborted",
+                    lin + matches[1].rm_so);
+                exit(1);
+            }
+            if(SSL_CTX_check_private_key(res->ctx) != 1) {
+                logmsg(LOG_ERR, "SSL_CTX_check_private_key \"%s\" failed - aborted",
+                    lin + matches[1].rm_so);
+                exit(1);
+            }
+            has_cert = 1;
+        } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
+            switch(atoi(lin + matches[1].rm_so)) {
+            case 0:
+                /* don't ask */
+                SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
+                break;
+            case 1:
+                /* ask but OK if no client certificate */
+                SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, NULL);
+                SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                break;
+            case 2:
+                /* ask and fail if no client certificate */
+                SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+                SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                break;
+            case 3:
+                /* ask but do not verify client certificate */
+                SSL_CTX_set_verify(res->ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_OK);
+                SSL_CTX_set_verify_depth(res->ctx, atoi(lin + matches[2].rm_so));
+                break;
+            }
+        } else if(!regexec(&AddHeader, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((res->ssl_head = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "AddHeader config: out of memory - aborted");
+                exit(1);
+            }
+        } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            SSL_CTX_set_cipher_list(res->ctx, lin + matches[1].rm_so);
+        } else if(!regexec(&CAlist, lin, 4, matches, 0)) {
+            STACK_OF(X509_NAME) *cert_names;
+
+            lin[matches[1].rm_eo] = '\0';
+            if((cert_names = SSL_load_client_CA_file(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "SSL_load_client_CA_file \"%s\" failed - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+            SSL_CTX_set_client_CA_list(res->ctx, cert_names);
+        } else if(!regexec(&VerifyList, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if(SSL_CTX_load_verify_locations(res->ctx, lin + matches[1].rm_so, NULL) != 1) {
+                logmsg(LOG_ERR, "SSL_CTX_load_verify_locations \"%s\" failed - aborted", lin + matches[1].rm_so);
+                exit(1);
+            }
+        } else if(!regexec(&NoHTTPS11, lin, 4, matches, 0)) {
+            res->noHTTPS11 = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Service, lin, 4, matches, 0)) {
+            if(res->services == NULL)
+                res->services = parse_service(f_conf);
+            else {
+                for(svc = res->services; svc->next; svc = svc->next)
+                    ;
+                svc->next = parse_service(f_conf);
+            }
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            X509_STORE  *store;
+
+            if(!has_addr || !has_port || !has_cert) {
+                logmsg(LOG_ERR, "ListenHTTPS missing Address, Port or Certificate - aborted");
+                exit(1);
+            }
+            SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
+            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            sprintf(lin, "%d-Pound-%l", getpid(), random());
+            SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
+            SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
+#if HAVE_X509_STORE_SET_FLAGS
+            /* add the CRL stuff */
+            if((store = SSL_CTX_get_cert_store(res->ctx)) != NULL)
+                X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
+            else
+                logmsg(LOG_WARNING, "SSL_CTX_get_cert_store failed!");
+#endif
+            return res;
+        } else {
+            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            exit(1);
+        }
+    }
+
+    logmsg(LOG_ERR, "ListenHTTPS premature EOF");
+    exit(1);
+    return NULL;
+}
+
+/*
+ * parse the config file
+ */
+void
+parse_file(FILE *f_conf)
+{
+    char        lin[MAXBUF];
+    SERVICE     *svc;
+    LISTENER    *lstn;
+    int         i;
+#if HAVE_OPENSSL_ENGINE_H
+    ENGINE      *e;
+#endif
+
+    while(fgets(lin, MAXBUF, f_conf)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
+            /* comment or empty line */
+            continue;
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
@@ -512,362 +991,146 @@ parse_file(char *fname)
             }
         } else if(!regexec(&RootJail, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if((root = strdup(lin + matches[1].rm_so)) == NULL) {
+            if((root_jail = strdup(lin + matches[1].rm_so)) == NULL) {
                 logmsg(LOG_ERR, "RootJail config: out of memory - aborted");
                 exit(1);
             }
-        } else if(!regexec(&CS_SEGMENT, lin, 4, matches, 0)) {
-            if(CS_segment != NULL) {
-                logmsg(LOG_ERR, "CSsegment config: multiple definition - aborted");
-                exit(1);
-            }
-            lin[matches[1].rm_eo] = '\0';
-            if((CS_segment = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CSsegment config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&CS_PARM, lin, 4, matches, 0)) {
-            if(CS_parm != NULL) {
-                logmsg(LOG_ERR, "CSparameter config: multiple definition - aborted");
-                exit(1);
-            }
-            lin[matches[1].rm_eo] = '\0';
-            if((CS_parm = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CSparameter config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&CS_QID, lin, 4, matches, 0)) {
-            if(CS_qid != NULL) {
-                logmsg(LOG_ERR, "CSqid config: multiple definition - aborted");
-                exit(1);
-            }
-            lin[matches[1].rm_eo] = '\0';
-            if((CS_qid = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CSqid config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&CS_QVAL, lin, 4, matches, 0)) {
-            if(CS_qval != NULL) {
-                logmsg(LOG_ERR, "CSqval config: multiple definition - aborted");
-                exit(1);
-            }
-            lin[matches[1].rm_eo] = '\0';
-            if((CS_qval = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CSqval config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&CS_FRAG, lin, 4, matches, 0)) {
-            if(CS_frag != NULL) {
-                logmsg(LOG_ERR, "CSfragment config: multiple definition - aborted");
-                exit(1);
-            }
-            lin[matches[1].rm_eo] = '\0';
-            if((CS_frag = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "CSfragment config: out of memory - aborted");
-                exit(1);
-            }
-        } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = '\0';
-            snprintf(pat, MAXBUF - 1, "%s:.*", lin + matches[1].rm_so);
-            if(regcomp(&head_off[n_head_off++], pat, REG_ICASE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", pat);
-                exit(1);
-            }
-        } else if(!regexec(&ExtendedHTTP, lin, 4, matches, 0)) {
-            allow_xtd = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&WebDAV, lin, 4, matches, 0)) {
-            allow_dav = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&NO11SSL, lin, 4, matches, 0)) {
-            no_https_11 = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
+            daemonize = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            for(k = 0; facilitynames[k].c_name; k++)
-                if(!strcmp(facilitynames[k].c_name, lin + matches[1].rm_so)) {
-                    log_facility = facilitynames[k].c_val;
+            for(i = 0; facilitynames[i].c_name; i++)
+                if(!strcmp(facilitynames[i].c_name, lin + matches[1].rm_so)) {
+                    log_facility = facilitynames[i].c_val;
                     break;
                 }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
             alive_to = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&Client, lin, 4, matches, 0)) {
-            clnt_to = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&Server, lin, 4, matches, 0)) {
-            server_to = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
-            max_req = atol(lin + matches[1].rm_so);
-        } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
-            check_URL = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&RewriteRedir, lin, 4, matches, 0)) {
-            rewrite_redir = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&NoDaemon, lin, 4, matches, 0)) {
-            daemonize = 0;
-        } else if(!regexec(&UrlGroup, lin, 4, matches, 0)) {
-            if(in_group) {
-                logmsg(LOG_ERR, "UrlGroup in UrlGroup - aborted");
-                exit(1);
-            }
-            in_group = 1;
-            if((groups[tot_groups] = (GROUP *)malloc(sizeof(GROUP))) == NULL) {
-                logmsg(LOG_ERR, "UrlGroup out of memory - aborted");
-                exit(1);
-            }
+#if HAVE_OPENSSL_ENGINE_H
+        } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if(regcomp(&groups[tot_groups]->url_pat, lin + matches[1].rm_so, REG_ICASE | REG_EXTENDED | REG_NOSUB)) {
-                logmsg(LOG_ERR, "UrlGroup bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+#if OPENSSL_VERSION_NUMBER >= 0x00907000L
+            ENGINE_load_builtin_engines();
+#endif
+            if (!(e = ENGINE_by_id(lin + matches[1].rm_so))) {
+                logmsg(LOG_ERR, "could not find %s engine", lin + matches[1].rm_so);
                 exit(1);
             }
-            pthread_mutex_init(&groups[tot_groups]->mut, NULL);
-            groups[tot_groups]->sessions = NULL;
-            groups[tot_groups]->tot_pri = 0;
-            groups[tot_groups]->sess_type = SessNONE;
-            groups[tot_groups]->sess_to = 300;
-            tot_req = tot_deny = j = 0;
-        } else if(in_group && !regexec(&BackEnd, lin, 4, matches, 0)) {
-            memset(&addr, 0, sizeof(addr));
-            memset(&alive_addr, 0, sizeof(addr));
-            addr.sin_family = AF_INET;
-            lin[matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
+            if(!ENGINE_init(e)) {
+                ENGINE_free(e);
+                logmsg(LOG_ERR, "could not init %s engine", lin + matches[1].rm_so);
                 exit(1);
             }
-            memcpy(&addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
-            addr.sin_port = (in_port_t)htons(atoi(lin + matches[2].rm_so));
-            for(k = atoi(lin + matches[3].rm_so); k > 0; k--, j++) {
-                be[j].addr = addr;
-                be[j].alive_addr = alive_addr;
-                be[j].alive = 1;
-            }
-        } else if(in_group && !regexec(&BackEndHA, lin, 5, matches, 0)) {
-            memset(&addr, 0, sizeof(addr));
-            addr.sin_family = AF_INET;
-            memset(&alive_addr, 0, sizeof(addr));
-            alive_addr.sin_family = AF_INET;
-            lin[matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
+            if(!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
+                ENGINE_free(e);
+                logmsg(LOG_ERR, "could not set all defaults");
                 exit(1);
             }
-            memcpy(&addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
-            memcpy(&alive_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(alive_addr.sin_addr.s_addr));
-            addr.sin_port = (in_port_t)htons(atoi(lin + matches[2].rm_so));
-            alive_addr.sin_port = (in_port_t)htons(atoi(lin + matches[4].rm_so));
-            for(k = atoi(lin + matches[3].rm_so); k > 0; k--, j++) {
-                be[j].addr = addr;
-                be[j].alive_addr = alive_addr;
-                be[j].alive = 1;
+            ENGINE_finish(e);
+            ENGINE_free(e);
+#endif
+        } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
+            if(listeners == NULL)
+                listeners = parse_HTTP(f_conf);
+            else {
+                for(lstn = listeners; lstn->next; lstn = lstn->next)
+                    ;
+                lstn->next = parse_HTTP(f_conf);
             }
-        } else if(in_group && !regexec(&SessionIP, lin, 4, matches, 0)) {
-            if(groups[tot_groups]->sess_type != SessNONE) {
-                logmsg(LOG_ERR, "Multiple Session types defined in a Group - aborted");
-                exit(1);
+        } else if(!regexec(&ListenHTTPS, lin, 4, matches, 0)) {
+            if(listeners == NULL)
+                listeners = parse_HTTPS(f_conf);
+            else {
+                for(lstn = listeners; lstn->next; lstn = lstn->next)
+                    ;
+                lstn->next = parse_HTTPS(f_conf);
             }
-            groups[tot_groups]->sess_type = SessIP;
-            if((groups[tot_groups]->sess_to = atoi(lin + matches[1].rm_so)) < 0)
-                logmsg(LOG_NOTICE, "sticky session activated for group %d", tot_groups);
-            else if(groups[tot_groups]->sess_to == 0)
-                logmsg(LOG_NOTICE, "session timeout 0 - no sessions kept for group %d", tot_groups);
-        } else if(in_group && !regexec(&SessionBASIC, lin, 4, matches, 0)) {
-            if(groups[tot_groups]->sess_type != SessNONE) {
-                logmsg(LOG_ERR, "Multiple Session types defined in a Group - aborted");
-                exit(1);
+        } else if(!regexec(&Service, lin, 4, matches, 0)) {
+            if(services == NULL)
+                services = parse_service(f_conf);
+            else {
+                for(svc = services; svc->next; svc = svc->next)
+                    ;
+                svc->next = parse_service(f_conf);
             }
-            groups[tot_groups]->sess_type = SessBASIC;
-            if((groups[tot_groups]->sess_to = atoi(lin + matches[1].rm_so)) < 0)
-                logmsg(LOG_NOTICE, "sticky session activated for group %d", tot_groups);
-            else if(groups[tot_groups]->sess_to == 0)
-                logmsg(LOG_NOTICE, "session timeout 0 - no sessions kept for group %d", tot_groups);
-            snprintf(pat, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
-            if(regcomp(&groups[tot_groups]->sess_pat, pat, REG_ICASE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "Session Basic bad pattern \"%s\" - aborted", pat);
-                exit(1);
-            }
-        } else if(in_group && !regexec(&SessionURL, lin, 4, matches, 0)) {
-            if(groups[tot_groups]->sess_type != SessNONE) {
-                logmsg(LOG_ERR, "Multiple Session types defined in a Group - aborted");
-                exit(1);
-            }
-            groups[tot_groups]->sess_type = SessURL;
-            lin[matches[1].rm_eo] = '\0';
-            snprintf(pat, MAXBUF - 1, "[?&]%s=([^&]*)", lin + matches[1].rm_so);
-            if(regcomp(&groups[tot_groups]->sess_pat, pat, REG_ICASE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "Session URL bad pattern \"%s\" - aborted", pat);
-                exit(1);
-            }
-            if((groups[tot_groups]->sess_to = atoi(lin + matches[2].rm_so)) <= 0)
-                logmsg(LOG_ERR, "no sticky session for Session URL - aborted");
-        } else if(in_group && !regexec(&SessionCOOKIE, lin, 4, matches, 0)) {
-            if(groups[tot_groups]->sess_type != SessNONE) {
-                logmsg(LOG_ERR, "Multiple Session types defined in a Group - aborted");
-                exit(1);
-            }
-            groups[tot_groups]->sess_type = SessCOOKIE;
-            lin[matches[1].rm_eo] = '\0';
-            /* this matches Cookie: ... as well as Set-cookie: ... */
-            snprintf(pat, MAXBUF - 1, "Cookie:.*[ \t]%s=([^;]*)", lin + matches[1].rm_so);
-            if(regcomp(&groups[tot_groups]->sess_pat, pat, REG_ICASE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "Session Cookie bad pattern \"%s\" - aborted", pat);
-                exit(1);
-            }
-            if((groups[tot_groups]->sess_to = atoi(lin + matches[2].rm_so)) <= 0)
-                logmsg(LOG_ERR, "no sticky session for Session Cookie - aborted");
-        } else if(in_group && !regexec(&HeadRequire, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = lin[matches[2].rm_eo] = '\0';
-            snprintf(pat, MAXBUF - 1, "^%s: *%s$", lin + matches[1].rm_so, lin + matches[2].rm_so);
-            if(regcomp(&req[tot_req++], pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadRequire %s bad pattern \"%s\" - aborted",
-                    lin + matches[1].rm_so, lin + matches[2].rm_so);
-                exit(1);
-            }
-        } else if(in_group && !regexec(&HeadDeny, lin, 4, matches, 0)) {
-            lin[matches[1].rm_eo] = lin[matches[2].rm_eo] = '\0';
-            snprintf(pat, MAXBUF - 1, "^%s: *%s$", lin + matches[1].rm_so, lin + matches[2].rm_so);
-            if(regcomp(&deny[tot_deny++], pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadDeny %s bad pattern \"%s\" - aborted",
-                    lin + matches[1].rm_so, lin + matches[2].rm_so);
-                exit(1);
-            }
-        } else if(in_group && !regexec(&EndGroup, lin, 4, matches, 0)) {
-            if((groups[tot_groups]->backend_addr = malloc(sizeof(BACKEND) * j)) == NULL) {
-                logmsg(LOG_ERR, "EndGroup out of memory - aborted");
-                exit(1);
-            }
-            for(k = 0; k < j; k++)
-                groups[tot_groups]->backend_addr[k] = be[k];
-            groups[tot_groups]->tot_pri = j;
-
-            if((groups[tot_groups]->n_req = tot_req) > 0) {
-                if((groups[tot_groups]->head_req = (regex_t *)malloc(sizeof(regex_t) * tot_req)) == NULL) {
-                    logmsg(LOG_ERR, "EndGroup head_req out of memory - aborted");
-                    exit(1);
-                }
-                while(--tot_req >= 0)
-                    groups[tot_groups]->head_req[tot_req] = req[tot_req];
-            } else
-                groups[tot_groups]->head_req = NULL;
-
-            if((groups[tot_groups]->n_deny = tot_deny) > 0) {
-                if((groups[tot_groups]->head_deny = (regex_t *)malloc(sizeof(regex_t) * tot_deny)) == NULL) {
-                    logmsg(LOG_ERR, "EndGroup head_deny out of memory - aborted");
-                    exit(1);
-                }
-                while(--tot_deny >= 0)
-                    groups[tot_groups]->head_deny[tot_deny] = deny[tot_deny];
-            } else
-                groups[tot_groups]->head_deny = NULL;
-
-            tot_groups++;
-            in_group = 0;
         } else {
             logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
             exit(1);
         }
     }
-
-    fclose(fconf);
-    free(be);
-    if(req)
-        free(req);
-    if(deny)
-        free(deny);
-    regfree(&Empty);
-    regfree(&Comment);
-    regfree(&ListenHTTP);
-    regfree(&ListenHTTPS);
-    regfree(&HTTPSHeaders);
-    regfree(&SSL_CAlist);
-    regfree(&SSL_Verifylist);
-#if HAVE_OPENSSL_ENGINE_H
-    regfree(&SSLEngine);
-#endif
-    regfree(&SessionIP);
-    regfree(&SessionURL);
-    regfree(&SessionCOOKIE);
-    regfree(&SessionBASIC);
-    regfree(&User);
-    regfree(&Group);
-    regfree(&RootJail);
-    regfree(&ExtendedHTTP);
-    regfree(&WebDAV);
-    regfree(&NO11SSL);
-    regfree(&LogFacility);
-    regfree(&LogLevel);
-    regfree(&Alive);
-    regfree(&Client);
-    regfree(&Server);
-    regfree(&UrlGroup);
-    regfree(&BackEnd);
-    regfree(&BackEndHA);
-    regfree(&EndGroup);
-    regfree(&Err500);
-    regfree(&Err501);
-    regfree(&Err503);
-    regfree(&Err414);
-    regfree(&CheckURL);
-    regfree(&CS_SEGMENT);
-    regfree(&CS_PARM);
-    regfree(&CS_QID);
-    regfree(&CS_QVAL);
-    regfree(&CS_FRAG);
-    regfree(&MaxRequest);
-    regfree(&HeadRemove);
-    regfree(&HeadRequire);
-    regfree(&HeadDeny);
-    regfree(&RewriteRedir);
-    regfree(&NoDaemon);
     return;
 }
 
-extern char *optarg;
-extern int  optind, opterr, optopt;
-
 /*
- * parse the arguments/config file
+ * prepare to parse the arguments/config file
  */
 void
 config_parse(int argc, char **argv)
 {
-    int c_opt, check_only;
     char    *conf_name;
+    FILE    *f_conf;
+    int     c_opt, check_only;
 
-    /* init values */
-    clnt_to = 10;
-    server_to = 0;
-    log_level = 1;
-    https_headers = 0;
-    https_header = NULL;
-    ssl_CAlst = NULL;
-    ssl_Verifylst = NULL;
-    ssl_vdepth = 1;
-    allow_xtd = 0;
-    allow_dav = 0;
-    no_https_11 = 2;
-    alive_to = 30;
-    max_req = 0L;
-    http = NULL;
-    https = NULL;
-    cert = NULL;
-#if HAVE_OPENSSL_ENGINE_H
-    ssl_engine = NULL;
-#endif
-    user = NULL;
-    groups = NULL;
-    root = NULL;
-    e500 = e501 = e503 = e414 = NULL;
-    CS_segment = CS_parm = CS_qid = CS_qval = CS_frag = NULL;
-    head_off = NULL;
-    check_URL = 0;
-    rewrite_redir = 1;
-    daemonize = 1;
-    log_facility = LOG_DAEMON;
+    if(regcomp(&Empty, "^[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Comment, "^[ \t]*#.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&User, "^[ \t]*User[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Group, "^[ \t]*Group[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-4])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Change30x, "^[ \t]*Change30x[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Priority, "^[ \t]*Priority[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HAportAddr, "^[ \t]*HAport[ \t]+([^ \t]+)[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Redirect, "^[ \t]*Redirect[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Session, "^[ \t]*Session[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+[1-9][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    ) {
+        logmsg(LOG_ERR, "bad config Regex - aborted");
+        exit(1);
+    }
 
     opterr = 0;
     check_only = 0;
     conf_name = F_CONF;
     pid_name = F_PID;
 
-    while((c_opt = getopt(argc, argv, "f:cvp:")) > 0)
+    while((c_opt = getopt(argc, argv, "f:cvVp:")) > 0)
         switch(c_opt) {
         case 'f':
             conf_name = optarg;
@@ -881,74 +1144,100 @@ config_parse(int argc, char **argv)
         case 'v':
             print_log = 1;
             break;
+        case 'V':
+            print_log = 1;
+            logmsg(LOG_DEBUG, "Version %s", VERSION);
+            logmsg(LOG_DEBUG, "Exiting...");
+            exit(0);
+            break;
         default:
             logmsg(LOG_ERR, "bad flag -%c", optopt);
             exit(1);
+            break;
         }
     if(optind < argc) {
         logmsg(LOG_ERR, "unknown extra arguments (%s...)", argv[optind]);
         exit(1);
     }
 
-    parse_file(conf_name);
+    if((f_conf = fopen(conf_name, "rt")) == NULL) {
+        logmsg(LOG_ERR, "can't open configuration file \"%s\" (%s) - aborted", conf_name, strerror(errno));
+        exit(1);
+    }
+
+    user = NULL;
+    group = NULL;
+    root_jail = NULL;
+
+    alive_to = 30;
+    daemonize = 1;
+    log_facility = LOG_DAEMON;
+    log_level = 1;
+
+    services = NULL;
+    listeners = NULL;
+
+    parse_file(f_conf);
+
+    fclose(f_conf);
+
     if(check_only) {
         logmsg(LOG_INFO, "Config file %s is OK", conf_name);
         exit(0);
     }
 
-    if(!http[0] && !https[0]) {
-        logmsg(LOG_ERR, "no HTTP and no HTTPS - aborted");
+    if(listeners == NULL) {
+        logmsg(LOG_ERR, "no listeners define - aborted");
         exit(1);
     }
-    if(user || group || root)
-        if(geteuid()) {
-            logmsg(LOG_ERR, "must be started as root - aborted");
-            exit(1);
-        }
-    if(groups[0] == NULL) {
-        logmsg(LOG_ERR, "no backend group(s) given - aborted");
-        exit(1);
-    }
-    if(e500 == NULL)
-        e500 = "An internal server error occurred. Please try again later.";
-    if(e501 == NULL)
-        e501 = "This method may not be used.";
-    if(e503 == NULL)
-        e503 = "The service is not available. Please try again later.";
-    if(e414 == NULL)
-        e414 = "Request URI is too long";
 
-#ifdef  UNSAFE
-    if(CS_segment == NULL)
-#ifdef  MSDAV
-        CS_segment = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-{}<>\"|\\^[]'";
-#else
-        CS_segment = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-{}|\\^[]'";
-#endif
-    if(CS_parm == NULL)
-        CS_parm = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-{}|\\^[]'";
-    if(CS_qid == NULL)
-        CS_qid = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-{}|\\^[]'";
-    if(CS_qval == NULL)
-        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-{}|\\^[]'+";
-    if(CS_frag == NULL)
-        CS_frag = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%{}|\\^[]'";
-#else
-    if(CS_segment == NULL)
-#ifdef  MSDAV
-        CS_segment = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-{}<>\"";
-#else
-        CS_segment = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-";
-#endif
-    if(CS_parm == NULL)
-        CS_parm = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'():@&=+$,%-";
-    if(CS_qid == NULL)
-        CS_qid = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-";
-    if(CS_qval == NULL)
-        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-+";
-    if(CS_frag == NULL)
-        CS_frag = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-";
-#endif
+    regfree(&Empty);
+    regfree(&Comment);
+    regfree(&User);
+    regfree(&Group);
+    regfree(&RootJail);
+    regfree(&Daemon);
+    regfree(&LogFacility);
+    regfree(&LogLevel);
+    regfree(&Alive);
+    regfree(&SSLEngine);
+    regfree(&ListenHTTP);
+    regfree(&ListenHTTPS);
+    regfree(&End);
+    regfree(&Address);
+    regfree(&Port);
+    regfree(&Cert);
+    regfree(&xHTTP);
+    regfree(&WebDAV);
+    regfree(&Client);
+    regfree(&CheckURL);
+    regfree(&Err414);
+    regfree(&Err500);
+    regfree(&Err501);
+    regfree(&Err503);
+    regfree(&MaxRequest);
+    regfree(&HeadRemove);
+    regfree(&Change30x);
+    regfree(&Service);
+    regfree(&URL);
+    regfree(&HeadRequire);
+    regfree(&HeadDeny);
+    regfree(&BackEnd);
+    regfree(&Priority);
+    regfree(&TimeOut);
+    regfree(&HAport);
+    regfree(&HAportAddr);
+    regfree(&Redirect);
+    regfree(&Session);
+    regfree(&Type);
+    regfree(&TTL);
+    regfree(&ID);
+    regfree(&ClientCert);
+    regfree(&AddHeader);
+    regfree(&Ciphers);
+    regfree(&CAlist);
+    regfree(&VerifyList);
+    regfree(&NoHTTPS11);
 
     return;
 }

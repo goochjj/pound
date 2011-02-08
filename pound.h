@@ -27,8 +27,21 @@
  */
 
 /*
- * $Id: pound.h,v 1.10 2006/02/01 11:19:54 roseg Rel $
+ * $Id: pound.h,v 2.0 2006/02/01 11:45:32 roseg Rel $
  * $Log: pound.h,v $
+ * Revision 2.0  2006/02/01 11:45:32  roseg
+ * Enhancements:
+ *   - new configuration file syntax, offering significant improvements.
+ *   - the ability to define listener-specific back-ends. In most cases this
+ *     should eliminate the need for multiple Pound instances.
+ *   - a new type of back-end: the redirector allows you to respond with a
+ *     redirect without involving any back-end server.
+ *   - most "secondary" properties (such as error messages, client time-out,
+ *     etc.) are now private to listeners.
+ *   - HAport has an optional address, different from the main back-end
+ *   - added a -V flag for version
+ *   - session keeping on a specific Header
+ *
  * Revision 1.10  2006/02/01 11:19:54  roseg
  * Enhancements:
  *   added NoDaemon configuration directive (replaces compile-time switch)
@@ -234,106 +247,16 @@
  * Global variables needed by everybody
  */
 
-extern int  clnt_to;            /* client timeout */
-extern int  server_to;          /* server timeout */
-extern int  log_level;          /* logging mode - 0, 1, 2 */
-extern int  https_headers;      /* add HTTPS-specific headers */
-extern char *https_header;      /* HTTPS-specific header to add */
-extern char *ssl_CAlst;         /* CA certificate list (path to file) */
-extern char *ssl_Verifylst;     /* Verify (path to file) */
-extern int  ssl_vdepth;         /* max verification depth */
-extern int  allow_xtd;          /* allow extended HTTP - PUT, DELETE */
-extern int  allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
-extern int  no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
-extern int  alive_to;           /* check interval for resurrection */
-extern long max_req;            /* maximal allowed request size */
-extern char **http,             /* HTTP port to listen on */
-            **https,            /* HTTPS port to listen on */
-            **cert,             /* certificate file */
-            **ciphers,          /* cipher type */
-#if HAVE_OPENSSL_ENGINE_H
-            *ssl_engine,        /* OpenSSL engine */
-#endif
-            *user,              /* user to run as */
+extern char *user,              /* user to run as */
             *group,             /* group to run as */
-            *root,              /* directory to chroot to */
-            *CS_segment,        /* character set of path segment */
-            *CS_parm,           /* character set of path parameter */
-            *CS_qid,            /* character set of query id */
-            *CS_qval,           /* character set of query value */
-            *CS_frag;           /* character set of fragment */
-extern int  check_URL;          /* check URL for correct syntax */
-extern int  rewrite_redir;      /* rewrite redirection responses */
-extern int  daemonize;          /* run as daemon */
-extern int  print_log;          /* print log messages to stdout/stderr */
-extern char *pid_name;          /* file to record pid in */
-extern int  log_facility;       /* log facility to use */
+            *root_jail,         /* directory to chroot to */
+            *pid_name;          /* file to record pid in */
 
-extern regex_t  *head_off;          /* headers to remove */
-extern int      n_head_off;         /* how many of them */
-
-#define MAXBUF      2048
-#define MAXHEADERS  128
-#define MAXCHAIN    8
-#define GLOB_SESS   15
-
-#ifndef F_CONF
-#define F_CONF  "/usr/local/etc/pound.cfg"
-#endif
-
-#ifndef F_PID
-#define F_PID  "/var/run/pound.pid"
-#endif
-
-#define SERVER_TO   (server_to > 0? server_to: 5)
-
-/* Backend definition */
-typedef struct {
-    struct sockaddr_in  addr;       /* address */
-    struct sockaddr_in  alive_addr; /* address for viability port */
-    int                 alive;      /* alive check interval */
-}   BACKEND;
-
-/* session key max size */
-#define KEY_SIZE    63
-
-/* Session definition */
-typedef struct _sess {
-    char    key[KEY_SIZE + 1];  /* session key */
-    int     to_host;            /* backend index */
-    time_t  last_acc;           /* time of last access */
-    int     children;           /* number of children */
-    struct _sess    *left, *right;
-}   SESS;
-
-#define n_children(S)   ((S)? (S)->children: 0)
-
-typedef enum    { SessNONE, SessIP, SessURL, SessCOOKIE, SessBASIC } SESS_TYPE;
-
-/* URL group definition */
-typedef struct _group {
-    regex_t         url_pat;            /* pattern to match the URL against */
-    regex_t         *head_req;          /* patterns to match the headers against - mandatory */
-    int             n_req;              /* how many of them */
-    regex_t         *head_deny;         /* patterns to match the headers against - disallowed */
-    int             n_deny;             /* how many of them */
-    BACKEND         *backend_addr;      /* array of backend servers */
-    int             tot_pri;            /* total number of backend servers */
-    SESS_TYPE       sess_type;          /* session type: IP, URL or COOKIE */
-    regex_t         sess_pat;           /* pattern to match the session id */
-    int             sess_to;            /* session timeout */
-    pthread_mutex_t mut;                /* group mutex */
-    SESS            *sessions;          /* session tree root */
-}   GROUP;
-
-extern GROUP    **groups;
-
-typedef struct  {
-    int                 sock;
-    struct in_addr      from_host;
-    struct sockaddr_in  to_host;
-    SSL                 *ssl;
-}   thr_arg;                        /* argument to processing threads: socket, origin */
+extern int  alive_to,           /* check interval for resurrection */
+            daemonize,          /* run as daemon */
+            log_facility,       /* log facility to use */
+            log_level,          /* logging mode - 0, 1, 2 */
+            print_log;          /* print log messages to stdout/stderr */
 
 extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 XHTTP,      /* extended HTTP requests: PUT, DELETE */
@@ -347,10 +270,101 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 LOCATION,   /* the host we are redirected to */
                 AUTHORIZATION;  /* the Authorisation header */
 
-extern char *e500,  /* default error 500 page contents */
-            *e501,  /* default error 501 page contents */
-            *e503,  /* default error 503 page contents */
-            *e414;  /* default error 414 page contents */
+#define MAXBUF      2048
+#define MAXHEADERS  128
+
+#ifndef F_CONF
+#define F_CONF  "/usr/local/etc/pound.cfg"
+#endif
+
+#ifndef F_PID
+#define F_PID  "/var/run/pound.pid"
+#endif
+
+/* matcher chain */
+typedef struct _matcher {
+    regex_t             pat;        /* pattern to match the request/header against */
+    struct _matcher     *next;
+}   MATCHER;
+
+/* back-end types */
+typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
+typedef enum    { S_NONE, S_IP, S_COOKIE, S_PARM, S_HEADER, S_BASIC }   SESS_TYPE;
+
+/* back-end definition */
+typedef struct _backend {
+    BE_TYPE             be_type;
+    struct sockaddr_in  addr;       /* address */
+    int                 priority;   /* priority */
+    int                 to;
+    struct sockaddr_in  HA;         /* HAport */
+    char                *url;       /* for redirectors */
+    int                 alive;
+    struct _backend     *next;
+}   BACKEND;
+
+/* session key max size */
+#define KEY_SIZE    63
+
+/* Session definition */
+typedef struct _sess {
+    char                key[KEY_SIZE + 1];  /* session key */
+    BACKEND             *to_host;           /* backend pointer */
+    time_t              last_acc;           /* time of last access */
+    int                 children;           /* number of children */
+    struct _sess        *left, *right;
+}   SESS;
+
+#define n_children(S)   ((S)? (S)->children: 0)
+
+/* service definition */
+typedef struct _service {
+    MATCHER             *url,       /* request matcher */
+                        *req_head,  /* required headers */
+                        *deny_head; /* forbidden headers */
+    BACKEND             *backends;
+    int                 tot_pri;    /* total priority for all back-ends */
+    pthread_mutex_t     mut;        /* mutex for this service */
+    SESS_TYPE           sess_type;
+    int                 sess_ttl;   /* session time-to-live */
+    regex_t             sess_pat;   /* pattern to match the session data */
+    char                *sess_parm; /* session cookie or parameter */
+    SESS                *sessions;  /* currently active sessions */
+    struct _service     *next;
+}   SERVICE;
+
+extern SERVICE          *services;  /* global services (if any) */
+
+/* Listener definition */
+typedef struct _listener {
+    struct sockaddr_in  addr;       /* address */
+    int                 sock;       /* listening socket */
+    SSL_CTX             *ctx;       /* CTX for SSL connections */
+    int                 clnt_check; /* client verification mode */
+    int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
+    char                *ssl_head;  /* extra SSL header */
+    int                 xHTTP;      /* allow extended HTTP */
+    int                 webDAV;     /* allow DAV */
+    int                 to;         /* client time-out */
+    regex_t             url_pat;    /* pattern to match the request against */
+    char                *err414,    /* error messages */
+                        *err500,
+                        *err501,
+                        *err503;
+    long                max_req;    /* max. request size */
+    MATCHER             *head_off;  /* headers to remove */
+    int                 change30x;  /* rewrite redirect response */
+    SERVICE             *services;
+    struct _listener    *next;
+}   LISTENER;
+
+extern LISTENER         *listeners; /* all available listeners */
+
+typedef struct  {
+    int                 sock;
+    LISTENER            *lstn;
+    struct in_addr      from_host;
+}   thr_arg;                        /* argument to processing threads: socket, origin */
 
 /* Header types */
 #define HEADER_ILLEGAL              -1
@@ -384,52 +398,43 @@ extern void *thr_http(void *);
 extern void logmsg(int priority, char *fmt, ...);
 
 /*
+ * Find the right service for a request
+ */
+extern SERVICE  *get_service(LISTENER *, char *, char **);
+
+/*
+ * Find the right back-end for a request
+ */
+extern BACKEND  *get_backend(SERVICE *, struct in_addr, char *, char **);
+
+/*
+ * Find if a redirect needs rewriting
+ * In general we have two possibilities that require it:
+ * (1) if the redirect was done to the correct location with the wrong protocol
+ * (2) if the redirect was done to the back-end rather than the listener
+ */
+extern int  need_rewrite(char *, char *, LISTENER *, BACKEND *);
+/*
+ * (for cookies only) possibly create session based on response headers
+ */
+extern void upd_session(SERVICE *, char **, BACKEND *);
+
+/*
  * Parse a header
  */
 extern int  check_header(char *, char *);
 
 /*
- * Find the required group for a given URL
- */
-extern GROUP *get_grp(char *, char **);
-
-/*
- * Find the host to connect to
- */
-extern struct sockaddr_in *get_be(GROUP *, struct in_addr, char *, char **);
-
-/*
- * (for cookies only) possibly create session based on response headers
- */
-extern void upd_session(GROUP *, char **, struct sockaddr_in  *);
-
-/*
  * mark a backend host as dead;
  * do nothing if no resurection code is active
  */
-extern void kill_be(struct sockaddr_in *);
-
-/*
- * Find if a host is in our list of back-ends
- */
-extern int is_be(char *, struct sockaddr_in *, char *, char *, GROUP *);
-
-/*
- * Add explicit port number (if required)
- */
-extern char *add_port(char *, struct sockaddr_in *);
+extern void kill_be(SERVICE *, BACKEND *);
 
 /*
  * Non-blocking version of connect(2). Does the same as connect(2) but
  * ensures it will time-out after a much shorter time period CONN_TO.
  */
-extern int  connect_nb(int, struct sockaddr *, socklen_t);
-
-/*
- * Prune the expired sessions and dead hosts from the table;
- * runs every session_to seconds (if needed)
- */
-extern void *thr_prune(void *);
+extern int  connect_nb(int, struct sockaddr *, socklen_t, int);
 
 /*
  * Check if dead hosts returned to life;
@@ -446,7 +451,9 @@ extern void config_parse(int, char **);
  * RSA ephemeral keys: how many and how often
  */
 #define N_RSA_KEYS  11
+#ifndef T_RSA_KEYS
 #define T_RSA_KEYS  300
+#endif
 
 /*
  * return a pre-generated RSA key

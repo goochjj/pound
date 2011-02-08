@@ -26,10 +26,23 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.10 2006/02/01 11:19:54 roseg Rel $";
+static char *rcs_id = "$Id: svc.c,v 2.0 2006/02/01 11:45:31 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 2.0  2006/02/01 11:45:31  roseg
+ * Enhancements:
+ *   - new configuration file syntax, offering significant improvements.
+ *   - the ability to define listener-specific back-ends. In most cases this
+ *     should eliminate the need for multiple Pound instances.
+ *   - a new type of back-end: the redirector allows you to respond with a
+ *     redirect without involving any back-end server.
+ *   - most "secondary" properties (such as error messages, client time-out,
+ *     etc.) are now private to listeners.
+ *   - HAport has an optional address, different from the main back-end
+ *   - added a -V flag for version
+ *   - session keeping on a specific Header
+ *
  * Revision 1.10  2006/02/01 11:19:54  roseg
  * Enhancements:
  *   added NoDaemon configuration directive (replaces compile-time switch)
@@ -331,7 +344,7 @@ sess_find(SESS *root, char *key)
  * Add a new session
  */
 static SESS *
-sess_add(SESS *root, char *key, int to_host)
+sess_add(SESS *root, char *key, BACKEND *to_host)
 {
     int cmp;
 
@@ -409,7 +422,7 @@ sess_clean(SESS *root, time_t lim)
  * Clean dead back-ends
  */
 static SESS *
-sess_dead(SESS *root, int be)
+sess_dead(SESS *root, BACKEND *be)
 {
     if(root == NULL)
         return NULL;
@@ -458,157 +471,174 @@ sess_balance(SESS *root)
     return root;
 }
 
-/*
- * Find the required group for a given URL and header set
- */
-GROUP *
-get_grp(char *url, char **headers)
+static int
+match_service(SERVICE *svc, char *request, char **headers)
 {
-    int n, i, j, found;
+    MATCHER *m;
+    int     i, found;
 
-    for(n = 0; groups[n] != NULL; n++) {
-        /* URL */
-        if(regexec(&groups[n]->url_pat, url, 0, NULL, 0))
-            continue;
-        /* required headers */
-        for(found = 1, i = 0; found && i < groups[n]->n_req; i++)
-        for(found = j = 0; !found && j < (MAXHEADERS - 1) && headers[j]; j++)
-            if(!regexec(&groups[n]->head_req[i], headers[j], 0, NULL, 0))
+    /* check for request */
+    for(m = svc->url; m; m = m->next)
+        if(regexec(&m->pat, request, 0, NULL, 0))
+            return 0;
+
+    /* check for required headers */
+    for(m = svc->req_head; m; m = m->next) {
+        for(found = i = 0; i < MAXHEADERS && !found; i++)
+            if(headers[i] && !regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(!found)
-            continue;
-        /* disallowed headers */
-        for(found = 0, i = 0; !found && i < groups[n]->n_deny; i++)
-        for(found = j = 0; !found && j < (MAXHEADERS - 1) && headers[j]; j++)
-            if(!regexec(&groups[n]->head_deny[i], headers[j], 0, NULL, 0))
+            return 0;
+    }
+
+    /* check for forbidden headers */
+    for(m = svc->deny_head; m; m = m->next) {
+        for(found = i = 0; i < MAXHEADERS && !found; i++)
+            if(headers[i] && !regexec(&m->pat, headers[i], 0, NULL, 0))
                 found = 1;
         if(found)
-            continue;
-        break;
+            return 0;
     }
-    return groups[n];
+
+    return 1;
 }
 
 /*
- * extract the session key for a given request (IP, URL, Headers)
+ * Find the right service for a request
  */
-static char *
-get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
+SERVICE *
+get_service(LISTENER *lstn, char *request, char **headers)
 {
-    static char res_val[KEY_SIZE + 1];
-    char        *res;
+    SERVICE *svc;
+
+    for(svc = lstn->services; svc; svc = svc->next)
+        if(match_service(svc, request, headers))
+            return svc;
+
+    /* try global services */
+    for(svc = services; svc; svc = svc->next)
+        if(match_service(svc, request, headers))
+            return svc;
+
+    /* nothing matched */
+    return NULL;
+}
+
+/*
+ * extract the session key for a given request
+ */
+static int
+get_REQUEST(char *res, SERVICE *svc, char *request)
+{
+    int         n;
     regmatch_t  matches[4];
-    int         i, n;
 
-    switch(g->sess_type) {
-    case SessNONE:
-        res = NULL;
-        break;
-    case SessIP:
-        res = inet_ntoa(from_host);
-        break;
-    case SessURL:
-        if(!regexec(&g->sess_pat, url, 4, matches, 0)) {
-            if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
-                n = KEY_SIZE;
-            strncpy(res_val, url + matches[1].rm_so, n);
-            res_val[n] = '\0';
-            res = res_val;
-        } else
-            res = NULL;
-        break;
-    case SessCOOKIE:
-    case SessBASIC:
-        for(i = 0; headers[i]; i++) {
-            if(regexec(&g->sess_pat, headers[i], 4, matches, 0))
-                continue;
-            if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
-                n = KEY_SIZE;
-            strncpy(res_val, headers[i] + matches[1].rm_so, n);
-            res_val[n] = '\0';
-            res = res_val;
-            break;
-        }
-        if(headers[i] == NULL)
-            res = NULL;
-        break;
-    default:
-        logmsg(LOG_WARNING, "Unknown session type %d", g->sess_type);
-        res = NULL;
+    if(regexec(&svc->sess_pat, request, 4, matches, 0)) {
+        res[0] = '\0';
+        return 0;
     }
-    return res;
+    if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
+        n = KEY_SIZE;
+    strncpy(res, request + matches[1].rm_so, n);
+    res[n] = '\0';
+    return 1;
+}
+
+static int
+get_HEADERS(char *res, SERVICE *svc, char **headers)
+{
+    int         i, n;
+    regmatch_t  matches[4];
+
+    /* this will match S_COOKIE, S_HEADER and S_BASIC */
+    for(i = 0; headers[i]; i++) {
+        if(regexec(&svc->sess_pat, headers[i], 4, matches, 0))
+            continue;
+        if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
+            n = KEY_SIZE;
+        strncpy(res, headers[i] + matches[1].rm_so, n);
+        res[n] = '\0';
+        return 1;
+    }
+    res[0] = '\0';
+    return 0;
 }
 
 /*
- * Find the host to connect to
+ * Pick a random back-end from a candidate list
  */
-struct sockaddr_in *
-get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
+static BACKEND *
+rand_backend(BACKEND *be, int pri)
 {
-    struct sockaddr_in  *res;
-    SESS                *sp;
-    int                 n, orig;
-    char                *key;
+    while(be) {
+        if(!be->alive) {
+            be = be->next;
+            continue;
+        }
+        if((pri -= be->priority) < 0)
+            break;
+        be = be->next;
+    }
+    return be;
+}
 
-    if(g == NULL)
-        return NULL;
+/*
+ * Find the right back-end for a request
+ */
+BACKEND *
+get_backend(SERVICE *svc, struct in_addr from_host, char *request, char **headers)
+{
+    BACKEND     *res;
+    SESS        *sp;
+    char        key[KEY_SIZE + 1];
+    in_addr_t   addr;
+    int         pri;
 
     /* blocked */
-    if(g->tot_pri == 0)
+    if(svc->tot_pri <= 0)
         return NULL;
 
-    pthread_mutex_lock(&g->mut);
-    key = get_key(g, from_host, url, headers);
-    if(key != NULL && g->sess_to > 0) {
-        /* check for session, add it if necessary */
-        if((sp = sess_find(g->sessions, key)) == NULL) {
-            /* no session yet - create one */
-            orig = n = rand() % g->tot_pri;
-            while(!g->backend_addr[n].alive) {
-                n = (n + 1) % g->tot_pri;
-                if(n == orig)
-                    break;
-            }
-            if(g->backend_addr[n].alive) {
-                g->sessions = sess_add(g->sessions, key, n);
-                res = &(g->backend_addr[n].addr);
+    pthread_mutex_lock(&svc->mut);
+    switch(svc->sess_type) {
+    case S_NONE:
+        /* choose one back-end randomly */
+        res = rand_backend(svc->backends, random() % svc->tot_pri);
+        break;
+    case S_IP:
+        /* "sticky" mappings */
+        addr = from_host.s_addr;
+        pri = 0;
+        while(addr) {
+            pri = (pri << 3) ^ (addr & 0xff);
+            addr = (addr >> 8);
+        }
+        res = rand_backend(svc->backends, (addr & 0xffff) % svc->tot_pri);
+        break;
+    case S_PARM:
+        if(get_REQUEST(key, svc, request)) {
+            if((sp = sess_find(svc->sessions, key)) == NULL) {
+                /* no session yet - create one */
+                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                svc->sessions = sess_add(svc->sessions, key, res);
             } else
-                res = NULL;
-        } else {
-            /* session found */
-            if(g->backend_addr[sp->to_host].alive) {
-                sp->last_acc = time(NULL);
-                res = &(g->backend_addr[sp->to_host].addr);
+                res = sp->to_host;
+        }
+        break;
+    default:
+        /* this works for S_BASIC, S_HEADER and S_COOKIE */
+        if(get_HEADERS(key, svc, headers)) {
+            if((sp = sess_find(svc->sessions, key)) == NULL) {
+                /* no session yet - create one */
+                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                svc->sessions = sess_add(svc->sessions, key, res);
             } else
-                res = NULL;
-        }
-    } else {
-        if(g->sess_to < 0) {
-            /* "sticky" mappings */
-            in_addr_t   t;
-
-            t = from_host.s_addr;
-            orig = 0;
-            while(t) {
-                orig = (orig << 3) ^ (t & 0xff);
-                t = (t >> 8);
-            }
-            orig = n = (orig & 0xffff) % g->tot_pri;
+                res = sp->to_host;
         } else {
-            /* just choose a random backend */
-            orig = n = rand() % g->tot_pri;
+            res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
-        while(!g->backend_addr[n].alive) {
-            n = (n + 1) % g->tot_pri;
-            if(n == orig)
-                break;
-        }
-        if(g->backend_addr[n].alive)
-            res = &(g->backend_addr[n].addr);
-        else
-            res = NULL;
+        break;
     }
-    pthread_mutex_unlock(&g->mut);
+    pthread_mutex_unlock(&svc->mut);
 
     return res;
 }
@@ -617,132 +647,75 @@ get_be(GROUP *g, struct in_addr from_host, char *url, char **headers)
  * (for cookies only) possibly create session based on response headers
  */
 void
-upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
+upd_session(SERVICE *svc, char **headers, BACKEND *be)
 {
-    struct in_addr  dummy;
-    char            *key;
-    int             n;
+    char            key[KEY_SIZE + 1];
 
-    pthread_mutex_lock(&g->mut);
-    memset(&dummy, 0, sizeof(dummy));
-    if(g->sess_type != SessCOOKIE || (key = get_key(g, dummy, "", headers)) == NULL) {
-        pthread_mutex_unlock(&g->mut);
-        return;
-    }
-    /* probably found a Set-cookie, so we may have to create a session here */
-    if(sess_find(g->sessions, key) == NULL) {
-        /* no session yet - create one */
-        for(n = 0; n < g->tot_pri; n++)
-            if(srv == &(g->backend_addr[n].addr))
-                break;
-        if(n >= g->tot_pri) {
-            logmsg(LOG_WARNING, "upd_session - unknown backend server %s:%hd",
-                inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
-            pthread_mutex_unlock(&g->mut);
-            return;
-        }
-        g->sessions = sess_add(g->sessions, key, n);
-    }
-    pthread_mutex_unlock(&g->mut);
+    pthread_mutex_lock(&svc->mut);
+    if(get_HEADERS(key, svc, headers))
+        if(sess_find(svc->sessions, key) == NULL)
+            svc->sessions = sess_add(svc->sessions, key, be);
+    pthread_mutex_unlock(&svc->mut);
     return;
 }
 
 /*
- * mark a backend host as dead;
- * do nothing if no resurection code is active
+ * mark a backend host as dead; remove its sessions
  */
 void
-kill_be(struct sockaddr_in *be)
+kill_be(SERVICE *svc, BACKEND *be)
 {
-    int     i, n;
-    GROUP   *g;
+    BACKEND *b;
 
-    if(alive_to <= 0)
-        return;
-    for(n = 0; (g = groups[n]) != NULL; n++) {
-        pthread_mutex_lock(&g->mut);
-        for(i = 0; i < g->tot_pri; i++)
-            if(memcmp(&(g->backend_addr[i].addr), be, sizeof(*be)) == 0) {
-                g->backend_addr[i].alive = 0;
-                g->sessions = sess_dead(g->sessions, i);
-            }
-        pthread_mutex_unlock(&g->mut);
+    pthread_mutex_lock(&svc->mut);
+    svc->tot_pri = 0;
+    for(b = svc->backends; b; b = b->next) {
+        if(b == be)
+            b->alive = 0;
+        if(b->alive)
+            svc->tot_pri += b->priority;
     }
+    sess_dead(svc->sessions, be);
+    pthread_mutex_unlock(&svc->mut);
     return;
 }
 
 /*
- * Find if a host is in our list of back-ends
+ * Find if a redirect needs rewriting
+ * In general we have two possibilities that require it:
+ * (1) if the redirect was done to the correct location with the wrong protocol
+ * (2) if the redirect was done to the back-end rather than the listener
  */
 int
-is_be(char *location, struct sockaddr_in *to_host, char *v_hostport, char *path, GROUP *grp)
+need_rewrite(char *location, char *path, LISTENER *lstn, BACKEND *be)
 {
-    int     i, n;
-    GROUP   *g;
     struct sockaddr_in  addr;
     struct hostent      *he;
     regmatch_t          matches[4];
-    char                *proto, *host, *port, *v_host, *v_port;
+    char                *host, *cp;
 
     /* split the location into its fields */
     if(regexec(&LOCATION, location, 4, matches, 0))
         return 0;
-    proto = location + matches[1].rm_so;
     host = location + matches[2].rm_so;
     strcpy(path, location + matches[3].rm_so);
     location[matches[1].rm_eo] = location[matches[2].rm_eo] = '\0';
-    if((port = strchr(host, ':')) != NULL)
-        *port++ = '\0';
+    if((cp = strchr(host, ':')) != NULL)
+        *cp = '\0';
 
     /*
-     * rewrite if hostname in Host: and Location: are the same
-     * applies only if RewriteRedir is 2
+     * Check if the location has the same address as the listener or the back-end
      */
-    if(rewrite_redir == 2 && (v_host = strdup(v_hostport)) != NULL) {
-        if ((v_port = strchr(v_host, ':')) != NULL)
-            *v_port++ = '\0';
-        if(strcmp(host, v_host) == 0) {
-            free(v_host);
-            return 1;
-        }
-        free(v_host);
-    }
-
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     if((he = gethostbyname(host)) == NULL || he->h_addr_list[0] == NULL)
         return 0;
     memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
-    if(port != NULL)
-        addr.sin_port = (in_port_t)htons(atoi(port));
-    else if(strncmp(proto, "https", 5) == 0)
-        addr.sin_port = (in_port_t)htons(443);
-    else
-        addr.sin_port = (in_port_t)htons(80);
-
-    if(memcmp(&to_host->sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
-    && memcmp(&to_host->sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
+    if(memcmp(&lstn->addr.sin_addr.s_addr, &addr.sin_addr.s_addr, sizeof(addr.sin_addr.s_addr)) == 0
+    || memcmp(&be->addr.sin_addr.s_addr, &addr.sin_addr.s_addr, sizeof(addr.sin_addr.s_addr)) == 0)
         return 1;
-    for(i = 0; i < grp->tot_pri; i++)
-        if(memcmp(&grp->backend_addr[i].addr.sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
-        && memcmp(&grp->backend_addr[i].addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
-            return 1;
+
     return 0;
-}
-
-/*
- * Add explicit port number (if required)
- */
-char *
-add_port(char *host, struct sockaddr_in *to_host)
-{
-    char    res[MAXBUF];
-
-    if(strchr(host, ':') != NULL)
-        /* the host already contains a port */
-        return NULL;
-    snprintf(res, MAXBUF - 1, "Host: %s:%hd", host, ntohs(to_host->sin_port));
-    return strdup(res);
 }
 
 /*
@@ -750,7 +723,7 @@ add_port(char *host, struct sockaddr_in *to_host)
  * it will time-out after a much shorter time period SERVER_TO
  */
 int
-connect_nb(int sockfd, struct sockaddr *serv_addr, socklen_t addrlen)
+connect_nb(int sockfd, struct sockaddr *serv_addr, socklen_t addrlen, int to)
 {
     int             flags, res, error;
     socklen_t       len;
@@ -782,7 +755,7 @@ connect_nb(int sockfd, struct sockaddr *serv_addr, socklen_t addrlen)
     memset(&p, 0, sizeof(p));
     p.fd = sockfd;
     p.events = POLLOUT;
-    if((res = poll(&p, 1, SERVER_TO * 1000)) != 1) {
+    if((res = poll(&p, 1, to * 1000)) != 1) {
         if(res == 0) {
             /* timeout */
             errno = ETIMEDOUT;
@@ -814,92 +787,140 @@ connect_nb(int sockfd, struct sockaddr *serv_addr, socklen_t addrlen)
 }
 
 /*
- * Prune the expired sessions and dead hosts from the table;
- * runs every session_to seconds (if needed)
- */
-void *
-thr_prune(void *arg)
-{
-    int     i;
-    GROUP   *g;
-
-    for(;;) {
-        sleep(GLOB_SESS);
-        for(i = 0; (g = groups[i]) != NULL; i++)
-            if(g->sess_to > 0) {
-                pthread_mutex_lock(&g->mut);
-                g->sessions = sess_clean(g->sessions, time(NULL) - g->sess_to);
-                g->sessions = sess_balance(g->sessions);
-                pthread_mutex_unlock(&g->mut);
-            }
-    }
-}
-
-/*
  * Check if dead hosts returned to life;
- * runs every alive_to seconds (if enabled)
+ * runs every alive seconds
  */
 void *
 thr_resurect(void *arg)
 {
-    GROUP   *g;
-    int     i, j, n, sock;
+    LISTENER    *lstn;
+    SERVICE     *svc;
+    BACKEND     *be;
     struct  sockaddr_in  addr, z_addr;
-    time_t  last_time, cur_time;
+    time_t      last_time, cur_time;
+    int         n, sock;
 
-    if(alive_to <= 0)
-        pthread_exit(NULL);
     for(last_time = time(NULL);;) {
         cur_time = time(NULL);
         if((n = alive_to - (cur_time - last_time)) > 0)
             sleep(n);
         last_time = time(NULL);
-        /* check hosts still alive */
-        memset(&z_addr, 0, sizeof(z_addr));
-        for(n = 0; (g = groups[n]) != NULL; n++) {
-            for(i = 0; i < g->tot_pri; i++) {
-                if(!g->backend_addr[i].alive)
-                    /* already dead */
-                    continue;
-                if(memcmp(&(g->backend_addr[i].alive_addr), &z_addr, sizeof(z_addr)) == 0)
-                    /* no HA port */
-                    continue;
-                /* try connecting */
-                if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-                    continue;
-                addr = g->backend_addr[i].alive_addr;
-                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0) {
-                    kill_be(&g->backend_addr[i].addr);
-                    logmsg(LOG_ERR,"BackEnd %s is dead", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-                }
-                shutdown(sock, 2);
-                close(sock);
+
+        /* remove stale sessions */
+        for(lstn = listeners; lstn; lstn = lstn->next)
+        for(svc = lstn->services; svc; svc = svc->next)
+            if(svc->sess_type != S_NONE) {
+                pthread_mutex_lock(&svc->mut);
+                svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
+                svc->sessions = sess_balance(svc->sessions);
+                pthread_mutex_unlock(&svc->mut);
             }
+        for(svc = services; svc; svc = svc->next)
+            if(svc->sess_type != S_NONE) {
+                pthread_mutex_lock(&svc->mut);
+                svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
+                svc->sessions = sess_balance(svc->sessions);
+                pthread_mutex_unlock(&svc->mut);
+            }
+
+        /* check hosts still alive - HAport */
+        memset(&z_addr, 0, sizeof(z_addr));
+        for(lstn = listeners; lstn; lstn = lstn->next)
+        for(svc = lstn->services; svc; svc = svc->next)
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END)
+                continue;
+            if(!be->alive)
+                /* already dead */
+                continue;
+            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                /* no HA port */
+                continue;
+            /* try connecting */
+            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+                continue;
+            if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
+                kill_be(svc, be);
+                logmsg(LOG_ERR,"BackEnd %s:%hd is dead (HA)", inet_ntoa(be->HA.sin_addr), ntohs(be->HA.sin_port));
+            }
+            shutdown(sock, 2);
+            close(sock);
+        }
+        for(svc = services; svc; svc = svc->next)
+        for(be = svc->backends; be; be = be->next) {
+            if(be->be_type != BACK_END)
+                continue;
+            if(!be->alive)
+                /* already dead */
+                continue;
+            if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                /* no HA port */
+                continue;
+            /* try connecting */
+            if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+                continue;
+            if(connect_nb(sock, (struct sockaddr *)&be->HA, (socklen_t)sizeof(be->HA), be->to) != 0) {
+                kill_be(svc, be);
+                logmsg(LOG_ERR,"BackEnd %s:%hd is dead (HA)", inet_ntoa(be->HA.sin_addr), ntohs(be->HA.sin_port));
+            }
+            shutdown(sock, 2);
+            close(sock);
         }
         /* check hosts alive again */
-        for(n = 0; (g = groups[n]) != NULL; n++) {
-            for(i = 0; i < g->tot_pri; i++) {
-                if(g->backend_addr[i].alive)
+        for(lstn = listeners; lstn; lstn = lstn->next)
+        for(svc = lstn->services; svc; svc = svc->next) {
+            for(be = svc->backends; be; be = be->next) {
+                if(be->be_type != BACK_END)
+                    continue;
+                if(be->alive)
                     continue;
                 if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
                     continue;
-                if(memcmp(&(g->backend_addr[i].alive_addr), &z_addr, sizeof(z_addr)) == 0)
-                    addr = g->backend_addr[i].addr;
+                if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                    addr = be->addr;
                 else
-                    addr = g->backend_addr[i].alive_addr;
-                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) == 0) {
-                    pthread_mutex_lock(&g->mut);
-                    addr = g->backend_addr[i].addr;
-                    for(j = i; j < g->tot_pri; j++)
-                        if(memcmp(&(g->backend_addr[j].addr), &addr, sizeof(addr)) == 0) {
-                            g->backend_addr[j].alive = 1;
-                            logmsg(LOG_ERR,"BackEnd %s resurrect", inet_ntoa(g->backend_addr[i].addr.sin_addr));
-                        }
-                    pthread_mutex_unlock(&g->mut);
+                    addr = be->HA;
+                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr), be->to) == 0) {
+                    be->alive = 1;
+                    logmsg(LOG_ERR,"BackEnd %s:%hd resurrect",
+                        inet_ntoa(be->addr.sin_addr), ntohs(be->addr.sin_port));
                 }
                 shutdown(sock, 2);
                 close(sock);
             }
+            pthread_mutex_lock(&svc->mut);
+            svc->tot_pri = 0;
+            for(be = svc->backends; be; be = be->next)
+                if(be->alive)
+                    svc->tot_pri += be->priority;
+            pthread_mutex_unlock(&svc->mut);
+        }
+        for(svc = services; svc; svc = svc->next) {
+            for(be = svc->backends; be; be = be->next) {
+                if(be->be_type != BACK_END)
+                    continue;
+                if(be->alive)
+                    continue;
+                if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+                    continue;
+                if(memcmp(&(be->HA), &z_addr, sizeof(z_addr)) == 0)
+                    addr = be->addr;
+                else
+                    addr = be->HA;
+                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr), be->to) == 0) {
+                    be->alive = 1;
+                    logmsg(LOG_ERR,"BackEnd %s:%hd resurrect",
+                        inet_ntoa(be->addr.sin_addr), ntohs(be->addr.sin_port));
+                }
+                shutdown(sock, 2);
+                close(sock);
+            }
+            pthread_mutex_lock(&svc->mut);
+            svc->tot_pri = 0;
+            for(be = svc->backends; be; be = be->next)
+                if(be->alive)
+                    svc->tot_pri += be->priority;
+            pthread_mutex_unlock(&svc->mut);
         }
     }
 }

@@ -26,10 +26,23 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.10 2006/02/01 11:19:53 roseg Rel $";
+static char *rcs_id = "$Id: pound.c,v 2.0 2006/02/01 11:45:31 roseg Rel $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 2.0  2006/02/01 11:45:31  roseg
+ * Enhancements:
+ *   - new configuration file syntax, offering significant improvements.
+ *   - the ability to define listener-specific back-ends. In most cases this
+ *     should eliminate the need for multiple Pound instances.
+ *   - a new type of back-end: the redirector allows you to respond with a
+ *     redirect without involving any back-end server.
+ *   - most "secondary" properties (such as error messages, client time-out,
+ *     etc.) are now private to listeners.
+ *   - HAport has an optional address, different from the main back-end
+ *   - added a -V flag for version
+ *   - session keeping on a specific Header
+ *
  * Revision 1.10  2006/02/01 11:19:53  roseg
  * Enhancements:
  *   added NoDaemon configuration directive (replaces compile-time switch)
@@ -236,45 +249,20 @@ static char *rcs_id = "$Id: pound.c,v 1.10 2006/02/01 11:19:53 roseg Rel $";
 #include    "pound.h"
 
 /* common variables */
-int     clnt_to;            /* client timeout */
-int     server_to;          /* server timeout */
-int     log_level;          /* logging mode - 0, 1, 2 */
-int     https_headers;      /* add HTTPS-specific headers */
-char    *https_header;      /* HTTPS-specific header to add */
-char    *ssl_CAlst;         /* CA certificate list (path to file) */
-char    *ssl_Verifylst;     /* Verify (path to file) */
-int     ssl_vdepth;         /* max verification depth */
-int     allow_xtd;          /* allow extended HTTP - PUT, DELETE */
-int     allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
-int     no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
-int     alive_to;           /* check interval for resurrection */
-long    max_req;            /* maximal allowed request size */
-char    **http,             /* HTTP port to listen on */
-        **https,            /* HTTPS port to listen on */
-        **cert,             /* certificate file */
-        **ciphers,          /* cipher types */
-#if HAVE_OPENSSL_ENGINE_H
-        *ssl_engine,        /* OpenSSL engine */
-#endif
-        *user,              /* user to run as */
-        *group,             /* group to run as */
-        *root,              /* directory to chroot to */
-        *CS_segment,        /* character set of path segment */
-        *CS_parm,           /* character set of path parameter */
-        *CS_qid,            /* character set of query id */
-        *CS_qval,           /* character set of query value */
-        *CS_frag;           /* character set of fragment */
-int     check_URL;          /* check URL for correct syntax */
-int     rewrite_redir;      /* rewrite redirection responses */
-int     daemonize;          /* run as daemon */
-int     print_log;          /* print log messages to stdout/stderr */
-char    *pid_name;          /* file to record pid in */
-int     log_facility;       /* log facility to use */
+char        *user,              /* user to run as */
+            *group,             /* group to run as */
+            *root_jail,         /* directory to chroot to */
+            *pid_name;          /* file to record pid in */
 
-regex_t *head_off;          /* headers to remove */
-int     n_head_off;         /* how many of them */
+int         alive_to,           /* check interval for resurrection */
+            daemonize,          /* run as daemon */
+            log_facility,       /* log facility to use */
+            log_level,          /* logging mode - 0, 1, 2 */
+            print_log;          /* print log messages to stdout/stderr */
 
-GROUP   **groups;           /* addresses of possible back-end servers */
+SERVICE     *services;          /* global services (if any) */
+
+LISTENER    *listeners;         /* all available listeners */
 
 regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         XHTTP,              /* extended HTTP requests: PUT, DELETE */
@@ -287,11 +275,6 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         RESP_REDIR,         /* responses for which we rewrite Location */
         LOCATION,           /* the host we are redirected to */
         AUTHORIZATION;      /* the Authorisation header */
-
-char    *e500 = "An internal server error occurred. Please try again later.",
-        *e501 = "This method may not be used.",
-        *e503 = "The service is not available. Please try again later.",
-        *e414 = "Request URI is too long.";
 
 /* worker pid */
 static  pid_t               son = 0;
@@ -345,45 +328,6 @@ h_term(int sig)
 }
 
 /*
- * check if address/port are already in use
- */
-static int
-addr_in_use(struct sockaddr_in *addr)
-{
-    int sock, res;
-
-    if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-        logmsg(LOG_ERR, "check socket create: %s - aborted", strerror(errno));
-        return 1;
-    }
-    res = (connect_nb(sock, (struct sockaddr *)addr, (socklen_t)sizeof(*addr)) == 0);
-    close(sock);
-    return res;
-}
-
-/*
- * Dummy certificate verification
- */
-static int
-verify_cert(int pre_ok, X509_STORE_CTX *ctx)
-{
-    if(https_headers > 2)
-        return 1;
-
-    if(!pre_ok)
-        /* we already had an error */
-        return 0;
-
-    if(ssl_vdepth > 0 && X509_STORE_CTX_get_error_depth(ctx) > ssl_vdepth) {
-        /* certificate chain too long */
-        X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
-        return 0;
-    }
-
-    return 1;
-}
-
-/*
  * Pound: the reverse-proxy/load-balancer
  *
  * Arguments:
@@ -393,19 +337,15 @@ verify_cert(int pre_ok, X509_STORE_CTX *ctx)
 int
 main(int argc, char **argv)
 {
+    int                 n_listeners, i, clnt_length, clnt;
+    struct pollfd       *polls;
+    LISTENER            *lstn;
     pthread_t           thr;
     pthread_attr_t      attr;
-    int                 *http_sock, *https_sock, clnt_length, i, n, n_polls, clnt, host_length;
-    struct sockaddr_in  host_addr, clnt_addr;
-    struct hostent      *host;
-    struct pollfd       *polls;
     uid_t               user_id;
     gid_t               group_id;
     FILE                *fpid;
-    regex_t             LISTEN_ADDR;
-    regmatch_t          matches[3];
-    SSL_CTX             **ctx;
-    X509_STORE*         store;
+    struct sockaddr_in  clnt_addr;
 
     print_log = 0;
 #ifndef  NO_SYSLOG
@@ -418,7 +358,7 @@ main(int argc, char **argv)
     signal(SIGQUIT, h_term);
     signal(SIGPIPE, SIG_IGN);
 
-    config_parse(argc, argv);
+    srandom(getpid());
 
     /* SSL stuff */
     SSL_load_error_strings();
@@ -427,35 +367,10 @@ main(int argc, char **argv)
     l_init();
     CRYPTO_set_id_callback(l_id);
     CRYPTO_set_locking_callback(l_lock);
+    init_RSAgen();
 
-#if HAVE_OPENSSL_ENGINE_H
-    /* select SSL engine */
-    if (ssl_engine != NULL) {
-        ENGINE  *e;
-
-#if OPENSSL_VERSION_NUMBER >= 0x00907000L
-        ENGINE_load_builtin_engines();
-#endif
-
-        if (!(e = ENGINE_by_id(ssl_engine))) {
-            logmsg(LOG_ERR, "could not find %s engine", ssl_engine);
-            exit(1);
-        }
-        if(!ENGINE_init(e)) {
-            ENGINE_free(e);
-            logmsg(LOG_ERR, "could not init %s engine", ssl_engine);
-            exit(1);
-        }
-        if(!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
-            ENGINE_free(e);
-            logmsg(LOG_ERR, "could not set all defaults");
-            exit(1);
-        }
-        ENGINE_finish(e);
-        ENGINE_free(e);
-        logmsg(LOG_NOTICE, "%s engine selected", ssl_engine);
-    }
-#endif
+    /* read config */
+    config_parse(argc, argv);
 
     /* prepare regular expressions */
     if(regcomp(&HTTP, "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -465,13 +380,8 @@ main(int argc, char **argv)
 #else
     || regcomp(&WEBDAV, "^(LOCK|UNLOCK) ([^ ]+) HTTP/1.[01]$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #endif
-#ifdef UNSAFE
-    || regcomp(&HEADER, "^([A-Za-z0-9_.!#%&'`^~$*+|-]*):[ \t]*(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-#else
-    || regcomp(&HEADER, "^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-#endif
+    || regcomp(&HEADER, "^([a-z0-9!#$%&'*+.^_`|~-]+):[ \t]*(.*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CHUNK_HEAD, "^([0-9a-f]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LISTEN_ADDR, "^([^,]+),([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[456]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_REDIR, "^HTTP/1.[01] 30[1237].*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -482,211 +392,33 @@ main(int argc, char **argv)
         exit(1);
     }
 
-    /* get HTTP address and port */
-    if(http[0]) {
-        for(i = 0; http[i]; i++)
-            ;
-        if((http_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
-            logmsg(LOG_ERR, "http_sock out of memory - aborted");
+    /* open HTTP listeners */
+    for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
+        int opt;
+
+        /* prepare the socket */
+        if((lstn->sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+            logmsg(LOG_ERR, "HTTP socket %s:%hd create: %s - aborted",
+                inet_ntoa(lstn->addr.sin_addr), ntohs(lstn->addr.sin_port), strerror(errno));
             exit(1);
         }
-        for(i = 0; http[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
-
-            /* host */
-            if(regexec(&LISTEN_ADDR, http[i], 3, matches, 0)) {
-                logmsg(LOG_ERR, "bad HTTP spec %s - aborted", http[i]);
-                exit(1);
-            }
-            http[i][matches[1].rm_eo] = '\0';
-            if(strcmp(http[i], "*") == 0) {
-                /*
-                 * listen on all interfaces
-                 */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
-            } else {
-                if((host = gethostbyname(http[i])) == NULL || host->h_addr_list[0] == NULL) {
-                    logmsg(LOG_ERR, "Unknown HTTP host %s", http[i]);
-                    exit(1);
-                }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
-            }
-            /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
-
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
-                logmsg(LOG_WARNING, "%s:%s already in use - skipped", http[i], http[i] + matches[2].rm_so);
-                http_sock[i] = -1;
-            } else {
-                int opt;
-
-                /* prepare the socket */
-                if((http_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-                    logmsg(LOG_ERR, "HTTP socket create: %s - aborted", strerror(errno));
-                    exit(1);
-                }
-                opt = 1;
-                setsockopt(http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
-                    logmsg(LOG_ERR, "HTTP socket bind: %s - aborted", strerror(errno));
-                    exit(1);
-                }
-                listen(http_sock[i], 512);
-            }
-        }
-    }
-
-    /* get HTTPS address and port */
-    if(https[0]) {
-        init_RSAgen();
-
-        for(i = 0; https[i]; i++)
-            ;
-        if((https_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
-            logmsg(LOG_ERR, "https_sock out of memory - aborted");
+        opt = 1;
+        setsockopt(lstn->sock, SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
+        if(bind(lstn->sock, (struct sockaddr *)&lstn->addr, (socklen_t)sizeof(lstn->addr)) < 0) {
+            logmsg(LOG_ERR, "HTTP socket bind %s:%hd: %s - aborted",
+                inet_ntoa(lstn->addr.sin_addr), ntohs(lstn->addr.sin_port), strerror(errno));
             exit(1);
         }
-        if((ctx = (SSL_CTX **)malloc(sizeof(SSL_CTX *) * i)) == NULL) {
-            logmsg(LOG_ERR, "SSL_CTX out of memory - aborted");
-            exit(1);
-        }
-        for(i = 0; https[i]; i++) {
-            memset(&host_addr, 0, sizeof(host_addr));
-            host_addr.sin_family = AF_INET;
-
-            /* host */
-            if(regexec(&LISTEN_ADDR, https[i], 3, matches, 0)) {
-                logmsg(LOG_ERR, "bad HTTPS spec %s - aborted", https[i]);
-                exit(1);
-            }
-            https[i][matches[1].rm_eo] = '\0';
-            if(strcmp(https[i], "*") == 0) {
-                /*
-                 * listen on all interfaces
-                 */
-                host_addr.sin_addr.s_addr = INADDR_ANY;
-            } else {
-                if((host = gethostbyname(https[i])) == NULL || host->h_addr_list[0] == NULL) {
-                    logmsg(LOG_ERR, "Unknown HTTPS host %s", https[i]);
-                    exit(1);
-                }
-                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
-            }
-            /* port */
-            host_addr.sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
-
-            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
-                logmsg(LOG_WARNING, "%s:%s already in use - skipped", https[i], https[i] + matches[2].rm_so);
-                https_sock[i] = -1;
-            } else {
-                int     opt;
-                char    sess_id[33];
-
-                /* prepare the socket */
-                if((https_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
-                    logmsg(LOG_ERR, "HTTPS socket create: %s - aborted", strerror(errno));
-                    exit(1);
-                }
-                opt = 1;
-                setsockopt(https_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(https_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
-                    logmsg(LOG_ERR, "HTTPS socket bind: %s - aborted", strerror(errno));
-                    exit(1);
-                }
-                listen(https_sock[i], 512);
-
-                /* setup SSL_CTX */
-                if((ctx[i] = SSL_CTX_new(SSLv23_server_method())) == NULL) {
-                    logmsg(LOG_ERR, "SSL_CTX_new failed - aborted");
-                    exit(1);
-                }
-
-                if(SSL_CTX_use_certificate_chain_file(ctx[i], cert[i]) != 1) {
-                    logmsg(LOG_ERR, "SSL_CTX_use_certificate_chain_file failed - aborted");
-                    exit(1);
-                }
-                if(SSL_CTX_use_PrivateKey_file(ctx[i], cert[i], SSL_FILETYPE_PEM) != 1) {
-                    logmsg(LOG_ERR, "SSL_CTX_use_PrivateKey_file failed - aborted");
-                    exit(1);
-                }
-
-                if(SSL_CTX_check_private_key(ctx[i]) != 1) {
-                    logmsg(LOG_ERR, "SSL_CTX_check_private_key failed - aborted");
-                    exit(1);
-                }
-
-                /* additional CTX setup */
-                switch(https_headers) {
-                case 0:
-                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_NONE, verify_cert);
-                    break;
-                case 1:
-                case 3:
-                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
-                    SSL_CTX_set_verify_depth(ctx[i], ssl_vdepth);
-                    break;
-                case 2:
-                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, verify_cert);
-                    SSL_CTX_set_verify_depth(ctx[i], ssl_vdepth);
-                    break;
-                }
-                SSL_CTX_set_mode(ctx[i], SSL_MODE_AUTO_RETRY);
-                SSL_CTX_set_options(ctx[i], SSL_OP_ALL);
-
-                snprintf(sess_id, 32, "%d-Pound-%d", getpid(), i);
-                SSL_CTX_set_session_id_context(ctx[i], (unsigned char *)sess_id, strlen(sess_id));
-
-                if(ciphers[i])
-                    SSL_CTX_set_cipher_list(ctx[i], ciphers[i]);
-                SSL_CTX_set_tmp_rsa_callback(ctx[i], RSA_tmp_callback);
-
-                if(ssl_CAlst != NULL) {
-                    STACK_OF(X509_NAME) *cert_names;
-
-                    if((cert_names = SSL_load_client_CA_file(ssl_CAlst)) == NULL) {
-                        logmsg(LOG_ERR, "SSL_load_client_CA_file failed - aborted");
-                        exit(1);
-                    }
-                    SSL_CTX_set_client_CA_list(ctx[i], cert_names);
-                }
-
-                if(ssl_Verifylst != NULL) {
-                    if(SSL_CTX_load_verify_locations(ctx[i], ssl_Verifylst, NULL) != 1) {
-                        logmsg(LOG_ERR, "SSL_CTX_load_verify_locations failed - aborted");
-                        exit(1);
-                    }
-                }
-#if HAVE_X509_STORE_SET_FLAGS
-                /* add the CRL stuff */
-                if((store = SSL_CTX_get_cert_store(ctx[i])) != NULL)
-                    X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
-                else
-                    logmsg(LOG_WARNING, "SSL_CTX_get_cert_store failed!");
-#endif
-            }
-        }
+        listen(lstn->sock, 512);
     }
 
     /* alloc the poll structures */
-    n_polls = 0;
-    for(i = 0; http[i]; i++)
-        if(http_sock[i] >= 0)
-            n_polls++;
-    for(i = 0; https[i]; i++)
-        if(https_sock[i] >= 0)
-            n_polls++;
-    if((polls = (struct pollfd *)calloc(n_polls, sizeof(struct pollfd))) == NULL) {
+    if((polls = (struct pollfd *)calloc(n_listeners, sizeof(struct pollfd))) == NULL) {
         logmsg(LOG_ERR, "Out of memory for poll - aborted");
         exit(1);
     }
-    n = 0;
-    for(i = 0; http[i]; i++)
-        if(http_sock[i] >= 0)
-            polls[n++].fd = http_sock[i];
-    for(i = 0; https[i]; i++)
-        if(https_sock[i] >= 0)
-            polls[n++].fd = https_sock[i];
+    for(lstn = listeners, i = 0; lstn; lstn = lstn->next, i++)
+        polls[i].fd = lstn->sock;
 
     /* set uid if necessary */
     if(user) {
@@ -742,8 +474,8 @@ main(int argc, char **argv)
         logmsg(LOG_WARNING, "Create \"%s\": %s", pid_name, strerror(errno));
 
     /* chroot if necessary */
-    if(root) {
-        if(chroot(root)) {
+    if(root_jail) {
+        if(chroot(root_jail)) {
             logmsg(LOG_ERR, "chroot: %s - aborted", strerror(errno));
             exit(1);
         }
@@ -792,45 +524,35 @@ main(int argc, char **argv)
             }
 #endif
 
-            /* start the pruner */
-            if(pthread_create(&thr, &attr, thr_prune, NULL)) {
-                logmsg(LOG_ERR, "create thr_prune: %s - aborted", strerror(errno));
-                exit(1);
-            }
-
-            /* start resurector (if necessary) */
+            /* start resurector */
             if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
                 logmsg(LOG_ERR, "create thr_resurect: %s - aborted", strerror(errno));
                 exit(1);
             }
 
             /* start the RSA stuff */
-            if(https[0])
-                if(pthread_create(&thr, &attr, thr_RSAgen, NULL)) {
-                    logmsg(LOG_ERR, "create thr_RSAgen: %s - aborted", strerror(errno));
-                    exit(1);
-                }
+            if(pthread_create(&thr, &attr, thr_RSAgen, NULL)) {
+                logmsg(LOG_ERR, "create thr_RSAgen: %s - aborted", strerror(errno));
+                exit(1);
+            }
 
             /* pause to make sure the service threads were started */
             sleep(2);
 
             /* and start working */
             for(;;) {
-                for(i = 0; i < n_polls; i++) {
+                for(i = 0; i < n_listeners; i++) {
                     polls[i].events = POLLIN | POLLPRI;
                     polls[i].revents = 0;
                 }
-                if(poll(polls, n_polls, -1) < 0) {
+                if(poll(polls, n_listeners, -1) < 0) {
                     logmsg(LOG_WARNING, "poll: %s", strerror(errno));
                 } else {
-                    n = -1;
-                    for(i = 0; http[i]; i++) {
-                        if(http_sock[i] >= 0)
-                            n++;
-                        if(polls[n].revents & (POLLIN | POLLPRI)) {
+                    for(lstn = listeners, i = 0; lstn; lstn = lstn->next, i++) {
+                        if(polls[i].revents & (POLLIN | POLLPRI)) {
                             memset(&clnt_addr, 0, sizeof(clnt_addr));
                             clnt_length = sizeof(clnt_addr);
-                            if((clnt = accept(http_sock[i], (struct sockaddr *)&clnt_addr,
+                            if((clnt = accept(lstn->sock, (struct sockaddr *)&clnt_addr,
                                 (socklen_t *)&clnt_length)) < 0) {
                                 logmsg(LOG_WARNING, "HTTP accept: %s", strerror(errno));
                             } else if (clnt_addr.sin_family != AF_INET) {
@@ -845,53 +567,10 @@ main(int argc, char **argv)
                                     close(clnt);
                                 } else {
                                     arg->sock = clnt;
+                                    arg->lstn = lstn;
                                     arg->from_host = clnt_addr.sin_addr;
-                                    memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
-                                    getsockname(http_sock[i], (struct sockaddr *)&arg->to_host,
-                                        (socklen_t *)&host_length);
-                                    arg->ssl = NULL;
                                     if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
                                         logmsg(LOG_WARNING, "HTTP pthread_create: %s", strerror(errno));
-                                        free(arg);
-                                        close(clnt);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    for(i = 0; https[i]; i++) {
-                        if(https_sock[i] >= 0)
-                            n++;
-                        if(polls[n].revents & (POLLIN | POLLPRI)) {
-                            memset(&clnt_addr, 0, sizeof(clnt_addr));
-                            clnt_length = sizeof(clnt_addr);
-                            if((clnt = accept(https_sock[i], (struct sockaddr *)&clnt_addr,
-                                (socklen_t *)&clnt_length)) < 0) {
-                                logmsg(LOG_WARNING, "HTTPS accept: %s", strerror(errno));
-                            } else if (clnt_addr.sin_family != AF_INET) {
-                                /* may happen on FreeBSD, I am told */
-                                logmsg(LOG_WARNING, "HTTPS connection prematurely closed by peer");
-                                close(clnt);
-                            } else {
-                                thr_arg *arg;
-
-                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
-                                    logmsg(LOG_WARNING, "HTTPS arg: malloc");
-                                    close(clnt);
-                                } else {
-                                    arg->sock = clnt;
-                                    arg->from_host = clnt_addr.sin_addr;
-                                    memset(&arg->to_host, 0, host_length = sizeof(arg->to_host));
-                                    getsockname(https_sock[i], (struct sockaddr *)&arg->to_host,
-                                        (socklen_t *)&host_length);
-                                    if((arg->ssl = SSL_new(ctx[i])) == NULL) {
-                                        logmsg(LOG_WARNING, "HTTPS SSL_new: failed");
-                                        free(arg);
-                                        close(clnt);
-                                    }
-                                    if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
-                                        logmsg(LOG_WARNING, "HTTPS pthread_create: %s", strerror(errno));
-                                        SSL_free(arg->ssl);
                                         free(arg);
                                         close(clnt);
                                     }

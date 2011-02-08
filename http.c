@@ -26,10 +26,23 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.10 2006/02/01 11:19:53 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 2.0 2006/02/01 11:45:30 roseg Rel $";
 
 /*
  * $Log: http.c,v $
+ * Revision 2.0  2006/02/01 11:45:30  roseg
+ * Enhancements:
+ *   - new configuration file syntax, offering significant improvements.
+ *   - the ability to define listener-specific back-ends. In most cases this
+ *     should eliminate the need for multiple Pound instances.
+ *   - a new type of back-end: the redirector allows you to respond with a
+ *     redirect without involving any back-end server.
+ *   - most "secondary" properties (such as error messages, client time-out,
+ *     etc.) are now private to listeners.
+ *   - HAport has an optional address, different from the main back-end
+ *   - added a -V flag for version
+ *   - session keeping on a specific Header
+ *
  * Revision 1.10  2006/02/01 11:19:53  roseg
  * Enhancements:
  *   added NoDaemon configuration directive (replaces compile-time switch)
@@ -235,6 +248,33 @@ err_reply(BIO *c, char *head, char *txt)
     snprintf(cont, sizeof(cont), err_cont, head, head, txt);
     snprintf(rep, sizeof(rep), err_head, head, strlen(cont), cont);
     BIO_write(c, rep, strlen(rep));
+    BIO_flush(c);
+    return;
+}
+
+/*
+ * Reply with a redirect
+ */
+static void
+redirect_reply(BIO *c, char *url)
+{
+    char    rep[MAXBUF], cont[MAXBUF];
+
+    snprintf(cont, sizeof(cont),
+        "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"%s\">%s</a></p></body></html>",
+        url, url);
+    /*
+     * This really should be 307, but some HTTP/1.0 clients do not understand that, so we use 302
+
+    snprintf(rep, sizeof(rep),
+        "HTTP/1.0 307 Temporary Redirect\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
+        url, strlen(cont));
+    */
+    snprintf(rep, sizeof(rep),
+        "HTTP/1.0 302 Found\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
+        url, strlen(cont));
+    BIO_write(c, rep, strlen(rep));
+    BIO_write(c, cont, strlen(cont));
     BIO_flush(c);
     return;
 }
@@ -448,7 +488,7 @@ free_headers(char **headers)
 }
 
 static char **
-get_headers(BIO *in, BIO *cl)
+get_headers(BIO *in, BIO *cl, LISTENER *lstn)
 {
     char    **headers, buf[MAXBUF];
     int     res, n;
@@ -467,13 +507,13 @@ get_headers(BIO *in, BIO *cl)
     } else if(res >= (MAXBUF - 1)) {
         /* check for request length limit */
         logmsg(LOG_WARNING, "headers: request URI too long");
-        err_reply(cl, h414, e414);
+        err_reply(cl, h414, lstn->err414);
         return NULL;
     }
 
     if((headers = (char **)calloc(MAXHEADERS, sizeof(char *))) == NULL) {
         logmsg(LOG_WARNING, "headers: out of memory");
-        err_reply(cl, h500, e500);
+        err_reply(cl, h500, lstn->err500);
         return NULL;
     }
 
@@ -481,14 +521,14 @@ get_headers(BIO *in, BIO *cl)
         if((headers[n] = (char *)malloc(MAXBUF)) == NULL) {
             free_headers(headers);
             logmsg(LOG_WARNING, "header: out of memory");
-            err_reply(cl, h500, e500);
+            err_reply(cl, h500, lstn->err500);
             return NULL;
         }
         strncpy(headers[n], buf, MAXBUF - 1);
         if((res = BIO_gets(in, buf, MAXBUF)) <= 0) {
             free_headers(headers);
             logmsg(LOG_WARNING, "can't read header");
-            err_reply(cl, h500, e500);
+            err_reply(cl, h500, lstn->err500);
             return NULL;
         }
         strip_eol(buf);
@@ -498,7 +538,7 @@ get_headers(BIO *in, BIO *cl)
 
     free_headers(headers);
     logmsg(LOG_WARNING, "too many headers");
-    err_reply(cl, h500, e500);
+    err_reply(cl, h500, lstn->err500);
     return NULL;
 }
 
@@ -529,60 +569,6 @@ log_bytes(long cnt)
     return res;
 }
 
-/*
- * Check the validity of a URL
- */
-static int
-URL_syntax(char *line)
-{
-    int len, span;
-
-    if(!check_URL)
-        return 0;
-    for(len = 0; line[len] == '/'; ) {
-        len++;
-        if(!(span = strspn(line + len, CS_segment))) {
-            if(line[len] == '?' || line[len] == '#')
-                break;
-        } else
-            len += span;
-        if(line[len] == ';') {
-            len++;
-            if(!(span = strspn(line + len, CS_parm)))
-                return -1;
-            len += span;
-        }
-    }
-    if(line[len] == '?') {
-        len++;
-        for(;;) {
-            if(!(span = strspn(line + len, CS_qid))) {
-                if(line[len] == '#' || line[len] == '\0')
-                    break;
-                if(line[len] == '&') {
-                    len++;
-                    continue;
-                }
-                return -2;
-            }
-            len += span;
-            if(line[len] == '=') {
-                len++;
-                len += strspn(line + len, CS_qval);
-            }
-            if(line[len] == '&')
-                len++;
-            else
-                break;
-        }
-    }
-    if(line[len] == '#') {
-        len++;
-        len += strspn(line + len, CS_frag);
-    }
-    return line[len];
-}
-
 /* Cleanup code. This should really be in the pthread_cleanup_push, except for bugs in some implementations */
 #define clean_all() {   \
     if(ssl != NULL) { BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); } \
@@ -598,29 +584,28 @@ URL_syntax(char *line)
 void *
 thr_http(void *arg)
 {
-    BIO                 *cl, *be, *bb, *b64;
-    X509                *x509;
-    SSL                 *ssl;
-    thr_arg             *a;
-    struct in_addr      from_host;
-    struct sockaddr_in  *srv, to_host;
     int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, redir,
                         force_10;
+    LISTENER            *lstn;
+    SERVICE             *svc;
+    BACKEND             *backend, *cur_backend;
+    struct in_addr      from_host;
+    BIO                 *cl, *be, *bb, *b64;
+    X509                *x509;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
                         *mh;
+    SSL                 *ssl;
     long                cont, res_bytes;
     time_t              req_start;
+    struct sockaddr_in  *srv;
     regmatch_t          matches[4];
     struct linger       l;
-    GROUP               *grp;
 
-    a = (thr_arg *)arg;
-    from_host = a->from_host;
-    to_host = a->to_host;
-    sock = a->sock;
-    ssl = a->ssl;
-    free(a);
+    from_host = ((thr_arg *)arg)->from_host;
+    lstn = ((thr_arg *)arg)->lstn;
+    sock = ((thr_arg *)arg)->sock;
+    free(arg);
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -635,6 +620,7 @@ thr_http(void *arg)
 
     cl = NULL;
     be = NULL;
+    ssl = NULL;
     x509 = NULL;
 
     if((cl = BIO_new_socket(sock, 1)) == NULL) {
@@ -643,12 +629,18 @@ thr_http(void *arg)
         close(sock);
         pthread_exit(NULL);
     }
-    if(clnt_to > 0) {
-        BIO_set_callback_arg(cl, (char *)&clnt_to);
+    if(lstn->to > 0) {
+        BIO_set_callback_arg(cl, (char *)&lstn->to);
         BIO_set_callback(cl, bio_callback);
     }
 
-    if(ssl != NULL) {
+    if(lstn->ctx != NULL) {
+        if((ssl = SSL_new(lstn->ctx)) == NULL) {
+            logmsg(LOG_WARNING, "SSL_new: failed");
+            BIO_reset(cl);
+            BIO_free_all(cl);
+            pthread_exit(NULL);
+        }
         SSL_set_bio(ssl, cl, cl);
         if((bb = BIO_new(BIO_f_ssl())) == NULL) {
             logmsg(LOG_WARNING, "BIO_new(Bio_f_ssl()) failed");
@@ -669,24 +661,18 @@ thr_http(void *arg)
             BIO_free_all(cl);
             pthread_exit(NULL);
         } else {
-            if((x509 = SSL_get_peer_certificate(ssl)) != NULL && https_headers < 3 && SSL_get_verify_result(ssl) != X509_V_OK) {
+            if((x509 = SSL_get_peer_certificate(ssl)) != NULL && lstn->clnt_check < 3
+            && SSL_get_verify_result(ssl) != X509_V_OK) {
                 logmsg(LOG_WARNING, "Bad certificate from %s", inet_ntoa(from_host));
                 BIO_reset(cl);
                 BIO_free_all(cl);
                 pthread_exit(NULL);
             }
         }
-        /*
-         * This is dealt with in the handshake
-        if(https_headers == 2 && x509 == NULL) {
-            BIO_reset(cl);
-            BIO_free_all(cl);
-            pthread_exit(NULL);
-        }
-        */
     } else {
         x509 = NULL;
     }
+    cur_backend = NULL;
 
     if((bb = BIO_new(BIO_f_buffer())) == NULL) {
         logmsg(LOG_WARNING, "BIO_new(buffer) failed");
@@ -705,11 +691,11 @@ thr_http(void *arg)
         conn_closed = 0;
         for(n = 0; n < MAXHEADERS; n++)
             headers_ok[n] = 1;
-        if((headers = get_headers(cl, cl)) == NULL) {
+        if((headers = get_headers(cl, cl, lstn)) == NULL) {
             if(!cl_11) {
                 if(errno)
                     logmsg(LOG_WARNING, "error read from %s: %s", inet_ntoa(from_host), strerror(errno));
-                /* err_reply(cl, h500, e500); */
+                /* err_reply(cl, h500, lstn->err500); */
             }
             clean_all();
             pthread_exit(NULL);
@@ -719,9 +705,9 @@ thr_http(void *arg)
         strncpy(request, headers[0], MAXBUF);
         if(!regexec(&HTTP, request, 3, matches, 0)) {
             no_cont = !strncasecmp(request + matches[1].rm_so, "HEAD", matches[1].rm_eo - matches[1].rm_so);
-        } else if(allow_xtd && !regexec(&XHTTP, request, 3, matches, 0)) {
+        } else if(lstn->xHTTP && !regexec(&XHTTP, request, 3, matches, 0)) {
             no_cont = !strncasecmp(request + matches[1].rm_so, "DELETE", matches[1].rm_eo - matches[1].rm_so);
-        } else if(allow_dav && !regexec(&WEBDAV, request, 3, matches, 0)) {
+        } else if(lstn->webDAV && !regexec(&WEBDAV, request, 3, matches, 0)) {
             /* Other WebDAV requests may also result in no content, but we don't know - Microsoft won't tell us */
             no_cont = !(strncasecmp(request + matches[1].rm_so, "LOCK", matches[1].rm_eo - matches[1].rm_so)
                     || strncasecmp(request + matches[1].rm_so, "UNLOCK", matches[1].rm_eo - matches[1].rm_so)
@@ -729,7 +715,7 @@ thr_http(void *arg)
                     || strncasecmp(request + matches[1].rm_so, "OPTIONS", matches[1].rm_eo - matches[1].rm_so));
         } else {
             logmsg(LOG_WARNING, "bad request \"%s\" from %s", request, inet_ntoa(from_host));
-            err_reply(cl, h501, e501);
+            err_reply(cl, h501, lstn->err501);
             free_headers(headers);
             clean_all();
             pthread_exit(NULL);
@@ -737,9 +723,9 @@ thr_http(void *arg)
         cl_11 = (request[strlen(request) - 1] == '1');
         strncpy(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
         url[matches[2].rm_eo - matches[2].rm_so] = '\0';
-        if(URL_syntax(url)) {
+        if(regexec(&lstn->url_pat, request, 0, NULL, 0)) {
             logmsg(LOG_WARNING, "bad URL \"%s\" from %s", url, inet_ntoa(from_host));
-            err_reply(cl, h501, e501);
+            err_reply(cl, h501, lstn->err501);
             free_headers(headers);
             clean_all();
             pthread_exit(NULL);
@@ -751,10 +737,6 @@ thr_http(void *arg)
             switch(check_header(headers[n], buf)) {
             case HEADER_HOST:
                 strcpy(v_host, buf);
-                if((mh = add_port(buf, &to_host)) != NULL) {
-                    free(headers[n]);
-                    headers[n] = mh;
-                }
                 break;
             case HEADER_REFERER:
                 strcpy(referer, buf);
@@ -787,12 +769,12 @@ thr_http(void *arg)
                 headers_ok[n] = 0;
                 break;
             }
-            if(headers_ok[n] && head_off) {
+            if(headers_ok[n] && lstn->head_off) {
                 /* maybe header to be removed */
-                int i;
+                MATCHER *m;
 
-                for(i = 0; i < n_head_off; i++)
-                    headers_ok[n] = regexec(&head_off[i], headers[n], 0, NULL, 0);
+                for(m = lstn->head_off; m; m = m->next)
+                    headers_ok[n] = regexec(&m->pat, headers[n], 0, NULL, 0);
             }
             /* get User name */
             if(!regexec(&AUTHORIZATION, headers[n], 2, matches, 0)) {
@@ -826,9 +808,9 @@ thr_http(void *arg)
         }
 
         /* possibly limited request size */
-        if(max_req > 0L && cont > 0L && cont > max_req) {
+        if(lstn->max_req > 0L && cont > 0L && cont > lstn->max_req) {
             logmsg(LOG_WARNING, "request too large (%ld) from %s", cont, inet_ntoa(from_host));
-            err_reply(cl, h501, e501);
+            err_reply(cl, h501, lstn->err501);
             free_headers(headers);
             clean_all();
             pthread_exit(NULL);
@@ -842,35 +824,49 @@ thr_http(void *arg)
                 be = NULL;
             }
         }
-        /* check that the requested URL still fits the old back-end */
-        if(be != NULL && grp != get_grp(url, &headers[1])) {
+
+        /* check that the requested URL still fits the old back-end (if any) */
+        if((svc = get_service(lstn, url, &headers[1])) == NULL) {
+            logmsg(LOG_WARNING, "no service \"%s\" from %s", request, inet_ntoa(from_host));
+            err_reply(cl, h503, lstn->err503);
+            free_headers(headers);
+            clean_all();
+            pthread_exit(NULL);
+        }
+        if((backend = get_backend(svc, from_host, url, &headers[1])) == NULL) {
+            logmsg(LOG_WARNING, "no back-end \"%s\" from %s", request, inet_ntoa(from_host));
+            err_reply(cl, h503, lstn->err503);
+            free_headers(headers);
+            clean_all();
+            pthread_exit(NULL);
+        }
+
+        if(be != NULL && backend != cur_backend) {
             BIO_reset(be);
             BIO_free_all(be);
             be = NULL;
         }
-        while(be == NULL) {
-            /* find the session - if any */
-            if((srv = get_be(grp = get_grp(url, &headers[1]), from_host, url, &headers[1])) == NULL) {
-				logmsg(LOG_WARNING, "no backend \"%s\" from %s", request, inet_ntoa(from_host));
-                err_reply(cl, h503, e503);
-                free_headers(headers);
-                clean_all();
-                pthread_exit(NULL);
-            }
-
+        while(be == NULL && backend->be_type == BACK_END) {
             if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
                 logmsg(LOG_WARNING, "backend %s:%hd create: %s",
-                    inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                err_reply(cl, h503, e503);
+                    inet_ntoa(backend->addr.sin_addr), ntohs(backend->addr.sin_port), strerror(errno));
+                err_reply(cl, h503, lstn->err503);
                 free_headers(headers);
                 clean_all();
                 pthread_exit(NULL);
             }
-            if(connect_nb(sock, (struct sockaddr *)srv, (socklen_t)sizeof(*srv)) < 0) {
+            if(connect_nb(sock, (struct sockaddr *)&backend->addr, (socklen_t)sizeof(backend->addr), backend->to) < 0) {
                 logmsg(LOG_WARNING, "backend %s:%hd connect: %s",
-                    inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
+                    inet_ntoa(backend->addr.sin_addr), ntohs(backend->addr.sin_port), strerror(errno));
                 close(sock);
-                kill_be(srv);
+                kill_be(svc, backend);
+                if((backend = get_backend(svc, from_host, url, &headers[1])) == NULL) {
+                    logmsg(LOG_WARNING, "no back-end \"%s\" from %s", request, inet_ntoa(from_host));
+                    err_reply(cl, h503, lstn->err503);
+                    free_headers(headers);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
                 continue;
             }
             n = 1;
@@ -882,17 +878,19 @@ thr_http(void *arg)
                 logmsg(LOG_WARNING, "BIO_new_socket server failed");
                 shutdown(sock, 2);
                 close(sock);
+                err_reply(cl, h503, lstn->err503);
                 free_headers(headers);
                 clean_all();
                 pthread_exit(NULL);
             }
             BIO_set_close(be, BIO_CLOSE);
-            if(server_to > 0) {
-                BIO_set_callback_arg(be, (char *)&server_to);
+            if(backend->to > 0) {
+                BIO_set_callback_arg(be, (char *)&backend->to);
                 BIO_set_callback(be, bio_callback);
             }
             if((bb = BIO_new(BIO_f_buffer())) == NULL) {
                 logmsg(LOG_WARNING, "BIO_new(buffer) server failed");
+                err_reply(cl, h503, lstn->err503);
                 free_headers(headers);
                 clean_all();
                 pthread_exit(NULL);
@@ -901,41 +899,50 @@ thr_http(void *arg)
             BIO_set_close(bb, BIO_CLOSE);
             be = BIO_push(bb, be);
         }
+        cur_backend = backend;
+
+        /* if we have anything but a BACK_END we close the channel */
+        if(be != NULL && cur_backend->be_type != BACK_END) {
+            BIO_reset(be);
+            BIO_free_all(be);
+            be = NULL;
+        }
 
         /* send the request */
-        for(n = 0; n < MAXHEADERS && headers[n]; n++) {
-            if(!headers_ok[n])
-                continue;
-            if(BIO_printf(be, "%s\r\n", headers[n]) <= 0) {
-                logmsg(LOG_WARNING, "error write to %s:%hd: %s",
-                    inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                err_reply(cl, h500, e500);
-                free_headers(headers);
-                clean_all();
-                pthread_exit(NULL);
-            }
-        }
-        free_headers(headers);
-
-        /* if SSL put additional headers for client certificate */
-        if(ssl != NULL) {
-            SSL_CIPHER  *cipher;
-
-            if(https_header != NULL)
-                if(BIO_printf(be, "%s\r\n", https_header) <= 0) {
-                    logmsg(LOG_WARNING, "error write HTTPSHeader to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+        if(cur_backend->be_type == BACK_END)
+            for(n = 0; n < MAXHEADERS && headers[n]; n++) {
+                if(!headers_ok[n])
+                    continue;
+                if(BIO_printf(be, "%s\r\n", headers[n]) <= 0) {
+                    logmsg(LOG_WARNING, "error write to %s:%hd: %s",
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
+                    free_headers(headers);
                     clean_all();
                     pthread_exit(NULL);
                 }
-            if(https_headers > 0 && x509 != NULL && (bb = BIO_new(BIO_s_mem())) != NULL) {
+            }
+        free_headers(headers);
+
+        /* if SSL put additional headers for client certificate */
+        if(cur_backend->be_type == BACK_END && ssl != NULL) {
+            SSL_CIPHER  *cipher;
+
+            if(lstn->ssl_head != NULL)
+                if(BIO_printf(be, "%s\r\n", lstn->ssl_head) <= 0) {
+                    logmsg(LOG_WARNING, "error write HTTPSHeader to %s:%hd: %s",
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+            if(lstn->clnt_check > 0 && x509 != NULL && (bb = BIO_new(BIO_s_mem())) != NULL) {
                 X509_NAME_print_ex(bb, X509_get_subject_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Subject: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-Subject to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
@@ -945,8 +952,8 @@ thr_http(void *arg)
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Issuer: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-Issuer to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
@@ -956,8 +963,8 @@ thr_http(void *arg)
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-notBefore: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-notBefore to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
@@ -967,16 +974,16 @@ thr_http(void *arg)
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-notAfter: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-notAfter to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
                 }
                 if(BIO_printf(be, "X-SSL-serial: %ld\r\n", ASN1_INTEGER_get(X509_get_serialNumber(x509))) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-serial to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
@@ -986,8 +993,8 @@ thr_http(void *arg)
                 strip_eol(buf);
                 if(BIO_printf(be, "X-SSL-certificate: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-certificate to %s:%hd: %s",
-                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                    err_reply(cl, h500, e500);
+                        inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                    err_reply(cl, h500, lstn->err500);
                     BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
@@ -996,8 +1003,8 @@ thr_http(void *arg)
                     strip_eol(buf);
                     if(BIO_printf(be, "\t%s\r\n", buf) <= 0) {
                         logmsg(LOG_WARNING, "error write X-SSL-certificate to %s:%hd: %s",
-                            inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                        err_reply(cl, h500, e500);
+                            inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                        err_reply(cl, h500, lstn->err500);
                         BIO_free_all(bb);
                         clean_all();
                         pthread_exit(NULL);
@@ -1008,8 +1015,8 @@ thr_http(void *arg)
                     strip_eol(buf);
                     if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
                         logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
-                            inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                        err_reply(cl, h500, e500);
+                            inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                        err_reply(cl, h500, lstn->err500);
                         clean_all();
                         pthread_exit(NULL);
                     }
@@ -1018,33 +1025,35 @@ thr_http(void *arg)
             }
         }
         /* put additional client IP header */
-        BIO_printf(be, "X-Forwarded-For: %s\r\n", inet_ntoa(from_host));
+        if(cur_backend->be_type == BACK_END) {
+            BIO_printf(be, "X-Forwarded-For: %s\r\n", inet_ntoa(from_host));
 
-        /* final CRLF */
-        BIO_puts(be, "\r\n");
+            /* final CRLF */
+            BIO_puts(be, "\r\n");
+        }
 
         if(cl_11 && chunked) {
             /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-            if(copy_chunks(cl, be, NULL, 0, max_req)) {
-                err_reply(cl, h500, e500);
+            if(copy_chunks(cl, be, NULL, cur_backend->be_type != BACK_END, lstn->max_req)) {
+                err_reply(cl, h500, lstn->err500);
                 clean_all();
                 pthread_exit(NULL);
             }
         } else if(cont > 0L) {
             /* had Content-length, so do raw reads/writes for the length */
-            if(copy_bin(cl, be, cont, NULL, 0)) {
+            if(copy_bin(cl, be, cont, NULL, cur_backend->be_type != BACK_END)) {
                 logmsg(LOG_WARNING, "error copy client cont: %s", strerror(errno));
-                err_reply(cl, h500, e500);
+                err_reply(cl, h500, lstn->err500);
                 clean_all();
                 pthread_exit(NULL);
             }
         }
 
         /* flush to the back-end */
-        if(BIO_flush(be) != 1) {
+        if(cur_backend->be_type == BACK_END && BIO_flush(be) != 1) {
             logmsg(LOG_WARNING, "error flush to %s:%hd: %s",
-                inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-            err_reply(cl, h500, e500);
+                inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+            err_reply(cl, h500, lstn->err500);
             clean_all();
             pthread_exit(NULL);
         }
@@ -1055,7 +1064,7 @@ thr_http(void *arg)
          *  - if 1 and SSL force HTTP/1.0
          *  - if 2 and SSL and MSIE force HTTP/1.0
          */
-        switch(no_https_11) {
+        switch(lstn->noHTTPS11) {
         case 1:
             force_10 = (ssl != NULL);
             break;
@@ -1067,12 +1076,40 @@ thr_http(void *arg)
             break;
         }
 
+        /* if we have a redirector */
+        if(cur_backend->be_type == REDIRECTOR) {
+            redirect_reply(cl, cur_backend->url);
+            switch(log_level) {
+            case 0:
+                break;
+            case 1:
+            case 2:
+                logmsg(LOG_INFO, "%s %s - REDIRECT %s", inet_ntoa(from_host), request, cur_backend->url);
+                break;
+            case 3:
+                if(v_host[0])
+                    logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" 307 0 \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
+                        u_name[0]? u_name: "-", log_time(req_start), request, referer, u_agent);
+                else
+                    logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 307 0 \"%s\" \"%s\"", inet_ntoa(from_host),
+                        u_name[0]? u_name: "-", log_time(req_start), request, referer, u_agent);
+                break;
+            case 4:
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" 307 0 \"%s\" \"%s\"", inet_ntoa(from_host),
+                    u_name[0]? u_name: "-", log_time(req_start), request, referer, u_agent);
+                break;
+            }
+            if(!cl_11 || conn_closed || force_10)
+                break;
+            continue;
+        }
+
         /* get the response */
         for(skip = 1; skip;) {
-            if((headers = get_headers(be, cl)) == NULL) {
+            if((headers = get_headers(be, cl, lstn)) == NULL) {
                 logmsg(LOG_WARNING, "response error read from %s:%hd: %s",
-                    inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
-                err_reply(cl, h500, e500);
+                    inet_ntoa(cur_backend->addr.sin_addr), ntohs(cur_backend->addr.sin_port), strerror(errno));
+                err_reply(cl, h500, lstn->err500);
                 clean_all();
                 pthread_exit(NULL);
             }
@@ -1103,7 +1140,7 @@ thr_http(void *arg)
                     cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(rewrite_redir && redir && v_host[0] && is_be(buf, &to_host, v_host, loc_path, grp)) {
+                    if(lstn->change30x && redir && v_host[0] && need_rewrite(buf, loc_path, lstn, cur_backend)) {
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
                             (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
@@ -1119,7 +1156,7 @@ thr_http(void *arg)
             }
 
             /* possibly record session information (only for cookies) */
-            upd_session(grp, &headers[1], srv);
+            upd_session(svc, &headers[1], cur_backend);
 
             /* send the response */
             if(!skip)
@@ -1162,7 +1199,7 @@ thr_http(void *arg)
                         pthread_exit(NULL);
                     }
                 } else if(!skip) {
-                    if(is_readable(be, SERVER_TO)) {
+                    if(is_readable(be, cur_backend->to)) {
                         char    one;
                         BIO     *be_unbuf;
                         /*
@@ -1234,7 +1271,8 @@ thr_http(void *arg)
             logmsg(LOG_INFO, "%s %s - %s", inet_ntoa(from_host), request, response);
             break;
         case 2:
-            snprintf(buf, sizeof(buf), "%s:%hd", inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+            snprintf(buf, sizeof(buf), "%s:%hd", inet_ntoa(cur_backend->addr.sin_addr),
+                ntohs(cur_backend->addr.sin_port));
             logmsg(LOG_INFO, "%s %s - %s (%s)", inet_ntoa(from_host), request, response, buf);
             break;
         case 3:
@@ -1249,7 +1287,7 @@ thr_http(void *arg)
             break;
         case 4:
             logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
-                log_time(req_start), u_name[0]? u_name: "-", request, response[9], response[10], response[11],
+                u_name[0]? u_name: "-", log_time(req_start), request, response[9], response[10], response[11],
                 log_bytes(res_bytes), referer, u_agent);
             break;
         }
