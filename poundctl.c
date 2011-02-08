@@ -137,7 +137,10 @@ main(const int argc, char **argv)
             while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
                 if(svc.disabled < 0)
                     break;
-                printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
+                if(svc.name[0])
+                    printf("  %3d. Service \"%s\" %s\n", n_svc++, svc.name, svc.disabled? "*D": "a");
+                else
+                    printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
                 n_be = 0;
                 while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
                     if(be.disabled < 0)
@@ -162,7 +165,10 @@ main(const int argc, char **argv)
         while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
             if(svc.disabled < 0)
                 break;
-            printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
+            if(svc.name[0])
+                printf("  %3d. Service \"%s\" %s\n", n_svc++, svc.name, svc.disabled? "*D": "a");
+            else
+                printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
             n_be = 0;
             while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
                 if(be.disabled < 0)

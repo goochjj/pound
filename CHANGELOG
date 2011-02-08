@@ -1,4 +1,20 @@
 ------------------------------------------------------------------------
+r39 | roseg | 2007-01-15 18:17:48 +0100 (Mon, 15 Jan 2007) | 13 lines
+
+Release 2.2.2
+
+Enhancements:
+  - changes in the dynamic rescaling
+  - doubled the session key size (for those people with insanely long cookies)
+  - added LogFacility - for logging to stdout/stderr
+  - added optional Service names
+
+Bug fixes:
+  - fixed bug in multiple HeadRemove matching
+  - fixed problem with extra large session keys
+  - fixed problem for OpenBSD accept (blocks all threads)
+
+------------------------------------------------------------------------
 r38 | roseg | 2007-01-03 18:25:30 +0100 (Wed, 03 Jan 2007) | 13 lines
 
 Release 2.2.1

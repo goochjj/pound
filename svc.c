@@ -44,29 +44,29 @@ logmsg(const int priority, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
-#ifdef  NO_SYSLOG
-    if(priority == LOG_INFO) {
-        printf("%s\n", buf);
-        fflush(stdout);
-    } else {
-        char    t_stamp[32];
-        time_t  now;
+    if(log_facility == -1) {
+        if(priority == LOG_INFO) {
+            printf("%s\n", buf);
+            fflush(stdout);
+        } else {
+            char    t_stamp[32];
+            time_t  now;
 
-        now = time(NULL);
+            now = time(NULL);
 #ifdef  HAVE_LOCALTIME_R
-        t_now = localtime_r(&now, &t_res);
+            t_now = localtime_r(&now, &t_res);
 #else
-        t_now = localtime(&now);
+            t_now = localtime(&now);
 #endif
-        strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", t_now);
-        fprintf(stderr, "%s: %s\n", t_stamp, buf);
+            strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", t_now);
+            fprintf(stderr, "%s: %s\n", t_stamp, buf);
+        }
+    } else {
+        if(print_log)
+            printf("%s\n", buf);
+        else
+            syslog(log_facility | priority, "%s", buf);
     }
-#else
-    if(print_log)
-        printf("%s\n", buf);
-    else
-        syslog(log_facility | priority, "%s", buf);
-#endif
     return;
 }
 #else
@@ -82,29 +82,29 @@ va_dcl
     va_start(ap);
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
-#ifdef  NO_SYSLOG
-    if(priority == LOG_INFO) {
-        printf("%s\n", buf);
-        fflush(stdout);
-    } else {
-        char    t_stamp[32];
-        time_t  now;
+    if(log_facility == -1) {
+        if(priority == LOG_INFO) {
+            printf("%s\n", buf);
+            fflush(stdout);
+        } else {
+            char    t_stamp[32];
+            time_t  now;
 
-        now = time(NULL);
+            now = time(NULL);
 #ifdef  HAVE_LOCALTIME_R
-        t_now = localtime_r(&now, &t_res);
+            t_now = localtime_r(&now, &t_res);
 #else
-        t_now = localtime(&now);
+            t_now = localtime(&now);
 #endif
-        strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", t_now);
-        fprintf(stderr, "%s: %s\n", t_stamp, buf);
+            strftime(t_stamp, sizeof(t_stamp), "%d/%b/%Y %H:%M:%S %z", t_now);
+            fprintf(stderr, "%s: %s\n", t_stamp, buf);
+        }
+    } else {
+        if(print_log)
+            printf("%s\n", buf);
+        else
+            syslog(log_facility | priority, "%s", buf);
     }
-#else
-    if(print_log)
-        printf("%s\n", buf);
-    else
-        syslog(log_facility | priority, "%s", buf);
-#endif
     return;
 }
 #endif
@@ -206,7 +206,7 @@ sess_find(SESS *const root, const char *key)
 
     if(root == NULL)
         return NULL;
-    if((cmp = strcmp(root->key, key)) == 0)
+    if((cmp = strncmp(root->key, key, KEY_SIZE)) == 0)
         return root;
     if(cmp < 0)
         return sess_find(root->left, key);
@@ -224,8 +224,9 @@ sess_add(SESS *root, const char *key, BACKEND *const to_host)
     if(root == NULL) {
         SESS    *res;
 
-        if((res = (SESS *)malloc(sizeof(SESS))) == NULL)
+        if((res = alloc_sess()) == NULL)
             return NULL;
+        memset(res, 0, sizeof(SESS));
         strncpy(res->key, key, KEY_SIZE);
         res->to_host = to_host;
         res->last_acc = time(NULL);
@@ -233,7 +234,7 @@ sess_add(SESS *root, const char *key, BACKEND *const to_host)
         res->left = res->right = NULL;
         return res;
     }
-    if((cmp = strcmp(root->key, key)) == 0)
+    if((cmp = strncmp(root->key, key, KEY_SIZE)) == 0)
         return root;
     if(cmp < 0)
         root->left = sess_add(root->left, key, to_host);
@@ -589,7 +590,7 @@ upd_be(BACKEND *const be, const double elapsed)
     if(ret_val = pthread_mutex_lock(&be->mut))
         logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
     be->t_requests += elapsed;
-    if(++be->n_requests > 2000) {
+    if(++be->n_requests > 30000) {
         /* scale it down */
         be->n_requests /= 2;
         be->t_requests /= 2;
@@ -664,6 +665,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
     host = location + matches[2].rm_so;
     if(location[matches[3].rm_so] == '/')
         matches[3].rm_so++;
+    /* path is guaranteed to be large enough */
     strcpy(path, location + matches[3].rm_so);
     location[matches[1].rm_eo] = location[matches[2].rm_eo] = '\0';
     if((port = strchr(host, ':')) != NULL)
@@ -798,7 +800,6 @@ thr_resurect(void *arg)
     int         n, sock;
     char        buf[MAXBUF];
     int         ret_val;
-    double      average, sq_average;
 
     for(last_time = time(NULL) - alive_to;;) {
         cur_time = time(NULL);
@@ -941,8 +942,30 @@ thr_resurect(void *arg)
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
         }
+    }
+}
 
+/*
+ * Rescale back-end priorities if needed
+ * runs every 15 minutes
+ */
 #ifndef NO_DYNSCALE
+void *
+thr_rescale(void *arg)
+{
+    LISTENER    *lstn;
+    SERVICE     *svc;
+    BACKEND     *be;
+    time_t      last_time, cur_time;
+    int         n, ret_val;
+    double      average, sq_average;
+
+    for(last_time = time(NULL) - alive_to;;) {
+        cur_time = time(NULL);
+        if((n = RESCALE_TO - (cur_time - last_time)) > 0)
+            sleep(n);
+        last_time = time(NULL);
+
         /* scale the back-end priorities */
         for(lstn = listeners; lstn; lstn = lstn->next)
         for(svc = lstn->services; svc; svc = svc->next) {
@@ -961,7 +984,7 @@ thr_resurect(void *arg)
             average /= n;
             sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
             if(ret_val = pthread_mutex_lock(&svc->mut)) {
-                logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
+                logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
                 continue;
             }
             for(be = svc->backends; be; be = be->next) {
@@ -970,18 +993,14 @@ thr_resurect(void *arg)
                 if(be->t_average < (average - sq_average)) {
                     be->priority++;
                     svc->tot_pri++;
-                    be->n_requests /= 4;
-                    be->t_requests /= 4;
                 }
                 if(be->t_average > (average + sq_average) && be->priority > 1) {
                     be->priority--;
                     svc->tot_pri--;
-                    be->n_requests /= 4;
-                    be->t_requests /= 4;
                 }
             }
             if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
+                logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
         }
 
         for(svc = services; svc; svc = svc->next) {
@@ -1000,7 +1019,7 @@ thr_resurect(void *arg)
             average /= n;
             sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
             if(ret_val = pthread_mutex_lock(&svc->mut)) {
-                logmsg(LOG_WARNING, "thr_resurect() lock: %s", strerror(ret_val));
+                logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
                 continue;
             }
             for(be = svc->backends; be; be = be->next) {
@@ -1009,22 +1028,18 @@ thr_resurect(void *arg)
                 if(be->t_average < (average - sq_average)) {
                     be->priority++;
                     svc->tot_pri++;
-                    be->n_requests /= 4;
-                    be->t_requests /= 4;
                 }
                 if(be->t_average > (average + sq_average) && be->priority > 1) {
                     be->priority--;
                     svc->tot_pri--;
-                    be->n_requests /= 4;
-                    be->t_requests /= 4;
                 }
             }
             if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_resurect() unlock: %s", strerror(ret_val));
+                logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
         }
-#endif  /* NO_DYNSCALE */
     }
 }
+#endif  /* NO_DYNSCALE */
 
 static pthread_mutex_t  RSA_mut;                    /* mutex for RSA keygen */
 static RSA              *RSA512_keys[N_RSA_KEYS];   /* ephemeral RSA keys */
@@ -1189,6 +1204,7 @@ thr_control(void *arg)
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
     SESS            dummy_sess;
+    struct pollfd   polls;
 
     /* just to be safe */
     if(control_sock < 0)
@@ -1201,7 +1217,15 @@ thr_control(void *arg)
     dummy_be.disabled = -1;
     memset(&dummy_sess, 0, sizeof(dummy_sess));
     dummy_sess.to_host = (BACKEND *)-1;
+    dummy = sizeof(sa);
     for(;;) {
+        polls.fd = control_sock;
+        polls.events = POLLIN | POLLPRI;
+        polls.revents = 0;
+        if(poll(&polls, 1, -1) < 0) {
+            logmsg(LOG_WARNING, "thr_control() poll: %s", strerror(errno));
+            continue;
+        }
         if((ctl = accept(control_sock, &sa, (socklen_t *)&dummy)) < 0) {
             logmsg(LOG_WARNING, "thr_control() accept: %s", strerror(errno));
             continue;

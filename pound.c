@@ -142,9 +142,7 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
-#ifndef  NO_SYSLOG
-    openlog("pound", LOG_CONS, LOG_DAEMON);
-#endif
+    log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
     signal(SIGTERM, h_term);
@@ -189,6 +187,8 @@ main(const int argc, char **argv)
     /* read config */
     config_parse(argc, argv);
 
+    if(log_facility != -1)
+        openlog("pound", LOG_CONS, LOG_DAEMON);
     /* open HTTP listeners */
     for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
         int opt;
@@ -248,11 +248,11 @@ main(const int argc, char **argv)
         /* daemonize - make ourselves a subprocess. */
         switch (fork()) {
             case 0:
-#ifndef NO_SYSLOG
-                close(0);
-                close(1);
-                close(2);
-#endif
+                if(log_facility != -1) {
+                    close(0);
+                    close(1);
+                    close(2);
+                }
                 break;
             case -1:
                 logmsg(LOG_ERR, "fork: %s - aborted", strerror(errno));
@@ -327,6 +327,14 @@ main(const int argc, char **argv)
                 logmsg(LOG_ERR, "create thr_resurect: %s - aborted", strerror(errno));
                 exit(1);
             }
+
+#ifndef NO_DYNSCALE
+            /* start rescaler */
+            if(pthread_create(&thr, &attr, thr_rescale, NULL)) {
+                logmsg(LOG_ERR, "create thr_rescale: %s - aborted", strerror(errno));
+                exit(1);
+            }
+#endif
 
             /* start the RSA stuff */
             if(pthread_create(&thr, &attr, thr_RSAgen, NULL)) {

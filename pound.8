@@ -226,9 +226,10 @@ use something like \fIdaemontools\fR.
 Specify the log facility to use.
 .I value
 (default: daemon) must be one of the symbolic facility names defined in
-\fIsyslog.h\fR. This facility shall be used for logging (if
+\fIsyslog.h\fR. This facility shall be used for logging. Using a - for
+the facility name causes
 .B Pound
-was compiled with support for \fIsyslog\fR).
+to log to stdout/stderr.
 .TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
@@ -390,9 +391,12 @@ Override the global
 .I LogLevel
 value.
 .TP
-\fBService\fR
+\fBService\fR [ "name" ]
 This defines a private service (see below for service definition syntax). This
-service will be used only by this listener.
+service will be used only by this listener. The service may be optionally
+named, with the name showing in the
+.I poundctl
+listings.
 .SH "HTTPS Listener"
 An HTTPS listener defines an address and port that
 .B Pound

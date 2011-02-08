@@ -299,7 +299,7 @@ typedef struct _backend {
 }   BACKEND;
 
 /* session key max size */
-#define KEY_SIZE    63
+#define KEY_SIZE    127
 
 /* Session definition */
 typedef struct _sess {
@@ -314,6 +314,7 @@ typedef struct _sess {
 
 /* service definition */
 typedef struct _service {
+    char                name[KEY_SIZE + 1]; /* symbolic name */
     MATCHER             *url,       /* request matcher */
                         *req_head,  /* required headers */
                         *deny_head; /* forbidden headers */
@@ -344,6 +345,7 @@ typedef struct _listener {
     char                *ssl_head;  /* extra SSL header */
     regex_t             verb;       /* pattern to match the request verb against */
     int                 to;         /* client time-out */
+    int                 has_pat;    /* was a URL pattern defined? */
     regex_t             url_pat;    /* pattern to match the request URL against */
     char                *err414,    /* error messages */
                         *err500,
@@ -489,6 +491,17 @@ extern int  connect_nb(const int, const struct sockaddr *, const socklen_t, cons
 extern void *thr_resurect(void *);
 
 /*
+ * Rescale back-end priorities if needed
+ * runs every 15 minutes
+ */
+#ifndef NO_DYNSCALE
+
+#define RESCALE_TO  900
+
+extern void *thr_rescale(void *);
+#endif
+
+/*
  * Parse arguments/config file
  */
 extern void config_parse(const int, char **const);
@@ -522,3 +535,12 @@ extern void *thr_RSAgen(void *);
  * listens to client requests and calls the appropriate functions
  */
 extern void *thr_control(void *);
+
+#define alloc_headers() ((char **)calloc(MAXHEADERS, sizeof(char *)))
+#define free_headers(H) free(H)
+
+#define alloc_buf() ((char *)malloc(MAXBUF))
+#define free_buf(B) free(B)
+
+#define alloc_sess() ((SESS *)malloc(sizeof(SESS)))
+#define free_sess(S) free(S)
