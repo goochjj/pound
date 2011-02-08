@@ -189,6 +189,7 @@ main(const int argc, char **argv)
 
     if(log_facility != -1)
         openlog("pound", LOG_CONS, LOG_DAEMON);
+
     /* open HTTP listeners */
     for(lstn = listeners, n_listeners = 0; lstn; lstn = lstn->next, n_listeners++) {
         int opt;

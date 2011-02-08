@@ -91,6 +91,7 @@ static char *xhttp[] = {
 };
 
 static int  log_level = 1;
+static int  def_facility = LOG_DAEMON;
 static int  clnt_to = 10;
 static int  be_to = 15;
 static int  n_lin = 0;
@@ -937,11 +938,11 @@ parse_file(FILE *const f_conf)
         } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(lin[matches[1].rm_so] == '-')
-                log_facility = -1;
+                def_facility = -1;
             else
                 for(i = 0; facilitynames[i].c_name; i++)
                     if(!strcmp(facilitynames[i].c_name, lin + matches[1].rm_so)) {
-                        log_facility = facilitynames[i].c_val;
+                        def_facility = facilitynames[i].c_val;
                         break;
                     }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
@@ -1214,6 +1215,9 @@ config_parse(const int argc, char **const argv)
     regfree(&VerifyList);
     regfree(&CRLlist);
     regfree(&NoHTTPS11);
+
+    /* set the facility only here to ensure the syslog gets opened if necessary */
+    log_facility = def_facility;
 
     return;
 }
