@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.3 2003/02/19 13:51:59 roseg Exp $";
+static char *rcs_id = "$Id: pound.c,v 1.4 2003/04/24 13:40:12 roseg Exp $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.4  2003/04/24 13:40:12  roseg
+ * Added 'Server' configuration directive
+ * Fixed problem with HTTPSHeaders 0 "..." - the desired header is written even if HTTPSHeaders is 0
+ * Added the ability of loading a certificate chain.
+ * Added compatability with OpenSSL 0.9.7
+ * Added user-definable error pages.
+ * Added compile-time flags to run in foreground and to log to stderr.
+ * Opens separate pid files per-process.
+ * Improved autoconf.
+ * Some SSL speed optimisations.
+ *
  * Revision 1.3  2003/02/19 13:51:59  roseg
  * Added support for OpenSSL Engine (crypto hardware)
  * Added support for Subversion WebDAV
@@ -130,6 +141,7 @@ static char *rcs_id = "$Id: pound.c,v 1.3 2003/02/19 13:51:59 roseg Exp $";
 
 /* common variables */
 int     clnt_to;            /* client timeout */
+int     server_to;          /* server timeout */
 int     log_level;          /* logging mode - 0, 1, 2 */
 int     https_headers;      /* add HTTPS-specific headers */
 char    *https_header;      /* HTTPS-specific header to add */
@@ -161,6 +173,10 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         RESP_SKIP,          /* responses for which we skip response */
         RESP_IGN;           /* responses for which we ignore content */
 
+char    *e500 = "An internal server error occurred. Please try again later.",
+        *e501 = "This method may not be used.",
+        *e503 = "The service is not available. Please try again later.";
+
 /* worker pid */
 static  pid_t               son = 0;
 
@@ -175,7 +191,11 @@ l_init(void)
     int i;
 
     if((l_array = (pthread_mutex_t *)calloc(CRYPTO_num_locks(), sizeof(pthread_mutex_t))) == NULL) {
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "lock init: out of memory - aborted...\n");
+#else
         syslog(LOG_ERR, "lock init: out of memory - aborted...");
+#endif
         exit(1);
     }
     for(i = 0; i < CRYPTO_num_locks(); i++)
@@ -205,7 +225,11 @@ l_id(void)
 static RETSIGTYPE
 h_term(int sig)
 {
+#ifdef  NO_SYSLOG
+    fprintf(stderr, "received signal %d - exiting...\n", sig);
+#else
     syslog(LOG_NOTICE, "received signal %d - exiting...", sig);
+#endif
     if(son > 0)
         kill(son, SIGTERM);
     exit(0);
@@ -220,12 +244,25 @@ addr_in_use(struct sockaddr_in *addr)
     int sock, res;
 
     if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "check socket create: %s - aborted\n", strerror(errno));
+#else
         syslog(LOG_ERR, "check socket create: %m - aborted");
+#endif
         return 1;
     }
     res = (connect(sock, (struct sockaddr *)addr, (socklen_t)sizeof(*addr)) == 0);
     close(sock);
     return res;
+}
+
+/*
+ * Dummy certificate verification
+ */
+static int
+verify_cert(int ok, X509_STORE_CTX *ctx)
+{
+    return 1;
 }
 
 /*
@@ -240,23 +277,29 @@ main(int argc, char **argv)
 {
     pthread_t           thr;
     pthread_attr_t      attr;
-    int                 *http_sock, *https_sock, clnt_length, i, max_fd, clnt;
-    struct sockaddr_in  h_addr, clnt_addr;
+    int                 *http_sock, *https_sock, clnt_length, i, n, max_fd, clnt;
+    struct sockaddr_in  host_addr, clnt_addr;
     struct hostent      *host;
     fd_set              socks;
     uid_t               user_id;
     gid_t               group_id;
     FILE                *fpid;
+    char                fpid_name[32];
     regex_t             LISTEN_ADDR;
     regmatch_t          matches[3];
-    EVP_PKEY            **pkey;
-    X509                **x509cert;
+    SSL_CTX             **ctx;
 
+#ifndef  NO_SYSLOG
 #ifndef FACILITY
 #define FACILITY    LOG_DAEMON
 #endif
     openlog("pound", LOG_CONS, FACILITY);
+#endif
+#ifdef  NO_SYSLOG
+    fprintf(stderr, "starting...\n");
+#else
     syslog(LOG_NOTICE, "starting...");
+#endif
 
     signal(SIGTERM, h_term);
     signal(SIGINT, h_term);
@@ -271,22 +314,38 @@ main(int argc, char **argv)
         ENGINE  *e;
 
         if (!(e = ENGINE_by_id(ssl_engine))) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "could not find %s engine\n", ssl_engine);
+#else
             syslog(LOG_ERR, "could not find %s engine", ssl_engine);
+#endif
             exit(1);
         }
         if(!ENGINE_init(e)) {
             ENGINE_free(e);
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "could not init %s engine\n", ssl_engine);
+#else
             syslog(LOG_ERR, "could not init %s engine", ssl_engine);
+#endif
             exit(1);
         }
         if(!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
             ENGINE_free(e);
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "could not set all defaults\n");
+#else
             syslog(LOG_ERR, "could not set all defaults");
+#endif
             exit(1);
         }
         ENGINE_finish(e);
         ENGINE_free(e);
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "%s engine selected\n", ssl_engine);
+#else
         syslog(LOG_NOTICE, "%s engine selected", ssl_engine);
+#endif
     }
 #endif
 
@@ -316,7 +375,11 @@ main(int argc, char **argv)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|304).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "bad Regex - aborted\n");
+#else
         syslog(LOG_ERR, "bad Regex - aborted");
+#endif
         exit(1);
     }
 
@@ -327,51 +390,75 @@ main(int argc, char **argv)
         for(i = 0; http[i]; i++)
             ;
         if((http_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "http_sock out of memory - aborted\n");
+#else
             syslog(LOG_ERR, "http_sock out of memory - aborted");
+#endif
             exit(1);
         }
         for(i = 0; http[i]; i++) {
-            memset(&h_addr, 0, sizeof(h_addr));
-            h_addr.sin_family = AF_INET;
+            memset(&host_addr, 0, sizeof(host_addr));
+            host_addr.sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, http[i], 3, matches, 0)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "bad HTTP spec %s - aborted\n", http[i]);
+#else
                 syslog(LOG_ERR, "bad HTTP spec %s - aborted", http[i]);
+#endif
                 exit(1);
             }
             http[i][matches[1].rm_eo] = '\0';
-            if(i == 0 && strcmp(http[i], "*") == 0) {
+            if(strcmp(http[i], "*") == 0) {
                 /*
-                 * listen on all interfaces; this is only allowed on the first (and probably unique) address
+                 * listen on all interfaces
                  */
-                h_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr.sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(http[i])) == NULL) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "Unknown HTTP host %s\n", http[i]);
+#else
                     syslog(LOG_ERR, "Unknown HTTP host %s", http[i]);
+#endif
                     exit(1);
                 }
-                memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
+                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
             }
             /* port */
-            h_addr.sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
+            host_addr.sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
 
-            if(h_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&h_addr)) {
+            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "%s:%s already in use - skipped\n", http[i], http[i] + matches[2].rm_so);
+#else
                 syslog(LOG_WARNING, "%s:%s already in use - skipped", http[i], http[i] + matches[2].rm_so);
+#endif
                 http_sock[i] = -1;
             } else {
                 int opt;
 
                 /* prepare the socket */
                 if((http_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "HTTP socket create: %s - aborted\n", strerror(errno));
+#else
                     syslog(LOG_ERR, "HTTP socket create: %m - aborted");
+#endif
                     exit(1);
                 }
                 if(http_sock[i] > max_fd)
                     max_fd = http_sock[i];
                 opt = 1;
                 setsockopt(http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(http_sock[i], (struct sockaddr *)&h_addr, (socklen_t)sizeof(h_addr)) < 0) {
+                if(bind(http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "HTTP socket bind: %s - aborted\n", strerror(errno));
+#else
                     syslog(LOG_ERR, "HTTP socket bind: %m - aborted");
+#endif
                     exit(1);
                 }
                 listen(http_sock[i], 256);
@@ -379,85 +466,201 @@ main(int argc, char **argv)
         }
     }
 
+    /* SSL stuff */
+    ERR_load_crypto_strings();
+    ERR_load_SSL_strings();
+    OpenSSL_add_all_algorithms();
+    l_init();
+    CRYPTO_set_id_callback(l_id);
+    CRYPTO_set_locking_callback(l_lock);
+
     /* get HTTPS address and port */
     if(https[0]) {
-        FILE    *fcert;
+        EVP_PKEY    *pkey;
+        X509        *x509cert;
+        FILE        *fcert;
+        int         j;
 
         for(i = 0; https[i]; i++)
             ;
         if((https_sock = (int *)malloc(sizeof(int) * i)) == NULL) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "https_sock out of memory - aborted\n");
+#else
             syslog(LOG_ERR, "https_sock out of memory - aborted");
+#endif
             exit(1);
         }
-        if((x509cert = (X509 **)malloc(sizeof(X509 *) * i)) == NULL) {
-            syslog(LOG_ERR, "cert out of memory - aborted");
-            exit(1);
-        }
-        if((pkey = (EVP_PKEY **)malloc(sizeof(EVP_PKEY *) * i)) == NULL) {
-            syslog(LOG_ERR, "pkey out of memory - aborted");
+        if((ctx = (SSL_CTX **)malloc(sizeof(SSL_CTX *) * i)) == NULL) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "SSL_CTX out of memory - aborted\n");
+#else
+            syslog(LOG_ERR, "SSL_CTX out of memory - aborted");
+#endif
             exit(1);
         }
         for(i = 0; https[i]; i++) {
-            memset(&h_addr, 0, sizeof(h_addr));
-            h_addr.sin_family = AF_INET;
+            memset(&host_addr, 0, sizeof(host_addr));
+            host_addr.sin_family = AF_INET;
 
             /* host */
             if(regexec(&LISTEN_ADDR, https[i], 3, matches, 0)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "bad HTTPS spec %s - aborted\n", https[i]);
+#else
                 syslog(LOG_ERR, "bad HTTPS spec %s - aborted", https[i]);
+#endif
                 exit(1);
             }
             https[i][matches[1].rm_eo] = '\0';
-            if(i == 0 && strcmp(https[i], "*") == 0) {
+            if(strcmp(https[i], "*") == 0) {
                 /*
-                 * listen on all interfaces; this is only allowed on the first (and probably unique) address
+                 * listen on all interfaces
                  */
-                h_addr.sin_addr.s_addr = INADDR_ANY;
+                host_addr.sin_addr.s_addr = INADDR_ANY;
             } else {
                 if((host = gethostbyname(https[i])) == NULL) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "Unknown HTTPS host %s\n", https[i]);
+#else
                     syslog(LOG_ERR, "Unknown HTTPS host %s", https[i]);
+#endif
                     exit(1);
                 }
-                memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
+                memcpy(&host_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(host_addr.sin_addr.s_addr));
             }
             /* port */
-            h_addr.sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
+            host_addr.sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
 
-            if(h_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&h_addr)) {
+            if(host_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&host_addr)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "%s:%s already in use - skipped\n", https[i], https[i] + matches[2].rm_so);
+#else
                 syslog(LOG_WARNING, "%s:%s already in use - skipped", https[i], https[i] + matches[2].rm_so);
+#endif
                 https_sock[i] = -1;
             } else {
                 int opt;
 
                 /* prepare the socket */
                 if((https_sock[i] = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "HTTPS socket create: %s - aborted\n", strerror(errno));
+#else
                     syslog(LOG_ERR, "HTTPS socket create: %m - aborted");
+#endif
                     exit(1);
                 }
                 if(https_sock[i] > max_fd)
                     max_fd = https_sock[i];
                 opt = 1;
                 setsockopt(https_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
-                if(bind(https_sock[i], (struct sockaddr *)&h_addr, (socklen_t)sizeof(h_addr)) < 0) {
+                if(bind(https_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "HTTPS socket bind: %s - aborted\n", strerror(errno));
+#else
                     syslog(LOG_ERR, "HTTPS socket bind: %m - aborted");
+#endif
                     exit(1);
                 }
                 listen(https_sock[i], 256);
 
-                /* read the certificate and private key */
+                /* setup SSL_CTX */
+                if((ctx[i] = SSL_CTX_new(SSLv23_server_method())) == NULL) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "SSL_CTX_new failed - aborted\n");
+#else
+                    syslog(LOG_ERR, "SSL_CTX_new failed - aborted");
+#endif
+                    exit(1);
+                }
+
                 if((fcert = fopen(cert[i], "ra")) == NULL) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "can't open certificate file \"%s\": %s - aborted\n", cert[i], strerror(errno));
+#else
                     syslog(LOG_ERR, "can't open certificate file \"%s\": %m - aborted", cert[i]);
+#endif
                     exit(1);
                 }
-                if((x509cert[i] = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL) {
+                if((x509cert = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL) {
+                    /* at least one certificate */
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "can't read certificate from file \"%s\"\n", cert[i]);
+#else
                     syslog(LOG_ERR, "can't read certificate from file \"%s\"", cert[i]);
+#endif
                     exit(1);
                 }
+
+                if(SSL_CTX_use_certificate(ctx[i], x509cert) != 1) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "SSL_CTX_use_certificate failed - aborted\n");
+#else
+                    syslog(LOG_ERR, "SSL_CTX_use_certificate failed - aborted");
+#endif
+                    exit(1);
+                }
+
+                /* possibly certificate chain */
+                if((x509cert = PEM_read_X509(fcert, NULL, NULL, NULL)) != NULL) {
+                    if (ctx[i]->extra_certs != NULL) {
+                        sk_X509_pop_free(ctx[i]->extra_certs, X509_free);
+                        ctx[i]->extra_certs = NULL;
+                    }
+                    do {
+                        if(SSL_CTX_add_extra_chain_cert(ctx[i], x509cert) != 1) {
+#ifdef  NO_SYSLOG
+                            fprintf(stderr, "SSL_CTX_add_extra_chain_cert failed - aborted\n");
+#else
+                            syslog(LOG_ERR, "SSL_CTX_add_extra_chain_cert failed - aborted");
+#endif
+                            exit(1);
+                        }
+                    } while((x509cert = PEM_read_X509(fcert, NULL, NULL, NULL)) != NULL);
+                }
+
+                /* private key */
                 rewind(fcert);
-                if((pkey[i] = PEM_read_PrivateKey(fcert, NULL, NULL, NULL)) == NULL) {
+                if((pkey = PEM_read_PrivateKey(fcert, NULL, NULL, NULL)) == NULL) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "can't read private key from file \"%s\"\n", cert[i]);
+#else
                     syslog(LOG_ERR, "can't read private key from file \"%s\"", cert[i]);
+#endif
                     exit(1);
                 }
                 fclose(fcert);
+
+                if(SSL_CTX_use_PrivateKey(ctx[i], pkey) != 1) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "SSL_CTX_use_PrivateKey failed - aborted\n");
+#else
+                    syslog(LOG_ERR, "SSL_CTX_use_PrivateKey failed - aborted");
+#endif
+                    exit(1);
+                }
+                if(SSL_CTX_check_private_key(ctx[i]) != 1) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "SSL_CTX_check_private_key failed - aborted\n");
+#else
+                    syslog(LOG_ERR, "SSL_CTX_check_private_key failed - aborted");
+#endif
+                    exit(1);
+                }
+
+                /* additional CTX setup */
+                if(https_headers > 1)
+                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, verify_cert);
+                else if(https_headers == 1)
+                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
+                else
+                    SSL_CTX_set_verify(ctx[i], SSL_VERIFY_NONE, verify_cert);
+                SSL_CTX_set_verify_depth(ctx[i], 0);
+                SSL_CTX_set_mode(ctx[i], SSL_MODE_AUTO_RETRY);
+                SSL_CTX_set_options(ctx[i], SSL_OP_ALL);
+                if(ciphers[i])
+                    SSL_CTX_set_cipher_list(ctx[i], ciphers[i]);
             }
         }
     }
@@ -469,7 +672,11 @@ main(int argc, char **argv)
         struct passwd   *pw;
 
         if((pw = getpwnam(user)) == NULL) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "no such user %s - aborted\n", user);
+#else
             syslog(LOG_ERR, "no such user %s - aborted", user);
+#endif
             exit(1);
         }
         user_id = pw->pw_uid;
@@ -480,7 +687,11 @@ main(int argc, char **argv)
         struct group    *gr;
 
         if((gr = getgrnam(group)) == NULL) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "no such group %s - aborted\n", group);
+#else
             syslog(LOG_ERR, "no such group %s - aborted", group);
+#endif
             exit(1);
         }
         group_id = gr->gr_gid;
@@ -490,12 +701,18 @@ main(int argc, char **argv)
     /* daemonize - make ourselves a subprocess. */
     switch (fork()) {
         case 0:
+#ifndef NO_SYSLOG
             close(0);
             close(1);
             close(2);
+#endif
             break;
         case -1:
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "fork: %s - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "fork: %m - aborted");
+#endif
             exit(1);
         default:
             exit(0);
@@ -503,32 +720,53 @@ main(int argc, char **argv)
 #endif
 
     /* record pid in var/run */
-    if((fpid = fopen("/var/run/pound.pid", "wt")) != NULL) {
+    sprintf(fpid_name, "/var/run/pound_pid.%d", getpid());
+    if((fpid = fopen(fpid_name, "wt")) != NULL) {
         fprintf(fpid, "%d\n", getpid());
         fclose(fpid);
     } else
-        syslog(LOG_WARNING, "/var/run/pound.pid %m");
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "Create \"%s\": %s\n", fpid_name, strerror(errno));
+#else
+        syslog(LOG_WARNING, "Create \"%s\": %m", fpid_name);
+#endif
 
     /* chroot if necessary */
     if(root) {
         if(chroot(root)) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "chroot: %s - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "chroot: %m - aborted");
+#endif
             exit(1);
         }
         if(chdir("/")) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "chroot/chdir: %s - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "chroot/chdir: %m - aborted");
+#endif
             exit(1);
         }
     }
 
     if(group)
         if(setgid(group_id) || setegid(group_id)) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "setgid: %s - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "setgid: %m - aborted");
+#endif
             exit(1);
         }
     if(user)
         if(setuid(user_id) || seteuid(user_id)) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "setuid: %s - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "setuid: %m - aborted");
+#endif
             exit(1);
         }
 
@@ -538,22 +776,30 @@ main(int argc, char **argv)
             int status;
 
             while(wait(&status) != son)
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "MONITOR: bad wait (%s)\n", strerror(errno));
+#else
                 syslog(LOG_ERR, "MONITOR: bad wait (%m)");
+#endif
             if(WIFEXITED(status))
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "MONITOR: worker exited nurmally %d, restarting...\n", WEXITSTATUS(status));
+#else
                 syslog(LOG_ERR, "MONITOR: worker exited nurmally %d, restarting...", WEXITSTATUS(status));
+#endif
             else if(WIFSIGNALED(status))
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "MONITOR: worker exited on signal %d, restarting...\n", WTERMSIG(status));
+#else
                 syslog(LOG_ERR, "MONITOR: worker exited on signal %d, restarting...", WTERMSIG(status));
+#endif
             else
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "MONITOR: worker exited (stopped?) %d, restarting...\n", status);
+#else
                 syslog(LOG_ERR, "MONITOR: worker exited (stopped?) %d, restarting...", status);
+#endif
         } else if (son == 0) {
-            /* SSL stuff */
-            ERR_load_crypto_strings();
-            ERR_load_SSL_strings();
-            OpenSSL_add_all_algorithms();
-            l_init();
-            CRYPTO_set_id_callback(l_id);
-            CRYPTO_set_locking_callback(l_lock);
-
             /* thread stuff */
             pthread_attr_init(&attr);
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -561,20 +807,32 @@ main(int argc, char **argv)
 #ifdef  NEED_STACK
             /* set new stack size - necessary for OpenBSD/FreeBSD */
             if(pthread_attr_setstacksize(&attr, 1 << 18)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "can't set stack size - aborted\n");
+#else
                 syslog(LOG_ERR, "can't set stack size - aborted");
+#endif
                 exit(1);
             }
 #endif
 
             /* start the pruner */
             if(pthread_create(&thr, &attr, thr_prune, NULL)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "create thr_prune: %s - aborted\n", strerror(errno));
+#else
                 syslog(LOG_ERR, "create thr_prune: %m - aborted");
+#endif
                 exit(1);
             }
 
             /* start resurector (if necessary) */
             if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
+#ifdef  NO_SYSLOG
+                fprintf(stderr, "create thr_resurect: %s - aborted\n", strerror(errno));
+#else
                 syslog(LOG_ERR, "create thr_resurect: %m - aborted");
+#endif
                 exit(1);
             }
 
@@ -588,7 +846,11 @@ main(int argc, char **argv)
                     if(https_sock[i] >= 0)
                         FD_SET(https_sock[i], &socks);
                 if((i = select(max_fd, &socks, NULL, NULL, NULL)) < 0) {
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "select: %s\n", strerror(errno));
+#else
                     syslog(LOG_WARNING, "select: %m");
+#endif
                 } else {
                     for(i = 0; http[i]; i++) {
                         if(http_sock[i] >= 0 && FD_ISSET(http_sock[i], &socks)) {
@@ -596,26 +858,39 @@ main(int argc, char **argv)
                             clnt_length = sizeof(clnt_addr);
                             if((clnt = accept(http_sock[i], (struct sockaddr *)&clnt_addr,
                                 (socklen_t *)&clnt_length)) < 0) {
+#ifdef  NO_SYSLOG
+                                fprintf(stderr, "HTTP accept: %s\n", strerror(errno));
+#else
                                 syslog(LOG_WARNING, "HTTP accept: %m");
+#endif
                             } else if (clnt_addr.sin_family != AF_INET) {
                                 /* may happen on FreeBSD, I am told */
+#ifdef  NO_SYSLOG
+                                fprintf(stderr, "HTTP connection prematurely closed by peer\n");
+#else
                                 syslog(LOG_WARNING, "HTTP connection prematurely closed by peer");
+#endif
                                 close(clnt);
                             } else {
                                 thr_arg *arg;
 
                                 if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+#ifdef  NO_SYSLOG
+                                    fprintf(stderr, "HTTP arg: malloc\n");
+#else
                                     syslog(LOG_WARNING, "HTTP arg: malloc");
+#endif
                                     close(clnt);
                                 } else {
                                     arg->sock = clnt;
                                     arg->from_host = clnt_addr.sin_addr;
-                                    arg->is_ssl = 0;
-                                    arg->cert = NULL;
-                                    arg->pkey = NULL;
-                                    arg->ciphers = NULL;
+                                    arg->ctx = NULL;
                                     if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+#ifdef  NO_SYSLOG
+                                        fprintf(stderr, "HTTP pthread_create: %s\n", strerror(errno));
+#else
                                         syslog(LOG_WARNING, "HTTP pthread_create: %m");
+#endif
                                         free(arg);
                                         close(clnt);
                                     }
@@ -629,26 +904,39 @@ main(int argc, char **argv)
                             clnt_length = sizeof(clnt_addr);
                             if((clnt = accept(https_sock[i], (struct sockaddr *)&clnt_addr,
                                 (socklen_t *)&clnt_length)) < 0) {
+#ifdef  NO_SYSLOG
+                                fprintf(stderr, "HTTPS accept: %s\n", strerror(errno));
+#else
                                 syslog(LOG_WARNING, "HTTPS accept: %m");
+#endif
                             } else if (clnt_addr.sin_family != AF_INET) {
                                 /* may happen on FreeBSD, I am told */
+#ifdef  NO_SYSLOG
+                                fprintf(stderr, "HTTPS connection prematurely closed by peer\n");
+#else
                                 syslog(LOG_WARNING, "HTTPS connection prematurely closed by peer");
+#endif
                                 close(clnt);
                             } else {
                                 thr_arg *arg;
 
                                 if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+#ifdef  NO_SYSLOG
+                                    fprintf(stderr, "HTTPS arg: malloc\n");
+#else
                                     syslog(LOG_WARNING, "HTTPS arg: malloc");
+#endif
                                     close(clnt);
                                 } else {
                                     arg->sock = clnt;
                                     arg->from_host = clnt_addr.sin_addr;
-                                    arg->is_ssl = 1;
-                                    arg->cert = x509cert[i];
-                                    arg->pkey = pkey[i];
-                                    arg->ciphers = ciphers[i];
+                                    arg->ctx = ctx[i];
                                     if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+#ifdef  NO_SYSLOG
+                                        fprintf(stderr, "HTTPS pthread_create: %s\n", strerror(errno));
+#else
                                         syslog(LOG_WARNING, "HTTPS pthread_create: %m");
+#endif
                                         free(arg);
                                         close(clnt);
                                     }
@@ -660,7 +948,11 @@ main(int argc, char **argv)
             }
         } else {
             /* failed to spawn son */
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "Can't fork worker (%s) - aborted\n", strerror(errno));
+#else
             syslog(LOG_ERR, "Can't fork worker (%m) - aborted");
+#endif
             exit(1);
         }
 }

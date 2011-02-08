@@ -117,6 +117,12 @@
 /* Define if you have the <wait.h> header file. */
 #undef HAVE_WAIT_H
 
+/* Define if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define if you have the <fcntl.h> header file. */
+#undef HAVE_FCNTL_H
+
 /* Define if `fork' works. */
 #undef HAVE_WORKING_FORK
 

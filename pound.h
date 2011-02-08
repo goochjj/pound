@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.3 2003/02/19 13:52:00 roseg Exp $
+ * $Id: pound.h,v 1.4 2003/04/24 13:40:12 roseg Exp $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -114,7 +114,7 @@
 #else
 #error "Pound needs sys/time.h"
 #endif
-#if HAVE_UNISTD_H
+#if HAVE_TIME_H
 #include    <time.h>
 #else
 #error "Pound needs time.h"
@@ -162,8 +162,14 @@
 #if HAVE_OPENSSL_SSL_H
 #define OPENSSL_THREAD_DEFINES
 #include    <openssl/ssl.h>
+#if OPENSSL_VERSION_NUMBER >= 0x00907000L
+#ifndef OPENSSL_THREADS
+#error  "Pound requires OpenSSL with thread support"
+#endif
+#else
 #ifndef THREADS
 #error  "Pound requires OpenSSL with thread support"
+#endif
 #endif
 #else
 #error "Pound needs openssl/ssl.h"
@@ -223,6 +229,18 @@
 #error "Pound needs sys/wait.h"
 #endif
 
+#if HAVE_SYS_STAT_H
+#include    <sys/stat.h>
+#else
+#error "Pound needs sys/stat.h"
+#endif
+
+#if HAVE_FCNTL_H
+#include    <fcntl.h>
+#else
+#error "Pound needs fcntl.h"
+#endif
+
 extern int errno;
 
 /*
@@ -230,6 +248,7 @@ extern int errno;
  */
 
 extern int  clnt_to;            /* client timeout */
+extern int  server_to;          /* server timeout */
 extern int  log_level;          /* logging mode - 0, 1, 2 */
 extern int  https_headers;      /* add HTTPS-specific headers */
 extern char *https_header;      /* HTTPS-specific header to add */
@@ -249,6 +268,7 @@ extern char **http,             /* HTTP port to listen on */
 
 #define MAXBUF      16378
 #define MAXHEADERS  256
+#define MAXCHAIN    8
 #define GLOB_SESS   15
 
 /* Backend definition */
@@ -295,10 +315,7 @@ extern GROUP    **groups;
 typedef struct  {
     int             sock;
     struct in_addr  from_host;
-    int             is_ssl;
-    X509            *cert;
-    EVP_PKEY        *pkey;
-    char            *ciphers;
+    SSL_CTX         *ctx;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
 extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
@@ -312,6 +329,10 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN;   /* responses for which we ignore content */
+
+extern char *e500,  /* default error 500 page contents */
+            *e501,  /* default error 501 page contents */
+            *e503;  /* default error 503 page contents */
 
 #ifdef  NEED_INADDRT
 /* for oldish Unices - normally this is in /usr/include/netinet/in.h */

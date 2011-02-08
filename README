@@ -90,10 +90,18 @@ INSTALLATION
 
         ./configure
 
-    Two options are available for the configure script:
+    Four options are available for the configure script:
 
         -with-ssl=ssl_dir   OpenSSL home directory
-        -with-log=facility  log facility to use
+        -with-log=facility  log facility to use. By default this
+                            is LOG_DAEMON, but you may change it
+                            to anything you like.  Use the symbolic
+                            names as in openlog(3). Use --without-log
+                            to send all messages to stderr
+        -enable-daemon      enable or disable running as a daemon.
+                            By default enabled.
+        -enable-msdav       enable or disable support for the Microsoft
+                            WebDAV extensions. By default disabled.
 
     Check that the resulting Makefile is correct and possibly
     adjust flags as needed on your system. Compile:
@@ -508,8 +516,8 @@ Rather then change Pound to accept these characters (which could create
 some serious issues with security on other systems) we have made this
 behavior dependent on a compile-time switch. This is not accessible
 through the config file - you'll have to add -DMSDAV to the CFLAGS in
-the Makefile manually. You are free to do so, but be aware of what the
-implications are!
+the Makefile (or run configure --enable-msdav). You are free to do so,
+but be aware of what the implications are!
 
 In addition to this flag you must specify 'WebDAV 1' in the config file.
 If you also use the SSL wrapper feature in front of a Microsoft server
@@ -540,6 +548,8 @@ The following problems were reported by various people who use pound:
   Solution: make sure that the certificate file includes:
 
   - the server certificate
+  - (optional) a chain of certificates from a known certificate authority to your
+    server certificate
   - the private key; the key may NOT be password-protected
 
   The file should be in PEM format. The OpenSSL command to generate a self-signed

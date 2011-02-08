@@ -50,15 +50,16 @@ customary for them to be at the start. They may appear in any order.
 Specify the address and port number where
 .B Pound
 will listen for HTTP requests. Multiple directives imply listening on multiple ports.
-A host name of "*" implies listening on all available interfaces, in which case only
-one directive is allowed.
+A host name of "*" implies listening on all available interfaces (but be careful: no
+checks are made for conflicting definitions).
 .TP
 \fBListenHTTPS\fR host,port cert_file [ciphers]
 Specify the address and port number where
 .B Pound
 will listen for HTTPS requests.
 .I cert_file
-is the file containing the certificate (and signature) for this port; the same file may
+is the file containing the certificate, possibly a certificate chain and the signature
+for this port; the same file may
 be specified for multiple ports (as above - multiple directives imply listening on
 multiple ports). A host name of "*" implies listening on all available interfaces.
 If specified,
@@ -131,6 +132,17 @@ general, it is a good idea to set this as low as possible - it
 will find resurected hosts faster. However, if you set it too
 low it will consume resources - so beware.
 .TP
+\fBServer\fR value
+Specify for how long
+.B Pound
+will wait for a server response (default: 0). After this
+long has passed without the server sending any data
+.B Pound
+will consider the data exhausted and abort the connection. Set
+it higher if your server(s) time-out on a slow network or are
+over-loaded, lower if you
+can get away with it (ideally it should be 0).
+.TP
 \fBClient\fR value
 Specify for how long
 .B Pound
@@ -144,6 +156,18 @@ start getting DOS attacks or run into problems with IE clients.
 \fBSSLEngine\fR name
 Use an OpenSSL hardware accelleration card called "name". Available
 only if OpenSSL-engine is installed on your system.
+.TP
+\fBErr500\fR "filename"
+A file with the text to be displayed if an Error 500 occurs.
+Default: "An internal server error occurred. Please try again later.".
+.TP
+\fBErr501\fR "filename"
+A file with the text to be displayed if an Error 501 occurs.
+Default: "This method may not be used.".
+.TP
+\fBErr503\fR "filename"
+A file with the text to be displayed if an Error 503 occurs.
+Default: "The service is not available. Please try again later.".
 .SH "GROUP DIRECTIVES"
 Group directives apply to a specific group of requests. The order of the group
 directives is important - incoming requests will be matched against the
@@ -271,7 +295,8 @@ it in any way (except for signature and encryption correctness).
 In general,
 .B Pound
 does not read or write to the hard-disk. The exceptions are reading the configuration file
-and (possibly) the server certificate file(s), which are opened read-only on startup, read,
+and (possibly) the server certificate file(s) and error message(s), which are opened read-only
+on startup, read,
 and closed, and the pid file which is opened on start-up, written to and immediately closed.
 Following this there is no disk access whatsoever, so using a RootJail directive is only
 for extra security bonus points.
@@ -461,7 +486,7 @@ EndGroup
 .br
 .SH FILES
 .TP
-\fI/var/run/pound.pid\fR
+\fI/var/run/pound.nnn\fR
 this is where
 .B Pound
 will attempt to record its process id.
@@ -472,7 +497,8 @@ F_CONF flag in the Makefile).
 .TP
 \fI/usr/local/etc/pound/cert.pem\fR
 the certificate file(s) for HTTPS. The location must be defined in the configuration
-file - this is only a suggestion. The file must contain a PEM-encoded certificate
+file - this is only a suggestion. The file must contain a PEM-encoded certificate,
+optionally a certificate chain from a known Certificate Authority to your server certificate
 and a PEM-encoded private key (not password protected). See
 .I OpenSSL(1)
 for details. This file should be well protected, lest someone gets your server

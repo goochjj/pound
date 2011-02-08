@@ -602,7 +602,11 @@ try:
         sys.__detailedlog=DL
 
     # Import Zope (or Main)
-    exec "import "+MODULE in {}
+    if MODULE == 'Zope':
+        import Zope
+        Zope.startup()
+    else:
+        exec "import "+MODULE in {}
 
     # Location of the ZServer log file. This file logs all ZServer activity.
     # You may wish to create different logs for different servers. See
@@ -721,6 +725,13 @@ try:
             # from another web server to ZServer, and would like the CGI
             # environment to reflect the CGI environment of the other web
             # server.
+
+            try:
+                del HTTPS_ENV['HTTP']
+            except KeyError:
+                pass
+            HTTPS_ENV['HTTPS']='ON'
+
             zh = zhttp_handler(MODULE, '', HTTPS_ENV)
             if FORCE_HTTP_CONNECTION_CLOSE:
                 zh._force_connection_close = 1
@@ -939,7 +950,7 @@ try:
         raise
 
     # Check umask sanity if we're on posix.
-    if os.name == 'posix':
+    if os.name == 'posix' and not os.environ.get('Z_DEBUG_MODE'):
         # umask is silly, blame POSIX.  We have to set it to get its value.
         current_umask = os.umask(0)
         os.umask(current_umask)

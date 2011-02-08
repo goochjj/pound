@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.3 2003/02/19 13:52:00 roseg Exp $";
+static char *rcs_id = "$Id: svc.c,v 1.4 2003/04/24 13:40:12 roseg Exp $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.4  2003/04/24 13:40:12  roseg
+ * Added 'Server' configuration directive
+ * Fixed problem with HTTPSHeaders 0 "..." - the desired header is written even if HTTPSHeaders is 0
+ * Added the ability of loading a certificate chain.
+ * Added compatability with OpenSSL 0.9.7
+ * Added user-definable error pages.
+ * Added compile-time flags to run in foreground and to log to stderr.
+ * Opens separate pid files per-process.
+ * Improved autoconf.
+ * Some SSL speed optimisations.
+ *
  * Revision 1.3  2003/02/19 13:52:00  roseg
  * Added support for OpenSSL Engine (crypto hardware)
  * Added support for Subversion WebDAV
@@ -197,8 +208,8 @@ sess_dead(SESS *root, int be)
 {
     if(root == NULL)
         return NULL;
-    root->left = sess_clean(root->left, be);
-    root->right = sess_clean(root->right, be);
+    root->left = sess_dead(root->left, be);
+    root->right = sess_dead(root->right, be);
     root->children = (root->left? root->left->children: 0) + (root->right? root->right->children: 0) + 1;
     if(root->to_host != be)
         return root;
@@ -317,7 +328,11 @@ get_key(GROUP *g, struct in_addr from_host, char *url, char **headers)
             res = NULL;
         break;
     default:
+#ifdef  NO_SYSLOG
+        fprintf(stderr, "Unknown session type %d\n", g->sess_type);
+#else
         syslog(LOG_WARNING, "Unknown session type %d", g->sess_type);
+#endif
         res = NULL;
     }
     return res;
@@ -418,8 +433,13 @@ upd_session(GROUP *g, char **headers, struct sockaddr_in  *srv)
             if(srv == &(g->backend_addr[n].addr))
                 break;
         if(n >= g->tot_pri) {
+#ifdef  NO_SYSLOG
+            fprintf(stderr, "upd_session - unknown backend server %s:%hd\n",
+                inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+#else
             syslog(LOG_WARNING, "upd_session - unknown backend server %s:%hd",
                 inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
+#endif
             pthread_mutex_unlock(&g->mut);
             return;
         }
@@ -508,15 +528,20 @@ thr_resurect(void *arg)
                 if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
                     continue;
                 addr = g->backend_addr[i].alive_addr;
-                if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0)
+                if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0) {
                     kill_be(&g->backend_addr[i].addr);
+#ifdef  NO_SYSLOG
+                    fprintf(stderr, "BackEnd %s is dead\n", inet_ntoa(g->backend_addr[i].addr.sin_addr));
+#else
+                    syslog(LOG_ERR,"BackEnd %s is dead", inet_ntoa(g->backend_addr[i].addr.sin_addr));
+#endif
+                }
                 shutdown(sock, 2);
                 close(sock);
             }
         }
         /* check hosts alive again */
         for(n = 0; (g = groups[n]) != NULL; n++) {
-            pthread_mutex_lock(&g->mut);
             for(i = 0; i < g->tot_pri; i++) {
                 if(g->backend_addr[i].alive)
                     continue;
@@ -527,15 +552,22 @@ thr_resurect(void *arg)
                 else
                     addr = g->backend_addr[i].alive_addr;
                 if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) == 0) {
+                    pthread_mutex_lock(&g->mut);
                     addr = g->backend_addr[i].addr;
                     for(j = i; j < g->tot_pri; j++)
-                        if(memcmp(&(g->backend_addr[j].addr), &addr, sizeof(addr)) == 0)
+                        if(memcmp(&(g->backend_addr[j].addr), &addr, sizeof(addr)) == 0) {
                             g->backend_addr[j].alive = 1;
+#ifdef  NO_SYSLOG
+                            fprintf(stderr, "BackEnd %s resurrect\n", inet_ntoa(g->backend_addr[i].addr.sin_addr));
+#else
+                            syslog(LOG_ERR,"BackEnd %s resurrect", inet_ntoa(g->backend_addr[i].addr.sin_addr));
+#endif
+                        }
+                    pthread_mutex_unlock(&g->mut);
                 }
                 shutdown(sock, 2);
                 close(sock);
             }
-            pthread_mutex_unlock(&g->mut);
         }
     }
 }
