@@ -73,20 +73,30 @@ static CODE facilitynames[] = {
 };
 #endif
 
-static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine;
-static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, WebDAV, Client, CheckURL;
-static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation;
-static regex_t  Service, URL, HeadRequire, HeadDeny, BackEnd, Priority, HAport, HAportAddr, Redirect, TimeOut;
+static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
+static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
+static regex_t  Service, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr, Redirect, TimeOut;
 static regex_t  Session, Type, TTL, ID;
-static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, NoHTTPS11;
+static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 
 static regmatch_t   matches[5];
+
+static char *xhttp[] = {
+    "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|CONNECT) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
+};
+
+static int  n_lin = 0;
 
 /*
  * parse a back-end
  */
-BACKEND *
-parse_be(FILE *f_conf)
+static BACKEND *
+parse_be(FILE *const f_conf, const int is_emergency)
 {
     char        lin[MAXBUF];
     BACKEND     *res;
@@ -94,13 +104,13 @@ parse_be(FILE *f_conf)
     struct hostent      *host;
 
     if((res = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
-        logmsg(LOG_ERR, "BackEnd config: out of memory - aborted");
+        logmsg(LOG_ERR, "line %d: BackEnd config: out of memory - aborted", n_lin);
         exit(1);
     }
     memset(res, 0, sizeof(BACKEND));
     res->be_type = BACK_END;
     res->domain = PF_UNSPEC;
-    res->to = 15;
+    res->to = is_emergency? 120: 15;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
     res->priority = 1;
@@ -108,7 +118,9 @@ parse_be(FILE *f_conf)
     res->url = NULL;
     res->next = NULL;
     has_addr = has_port = 0;
+    pthread_mutex_init(&res->mut, NULL);
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -130,52 +142,64 @@ parse_be(FILE *f_conf)
             has_addr = 1;
         } else if(!regexec(&Port, lin, 4, matches, 0)) {
             if(res->domain != PF_INET) {
-                logmsg(LOG_ERR, "Port is supported only for INET back-ends\n");
+                logmsg(LOG_ERR, "line %d: Port is supported only for INET back-ends", n_lin);
                 exit(1);
             }
             res->addr.in.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
             has_port = 1;
         } else if(!regexec(&Priority, lin, 4, matches, 0)) {
+            if(is_emergency) {
+                logmsg(LOG_ERR, "line %d: Priority is not supported for Emergency back-ends", n_lin);
+                exit(1);
+            }
             res->priority = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&HAport, lin, 4, matches, 0)) {
+            if(is_emergency) {
+                logmsg(LOG_ERR, "line %d: HAport is not supported for Emergency back-ends", n_lin);
+                exit(1);
+            }
             if(res->domain != PF_INET) {
-                logmsg(LOG_ERR, "HAport is supported only for INET back-ends\n");
+                logmsg(LOG_ERR, "line %d: HAport is supported only for INET back-ends", n_lin);
                 exit(1);
             }
             memcpy(&res->HA, &res->addr.in, sizeof(res->HA));
             res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
         } else if(!regexec(&HAportAddr, lin, 4, matches, 0)) {
+            if(is_emergency) {
+                logmsg(LOG_ERR, "line %d: HAportAddr is not supported for Emergency back-ends", n_lin);
+                exit(1);
+            }
             if(res->domain != PF_INET) {
-                logmsg(LOG_ERR, "HAport is supported only for INET back-ends\n");
+                logmsg(LOG_ERR, "line %d: HAport is supported only for INET back-ends", n_lin);
                 exit(1);
             }
             res->HA.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
             if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown HAport host \"%s\"", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: Unknown HAport host \"%s\"", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
             memcpy(&res->HA.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->HA.sin_addr.s_addr));
             res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[2].rm_so));
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr) {
-                logmsg(LOG_ERR, "BackEnd missing Address - aborted");
+                logmsg(LOG_ERR, "line %d: BackEnd missing Address - aborted", n_lin);
                 exit(1);
             }
             if(res->domain == PF_INET && !has_port) {
-                logmsg(LOG_ERR, "BackEnd missing Port - aborted");
+                logmsg(LOG_ERR, "line %d: BackEnd missing Port - aborted", n_lin);
                 exit(1);
             }
             return res;
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
 
-    logmsg(LOG_ERR, "BackEnd premature EOF");
+    logmsg(LOG_ERR, "line %d: BackEnd premature EOF", n_lin);
     exit(1);
     return NULL;
 }
@@ -183,12 +207,13 @@ parse_be(FILE *f_conf)
 /*
  * parse a session
  */
-void
-parse_sess(FILE *f_conf, SERVICE *svc)
+static void
+parse_sess(FILE *const f_conf, SERVICE *const svc)
 {
     char        lin[MAXBUF], *cp;
 
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -196,7 +221,7 @@ parse_sess(FILE *f_conf, SERVICE *svc)
             continue;
         } else if(!regexec(&Type, lin, 4, matches, 0)) {
             if(svc->sess_type != SESS_NONE) {
-                logmsg(LOG_ERR, "Multiple Session types in one Service - aborted");
+                logmsg(LOG_ERR, "line %d: Multiple Session types in one Service - aborted", n_lin);
                 exit(1);
             }
             lin[matches[1].rm_eo] = '\0';
@@ -212,68 +237,68 @@ parse_sess(FILE *f_conf, SERVICE *svc)
             else if(!strcasecmp(cp, "HEADER"))
                 svc->sess_type = SESS_HEADER;
             else {
-                logmsg(LOG_ERR, "Unknown Session type \"%s\" - aborted", cp);
+                logmsg(LOG_ERR, "line %d: Unknown Session type \"%s\" - aborted", n_lin, cp);
                 exit(1);
             }
         } else if(!regexec(&TTL, lin, 4, matches, 0)) {
             svc->sess_ttl = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&ID, lin, 4, matches, 0)) {
             if(svc->sess_type != SESS_COOKIE && svc->sess_type != SESS_PARM && svc->sess_type != SESS_HEADER) {
-                logmsg(LOG_ERR, "no ID permitted unless COOKIE/PARM/HEADER Session - aborted");
+                logmsg(LOG_ERR, "line %d: no ID permitted unless COOKIE/PARM/HEADER Session - aborted", n_lin);
                 exit(1);
             }
             lin[matches[1].rm_eo] = '\0';
             if((svc->sess_parm = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "ID config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: ID config: out of memory - aborted", n_lin);
                 exit(1);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(svc->sess_type == SESS_NONE) {
-                logmsg(LOG_ERR, "Session type not defined - aborted");
+                logmsg(LOG_ERR, "line %d: Session type not defined - aborted", n_lin);
                 exit(1);
             }
             if(svc->sess_ttl <= 0) {
-                logmsg(LOG_ERR, "Session TTL not defined - aborted");
+                logmsg(LOG_ERR, "line %d: Session TTL not defined - aborted", n_lin);
                 exit(1);
             }
             if((svc->sess_type == SESS_COOKIE || svc->sess_type == SESS_PARM || svc->sess_type == SESS_HEADER)
             && svc->sess_parm == NULL) {
-                logmsg(LOG_ERR, "Session ID not defined - aborted");
+                logmsg(LOG_ERR, "line %d: Session ID not defined - aborted", n_lin);
                 exit(1);
             }
             if(svc->sess_type == SESS_COOKIE) {
                 snprintf(lin, MAXBUF - 1, "Cookie:.*[ \t]%s=([^;]*)", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                    logmsg(LOG_ERR, "COOKIE pattern \"%s\" failed - aborted", lin);
+                    logmsg(LOG_ERR, "line %d: COOKIE pattern \"%s\" failed - aborted", n_lin, lin);
                     exit(1);
                 }
             } else if(svc->sess_type == SESS_PARM) {
                 snprintf(lin, MAXBUF - 1, "[?&]%s=([^&;#]*)", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                    logmsg(LOG_ERR, "PARM pattern \"%s\" failed - aborted", lin);
+                    logmsg(LOG_ERR, "line %d: PARM pattern \"%s\" failed - aborted", n_lin, lin);
                     exit(1);
                 }
             } else if(svc->sess_type == SESS_BASIC) {
                 snprintf(lin, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                    logmsg(LOG_ERR, "BASIC pattern \"%s\" failed - aborted", lin);
+                    logmsg(LOG_ERR, "line %d: BASIC pattern \"%s\" failed - aborted", n_lin, lin);
                     exit(1);
                 }
             } else if(svc->sess_type == SESS_HEADER) {
                 snprintf(lin, MAXBUF - 1, "%s:[ \t]*([^ \t]*)[ \t]*", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                    logmsg(LOG_ERR, "HEADER pattern \"%s\" failed - aborted", lin);
+                    logmsg(LOG_ERR, "line %d: HEADER pattern \"%s\" failed - aborted", n_lin, lin);
                     exit(1);
                 }
             }
             return;
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
 
-    logmsg(LOG_ERR, "Session premature EOF");
+    logmsg(LOG_ERR, "line %d: Session premature EOF", n_lin);
     exit(1);
     return;
 }
@@ -281,8 +306,8 @@ parse_sess(FILE *f_conf, SERVICE *svc)
 /*
  * parse a service
  */
-SERVICE *
-parse_service(FILE *f_conf)
+static SERVICE *
+parse_service(FILE *const f_conf)
 {
     char        lin[MAXBUF];
     SERVICE     *res;
@@ -290,12 +315,14 @@ parse_service(FILE *f_conf)
     MATCHER     *m;
 
     if((res = (SERVICE *)malloc(sizeof(SERVICE))) == NULL) {
-        logmsg(LOG_ERR, "Service config: out of memory - aborted");
+        logmsg(LOG_ERR, "line %d: Service config: out of memory - aborted", n_lin);
         exit(1);
     }
     memset(res, 0, sizeof(SERVICE));
     res->sess_type = SESS_NONE;
+    pthread_mutex_init(&res->mut, NULL);
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -306,13 +333,13 @@ parse_service(FILE *f_conf)
                 for(m = res->url; m->next; m = m->next)
                     ;
                 if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "URL config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: URL config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = m->next;
             } else {
                 if((res->url = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "URL config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: URL config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = res->url;
@@ -320,7 +347,7 @@ parse_service(FILE *f_conf)
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "URL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: URL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
@@ -328,13 +355,13 @@ parse_service(FILE *f_conf)
                 for(m = res->req_head; m->next; m = m->next)
                     ;
                 if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRequire config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRequire config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = m->next;
             } else {
                 if((res->req_head = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRequire config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRequire config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = res->req_head;
@@ -342,7 +369,7 @@ parse_service(FILE *f_conf)
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadRequire bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: HeadRequire bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&HeadDeny, lin, 4, matches, 0)) {
@@ -350,13 +377,13 @@ parse_service(FILE *f_conf)
                 for(m = res->deny_head; m->next; m = m->next)
                     ;
                 if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadDeny config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadDeny config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = m->next;
             } else {
                 if((res->deny_head = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadDeny config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadDeny config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = res->deny_head;
@@ -364,7 +391,7 @@ parse_service(FILE *f_conf)
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadDeny bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: HeadDeny bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&Redirect, lin, 4, matches, 0)) {
@@ -372,13 +399,13 @@ parse_service(FILE *f_conf)
                 for(be = res->backends; be->next; be = be->next)
                     ;
                 if((be->next = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
-                    logmsg(LOG_ERR, "Redirect config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: Redirect config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 be = be->next;
             } else {
                 if((res->backends = (BACKEND *)malloc(sizeof(BACKEND))) == NULL) {
-                    logmsg(LOG_ERR, "Redirect config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: Redirect config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 be = res->backends;
@@ -387,18 +414,30 @@ parse_service(FILE *f_conf)
             be->be_type = REDIRECTOR;
             be->priority = 1;
             be->alive = 1;
+            pthread_mutex_init(&res->mut, NULL);
             lin[matches[1].rm_eo] = '\0';
             if((be->url = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "Redirector config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: Redirector config: out of memory - aborted", n_lin);
                 exit(1);
             }
+            /* split the URL into its fields */
+            if(regexec(&LOCATION, be->url, 4, matches, 0)) {
+                logmsg(LOG_ERR, "line %d: Redirect bad URL \"%s\" - aborted", n_lin, be->url);
+                exit(1);
+            }
+            if(be->url[matches[3].rm_so] == '/')
+                matches[3].rm_so++;
+            /* if the path component is empty or a sigle slash */
+            be->redir_req = ((matches[3].rm_eo - matches[3].rm_so) < 1);
         } else if(!regexec(&BackEnd, lin, 4, matches, 0)) {
             if(res->backends) {
                 for(be = res->backends; be->next; be = be->next)
                     ;
-                be->next = parse_be(f_conf);
+                be->next = parse_be(f_conf, 0);
             } else
-                res->backends = parse_be(f_conf);
+                res->backends = parse_be(f_conf, 0);
+        } else if(!regexec(&Emergency, lin, 4, matches, 0)) {
+            res->emergency = parse_be(f_conf, 1);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(f_conf, res);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
@@ -406,12 +445,12 @@ parse_service(FILE *f_conf)
                 res->tot_pri += be->priority;
             return res;
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
 
-    logmsg(LOG_ERR, "Service premature EOF");
+    logmsg(LOG_ERR, "line %d: Service premature EOF", n_lin);
     exit(1);
     return NULL;
 }
@@ -420,26 +459,26 @@ parse_service(FILE *f_conf)
  * return the file contents as a string
  */
 static char *
-file2str(char *fname)
+file2str(const char *fname)
 {
     char    *res;
     struct stat st;
     int     fin;
 
     if(stat(fname, &st)) {
-        logmsg(LOG_ERR, "can't stat Err file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "line %d: can't stat Err file \"%s\" (%s) - aborted", n_lin, fname, strerror(errno));
         exit(1);
     }
     if((fin = open(fname, O_RDONLY)) < 0) {
-        logmsg(LOG_ERR, "can't open Err file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "line %d: can't open Err file \"%s\" (%s) - aborted", n_lin, fname, strerror(errno));
         exit(1);
     }
     if((res = malloc(st.st_size + 1)) == NULL) {
-        logmsg(LOG_ERR, "can't alloc Err file \"%s\" (out of memory) - aborted", fname);
+        logmsg(LOG_ERR, "line %d: can't alloc Err file \"%s\" (out of memory) - aborted", n_lin, fname);
         exit(1);
     }
     if(read(fin, res, st.st_size) != st.st_size) {
-        logmsg(LOG_ERR, "can't read Err file \"%s\" (%s) - aborted", fname, strerror(errno));
+        logmsg(LOG_ERR, "line %d: can't read Err file \"%s\" (%s) - aborted", n_lin, fname, strerror(errno));
         exit(1);
     }
     res[st.st_size] = '\0';
@@ -450,8 +489,8 @@ file2str(char *fname)
 /*
  * parse an HTTP listener
  */
-LISTENER *
-parse_HTTP(FILE *f_conf)
+static LISTENER *
+parse_HTTP(FILE *const f_conf)
 {
     char        lin[MAXBUF];
     LISTENER    *res;
@@ -461,22 +500,27 @@ parse_HTTP(FILE *f_conf)
     int         has_addr, has_port;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL) {
-        logmsg(LOG_ERR, "ListenHTTP config: out of memory - aborted");
+        logmsg(LOG_ERR, "line %d: ListenHTTP config: out of memory - aborted", n_lin);
         exit(1);
     }
     memset(res, 0, sizeof(LISTENER));
     res->to = 10;
-    res->change30x = 1;
+    res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+        logmsg(LOG_ERR, "line %d: xHTTP bad default pattern - aborted", n_lin);
+        exit(1);
+    }
     if(regcomp(&res->url_pat, ".*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-        logmsg(LOG_ERR, "CheckURL bad default pattern - aborted");
+        logmsg(LOG_ERR, "line %d: CheckURL bad default pattern - aborted", n_lin);
         exit(1);
     }
     has_addr = has_port = 0;
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -486,7 +530,7 @@ parse_HTTP(FILE *f_conf)
             res->addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
             if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown Listener address \"%s\"", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: Unknown Listener address \"%s\"", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
             memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
@@ -495,16 +539,21 @@ parse_HTTP(FILE *f_conf)
             res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
             has_port = 1;
         } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
-            res->xHTTP = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&WebDAV, lin, 4, matches, 0)) {
-            res->webDAV = atoi(lin + matches[1].rm_so);
+            int n;
+
+            n = atoi(lin + matches[1].rm_so);
+            regfree(&res->verb);
+            if(regcomp(&res->verb, xhttp[n], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: xHTTP bad pattern %d - aborted", n_lin, n);
+                exit(1);
+            }
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             regfree(&res->url_pat);
             if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "CheckURL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&Err414, lin, 4, matches, 0)) {
@@ -526,13 +575,13 @@ parse_HTTP(FILE *f_conf)
                 for(m = res->head_off; m->next; m = m->next)
                     ;
                 if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRemove config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = m->next;
             } else {
                 if((res->head_off = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRemove config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = res->head_off;
@@ -540,11 +589,13 @@ parse_HTTP(FILE *f_conf)
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: HeadRemove bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&RewriteLocation, lin, 4, matches, 0)) {
-            res->change30x = atoi(lin + matches[1].rm_so);
+            res->rewr_loc = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&RewriteDestination, lin, 4, matches, 0)) {
+            res->rewr_dest = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(f_conf);
@@ -555,17 +606,17 @@ parse_HTTP(FILE *f_conf)
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr || !has_port) {
-                logmsg(LOG_ERR, "ListenHTTP missing Address or Port - aborted");
+                logmsg(LOG_ERR, "line %d: ListenHTTP missing Address or Port - aborted", n_lin);
                 exit(1);
             }
             return res;
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
 
-    logmsg(LOG_ERR, "ListenHTTP premature EOF");
+    logmsg(LOG_ERR, "line %d: ListenHTTP premature EOF", n_lin);
     exit(1);
     return NULL;
 }
@@ -581,8 +632,8 @@ verify_OK(int pre_ok, X509_STORE_CTX *ctx)
 /*
  * parse an HTTPS listener
  */
-LISTENER *
-parse_HTTPS(FILE *f_conf)
+static LISTENER *
+parse_HTTPS(FILE *const f_conf)
 {
     char        lin[MAXBUF];
     LISTENER    *res;
@@ -592,27 +643,32 @@ parse_HTTPS(FILE *f_conf)
     int         has_addr, has_port, has_cert;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL) {
-        logmsg(LOG_ERR, "ListenHTTPS config: out of memory - aborted");
+        logmsg(LOG_ERR, "line %d: ListenHTTPS config: out of memory - aborted", n_lin);
         exit(1);
     }
     memset(res, 0, sizeof(LISTENER));
     if((res->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
-        logmsg(LOG_ERR, "SSL_CTX_new failed - aborted");
+        logmsg(LOG_ERR, "line %d: SSL_CTX_new failed - aborted", n_lin);
         exit(1);
     }
 
     res->to = 10;
-    res->change30x = 1;
+    res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+        logmsg(LOG_ERR, "line %d: xHTTP bad default pattern - aborted", n_lin);
+        exit(1);
+    }
     if(regcomp(&res->url_pat, ".*", REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-        logmsg(LOG_ERR, "CheckURL bad default pattern - aborted");
+        logmsg(LOG_ERR, "line %d: CheckURL bad default pattern - aborted", n_lin);
         exit(1);
     }
     has_addr = has_port = has_cert = 0;
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -622,7 +678,7 @@ parse_HTTPS(FILE *f_conf)
             res->addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
             if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown Listener address \"%s\"", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: Unknown Listener address \"%s\"", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
             memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
@@ -631,16 +687,21 @@ parse_HTTPS(FILE *f_conf)
             res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
             has_port = 1;
         } else if(!regexec(&xHTTP, lin, 4, matches, 0)) {
-            res->xHTTP = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&WebDAV, lin, 4, matches, 0)) {
-            res->webDAV = atoi(lin + matches[1].rm_so);
+            int n;
+
+            n = atoi(lin + matches[1].rm_so);
+            regfree(&res->verb);
+            if(regcomp(&res->verb, xhttp[n], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
+                logmsg(LOG_ERR, "line %d: xHTTP bad pattern %d - aborted", n_lin, n);
+                exit(1);
+            }
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             regfree(&res->url_pat);
             if(regcomp(&res->url_pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "CheckURL bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: CheckURL bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&Err414, lin, 4, matches, 0)) {
@@ -662,13 +723,13 @@ parse_HTTPS(FILE *f_conf)
                 for(m = res->head_off; m->next; m = m->next)
                     ;
                 if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRemove config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = m->next;
             } else {
                 if((res->head_off = (MATCHER *)malloc(sizeof(MATCHER))) == NULL) {
-                    logmsg(LOG_ERR, "HeadRemove config: out of memory - aborted");
+                    logmsg(LOG_ERR, "line %d: HeadRemove config: out of memory - aborted", n_lin);
                     exit(1);
                 }
                 m = res->head_off;
@@ -676,25 +737,27 @@ parse_HTTPS(FILE *f_conf)
             memset(m, 0, sizeof(MATCHER));
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: HeadRemove bad pattern \"%s\" - aborted", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
         } else if(!regexec(&RewriteLocation, lin, 4, matches, 0)) {
-            res->change30x = atoi(lin + matches[1].rm_so);
+            res->rewr_loc = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&RewriteDestination, lin, 4, matches, 0)) {
+            res->rewr_dest = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Cert, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1) {
-                logmsg(LOG_ERR, "SSL_CTX_use_certificate_chain_file \"%s\" failed - aborted",
+                logmsg(LOG_ERR, "line %d: SSL_CTX_use_certificate_chain_file \"%s\" failed - aborted", n_lin,
                     lin + matches[1].rm_so);
                 exit(1);
             }
             if(SSL_CTX_use_PrivateKey_file(res->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1) {
-                logmsg(LOG_ERR, "SSL_CTX_use_PrivateKey_file \"%s\" failed - aborted",
+                logmsg(LOG_ERR, "line %d: SSL_CTX_use_PrivateKey_file \"%s\" failed - aborted", n_lin,
                     lin + matches[1].rm_so);
                 exit(1);
             }
             if(SSL_CTX_check_private_key(res->ctx) != 1) {
-                logmsg(LOG_ERR, "SSL_CTX_check_private_key \"%s\" failed - aborted",
+                logmsg(LOG_ERR, "line %d: SSL_CTX_check_private_key \"%s\" failed - aborted", n_lin,
                     lin + matches[1].rm_so);
                 exit(1);
             }
@@ -724,7 +787,7 @@ parse_HTTPS(FILE *f_conf)
         } else if(!regexec(&AddHeader, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((res->ssl_head = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "AddHeader config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: AddHeader config: out of memory - aborted", n_lin);
                 exit(1);
             }
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
@@ -735,16 +798,38 @@ parse_HTTPS(FILE *f_conf)
 
             lin[matches[1].rm_eo] = '\0';
             if((cert_names = SSL_load_client_CA_file(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "SSL_load_client_CA_file \"%s\" failed - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: SSL_load_client_CA_file \"%s\" failed - aborted", n_lin,
+                    lin + matches[1].rm_so);
                 exit(1);
             }
             SSL_CTX_set_client_CA_list(res->ctx, cert_names);
         } else if(!regexec(&VerifyList, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_load_verify_locations(res->ctx, lin + matches[1].rm_so, NULL) != 1) {
-                logmsg(LOG_ERR, "SSL_CTX_load_verify_locations \"%s\" failed - aborted", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: SSL_CTX_load_verify_locations \"%s\" failed - aborted", n_lin,
+                    lin + matches[1].rm_so);
                 exit(1);
             }
+        } else if(!regexec(&CRLlist, lin, 4, matches, 0)) {
+#if HAVE_X509_STORE_SET_FLAGS
+            X509_STORE *store;
+            X509_LOOKUP *lookup;
+
+            lin[matches[1].rm_eo] = '\0';
+            store = SSL_CTX_get_cert_store(res->ctx);
+            if((lookup = X509_STORE_add_lookup(store, X509_LOOKUP_file())) == NULL) {
+                logmsg(LOG_ERR, "line %d: X509_STORE_add_lookup \"%s\" failed - aborted", n_lin,
+                    lin + matches[1].rm_so);
+                exit(1);
+            }
+            if(X509_load_crl_file(lookup, lin + matches[1].rm_so, X509_FILETYPE_PEM) != 1) {
+                logmsg(LOG_ERR, "line %d: X509_load_crl_file \"%s\" failed - aborted", n_lin, lin + matches[1].rm_so);
+                exit(1);
+            }
+            X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL);
+#else
+            logmsg(LOG_ERR, "line %d: your version of OpenSSL does not support CRL checking", n_lin);
+#endif
         } else if(!regexec(&NoHTTPS11, lin, 4, matches, 0)) {
             res->noHTTPS11 = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
@@ -759,7 +844,7 @@ parse_HTTPS(FILE *f_conf)
             X509_STORE  *store;
 
             if(!has_addr || !has_port || !has_cert) {
-                logmsg(LOG_ERR, "ListenHTTPS missing Address, Port or Certificate - aborted");
+                logmsg(LOG_ERR, "line %d: ListenHTTPS missing Address, Port or Certificate - aborted", n_lin);
                 exit(1);
             }
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
@@ -767,21 +852,14 @@ parse_HTTPS(FILE *f_conf)
             sprintf(lin, "%d-Pound-%l", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
-#if HAVE_X509_STORE_SET_FLAGS
-            /* add the CRL stuff */
-            if((store = SSL_CTX_get_cert_store(res->ctx)) != NULL)
-                X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK);
-            else
-                logmsg(LOG_WARNING, "SSL_CTX_get_cert_store failed!");
-#endif
             return res;
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
 
-    logmsg(LOG_ERR, "ListenHTTPS premature EOF");
+    logmsg(LOG_ERR, "line %d: ListenHTTPS premature EOF", n_lin);
     exit(1);
     return NULL;
 }
@@ -789,8 +867,8 @@ parse_HTTPS(FILE *f_conf)
 /*
  * parse the config file
  */
-void
-parse_file(FILE *f_conf)
+static void
+parse_file(FILE *const f_conf)
 {
     char        lin[MAXBUF];
     SERVICE     *svc;
@@ -801,6 +879,7 @@ parse_file(FILE *f_conf)
 #endif
 
     while(fgets(lin, MAXBUF, f_conf)) {
+        n_lin++;
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&Empty, lin, 4, matches, 0) || !regexec(&Comment, lin, 4, matches, 0)) {
@@ -809,19 +888,19 @@ parse_file(FILE *f_conf)
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "User config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: User config: out of memory - aborted", n_lin);
                 exit(1);
             }
         } else if(!regexec(&Group, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((group = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "Group config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: Group config: out of memory - aborted", n_lin);
                 exit(1);
             }
         } else if(!regexec(&RootJail, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((root_jail = strdup(lin + matches[1].rm_so)) == NULL) {
-                logmsg(LOG_ERR, "RootJail config: out of memory - aborted");
+                logmsg(LOG_ERR, "line %d: RootJail config: out of memory - aborted", n_lin);
                 exit(1);
             }
         } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
@@ -844,22 +923,39 @@ parse_file(FILE *f_conf)
             ENGINE_load_builtin_engines();
 #endif
             if (!(e = ENGINE_by_id(lin + matches[1].rm_so))) {
-                logmsg(LOG_ERR, "could not find %s engine", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: could not find %s engine", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
             if(!ENGINE_init(e)) {
                 ENGINE_free(e);
-                logmsg(LOG_ERR, "could not init %s engine", lin + matches[1].rm_so);
+                logmsg(LOG_ERR, "line %d: could not init %s engine", n_lin, lin + matches[1].rm_so);
                 exit(1);
             }
             if(!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
                 ENGINE_free(e);
-                logmsg(LOG_ERR, "could not set all defaults");
+                logmsg(LOG_ERR, "line %d: could not set all defaults", n_lin);
                 exit(1);
             }
             ENGINE_finish(e);
             ENGINE_free(e);
 #endif
+        } else if(!regexec(&Control, lin, 4, matches, 0)) {
+            struct sockaddr_un  ctrl;
+
+            memset(&ctrl, 0, sizeof(ctrl));
+            ctrl.sun_family = AF_UNIX;
+            lin[matches[1].rm_eo] = '\0';
+            strncpy(ctrl.sun_path, lin + matches[1].rm_so, sizeof(ctrl.sun_path) - 1);
+            (void)unlink(ctrl.sun_path);
+            if((control_sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+                logmsg(LOG_ERR, "Control \"%s\" create: %s", ctrl.sun_path, strerror(errno));
+                exit(1);
+            }
+            if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
+                logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
+                exit(1);
+            }
+            listen(control_sock, 512);
         } else if(!regexec(&ListenHTTP, lin, 4, matches, 0)) {
             if(listeners == NULL)
                 listeners = parse_HTTP(f_conf);
@@ -885,7 +981,7 @@ parse_file(FILE *f_conf)
                 svc->next = parse_service(f_conf);
             }
         } else {
-            logmsg(LOG_ERR, "unknown directive \"%s\" - aborted", lin);
+            logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
         }
     }
@@ -896,7 +992,7 @@ parse_file(FILE *f_conf)
  * prepare to parse the arguments/config file
  */
 void
-config_parse(int argc, char **argv)
+config_parse(const int argc, char **const argv)
 {
     char    *conf_name;
     FILE    *f_conf;
@@ -912,14 +1008,14 @@ config_parse(int argc, char **argv)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-4])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -928,12 +1024,14 @@ config_parse(int argc, char **argv)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RewriteLocation, "^[ \t]*RewriteLocation[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RewriteLocation, "^[ \t]*RewriteLocation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RewriteDestination, "^[ \t]*RewriteDestination[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Emergency, "^[ \t]*Emergency[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Priority, "^[ \t]*Priority[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -948,6 +1046,7 @@ config_parse(int argc, char **argv)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
@@ -1016,7 +1115,7 @@ config_parse(int argc, char **argv)
     }
 
     if(listeners == NULL) {
-        logmsg(LOG_ERR, "no listeners define - aborted");
+        logmsg(LOG_ERR, "no listeners defined - aborted");
         exit(1);
     }
 
@@ -1030,6 +1129,7 @@ config_parse(int argc, char **argv)
     regfree(&LogLevel);
     regfree(&Alive);
     regfree(&SSLEngine);
+    regfree(&Control);
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&End);
@@ -1037,7 +1137,6 @@ config_parse(int argc, char **argv)
     regfree(&Port);
     regfree(&Cert);
     regfree(&xHTTP);
-    regfree(&WebDAV);
     regfree(&Client);
     regfree(&CheckURL);
     regfree(&Err414);
@@ -1047,11 +1146,13 @@ config_parse(int argc, char **argv)
     regfree(&MaxRequest);
     regfree(&HeadRemove);
     regfree(&RewriteLocation);
+    regfree(&RewriteDestination);
     regfree(&Service);
     regfree(&URL);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
+    regfree(&Emergency);
     regfree(&Priority);
     regfree(&TimeOut);
     regfree(&HAport);
@@ -1066,6 +1167,7 @@ config_parse(int argc, char **argv)
     regfree(&Ciphers);
     regfree(&CAlist);
     regfree(&VerifyList);
+    regfree(&CRLlist);
     regfree(&NoHTTPS11);
 
     return;

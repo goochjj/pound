@@ -165,6 +165,9 @@
 /* Define if you have the `localtime_r' function. */
 #undef HAVE_LOCALTIME_R
 
+/* Define if you have the `gettimeofday' function. */
+#undef HAVE_GETTIMEOFDAY
+
 /* Define if you have the `X509_STORE_set_flags' function. */
 #undef HAVE_X509_STORE_SET_FLAGS
 

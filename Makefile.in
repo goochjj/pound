@@ -25,10 +25,10 @@
 # Tel: +41-44-920 4904
 # EMail: roseg@apsis.ch
 
-CC=@CC@
+CC=@PTHREAD_CC@
 VERSION=@PACKAGE_VERSION@
-CFLAGS=-DF_CONF=\"$(F_CONF)\" -DVERSION=\"${VERSION}\" @CFLAGS@ @CPPFLAGS@
-LIBS=@LIBS@
+CFLAGS=-DF_CONF=\"$(F_CONF)\" -DVERSION=\"${VERSION}\" @CFLAGS@ @PTHREAD_CFLAGS@ @CPPFLAGS@
+LIBS=@LIBS@ @PTHREAD_LIBS@ -lm
 
 prefix=@prefix@
 exec_prefix=@exec_prefix@
@@ -38,22 +38,27 @@ F_CONF=@sysconfdir@/pound.cfg
 
 OBJS=pound.o http.o config.o svc.o
 
-all:	pound pound.8
+all:	pound poundctl pound.8
 
 pound:	$(OBJS)
 		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
+
+poundctl:	poundctl.o
+		${CC} -o poundctl poundctl.o
 
 $(OBJS):	pound.h
 
 install:	all
 		[ -d ${DESTDIR}@sbindir@ ] || mkdir ${DESTDIR}@sbindir@
-		@INSTALL@ -o bin -g bin -m 555 -s pound ${DESTDIR}@sbindir@/pound
+		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 555 -s pound ${DESTDIR}@sbindir@/pound
+		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 555 -s poundctl ${DESTDIR}@sbindir@/poundctl
 		[ -d ${DESTDIR}@mandir@ ] || mkdir ${DESTDIR}@mandir@
 		[ -d ${DESTDIR}@mandir@/man8 ] || mkdir ${DESTDIR}@mandir@/man8
-		@INSTALL@ -o bin -g bin -m 644 pound.8 ${DESTDIR}@mandir@/man8/pound.8
+		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 644 pound.8 ${DESTDIR}@mandir@/man8/pound.8
+		@INSTALL@ -o @I_OWNER@ -g @I_GRP@ -m 644 poundctl.8 ${DESTDIR}@mandir@/man8/poundctl.8
 
 clean:
-		rm -f pound $(OBJS)
+		rm -f pound $(OBJS) poundctl poundctl.o
 
 uninstall:
-		-rm -f @sbindir@/pound @mandir@/man8/pound.8 @mandir@/cat8/pound.8
+		-rm -f @sbindir@/pound @sbindir@/poundctl @mandir@/man8/pound.8 @mandir@/cat8/pound.8 @mandir@/man8/poundctl.8 @mandir@/cat8/poundctl.8

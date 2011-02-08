@@ -740,7 +740,7 @@ OTHER ISSUES
       The file should be in PEM format. The OpenSSL command to generate a
       self-signed certificate in the correct format would be something like::
 
-        openssl req -x509 -newkey rs:1024 -keyout test.pem -out test.pem \
+        openssl req -x509 -newkey rsa:1024 -keyout test.pem -out test.pem \
             -days 365 -nodes
 
       Note the '-nodes' flag - it's important!
@@ -766,8 +766,10 @@ OTHER ISSUES
       socket - see the man page for details.
 
     - In chroot mode name resolution (and especially redirects) may stop
-      functioning.  Solution: make sure either you have a working DNS or
-      that /etc/hosts is available in the root jail. Failing that the
+      functioning.  Solution: make sure your resolver works correctly in the
+      jail. You probably need copies of /etc/resolv.conf and (at least part)
+      of /etc/hosts. Depending on your system additional files may be required
+      check your resolver man page for details. Should name resolution fail the
       translation of host names to IP addresses would fail, thereby defeating
       the mechanism Pound uses to identify when should a Redirect be rewritten.
 

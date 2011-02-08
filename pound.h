@@ -29,6 +29,7 @@
 
 #include    "config.h"
 #include    <stdio.h>
+#include    <math.h>
 
 #if HAVE_STDLIB_H
 #include    <stdlib.h>
@@ -219,6 +220,11 @@
 #include    <varargs.h>
 #endif
 
+#ifndef __STDC__
+#define const
+#endif
+
+#ifndef NO_EXTERNALS
 /*
  * Global variables needed by everybody
  */
@@ -232,19 +238,17 @@ extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             log_level,          /* logging mode - 0, 1, 2 */
-            print_log;          /* print log messages to stdout/stderr */
+            print_log,          /* print log messages to stdout/stderr */
+            control_sock;       /* control socket */
 
-extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
-                XHTTP,      /* extended HTTP requests: PUT, DELETE */
-                WEBDAV,     /* WebDAV requests: LOCK, UNLOCK, SUBSCRIBE, PROPFIND, PROPPATCH, BPROPPATCH, SEARCH,
-                               POLL, MKCOL, MOVE, BMOVE, COPY, BCOPY, DELETE, BDELETE, CONNECT, OPTIONS, TRACE */
-                HEADER,     /* Allowed header */
+extern regex_t  HEADER,     /* Allowed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN,   /* responses for which we ignore content */
                 /* RESP_REDIR, /* responses for which we rewrite Location */
                 LOCATION,   /* the host we are redirected to */
                 AUTHORIZATION;  /* the Authorisation header */
+#endif /* NO_EXTERNALS */
 
 #define MAXBUF      2048
 #define MAXHEADERS  128
@@ -279,7 +283,13 @@ typedef struct _backend {
     int                 to;
     struct sockaddr_in  HA;         /* HA address & port */
     char                *url;       /* for redirectors */
-    int                 alive;
+    int                 redir_req;  /* the redirect should include the request path */
+    pthread_mutex_t     mut;        /* mutex for this back-end */
+    int                 n_requests; /* number of requests seen */
+    double              t_requests; /* time to answer these requests */
+    double              t_average;  /* average time to answer requests */
+    int                 alive;      /* false if the back-end is dead */
+    int                 disabled;   /* true if the back-end is disabled */
     struct _backend     *next;
 }   BACKEND;
 
@@ -303,6 +313,7 @@ typedef struct _service {
                         *req_head,  /* required headers */
                         *deny_head; /* forbidden headers */
     BACKEND             *backends;
+    BACKEND             *emergency;
     int                 tot_pri;    /* total priority for all back-ends */
     pthread_mutex_t     mut;        /* mutex for this service */
     SESS_TYPE           sess_type;
@@ -310,10 +321,13 @@ typedef struct _service {
     regex_t             sess_pat;   /* pattern to match the session data */
     char                *sess_parm; /* session cookie or parameter */
     SESS                *sessions;  /* currently active sessions */
+    int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
 }   SERVICE;
 
+#ifndef NO_EXTERNALS
 extern SERVICE          *services;  /* global services (if any) */
+#endif /* NO_EXTERNALS */
 
 /* Listener definition */
 typedef struct _listener {
@@ -323,22 +337,25 @@ typedef struct _listener {
     int                 clnt_check; /* client verification mode */
     int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
     char                *ssl_head;  /* extra SSL header */
-    int                 xHTTP;      /* allow extended HTTP */
-    int                 webDAV;     /* allow DAV */
+    regex_t             verb;       /* pattern to match the request verb against */
     int                 to;         /* client time-out */
-    regex_t             url_pat;    /* pattern to match the request against */
+    regex_t             url_pat;    /* pattern to match the request URL against */
     char                *err414,    /* error messages */
                         *err500,
                         *err501,
                         *err503;
     long                max_req;    /* max. request size */
     MATCHER             *head_off;  /* headers to remove */
-    int                 change30x;  /* rewrite redirect response */
+    int                 rewr_loc;   /* rewrite location response */
+    int                 rewr_dest;  /* rewrite destination header */
+    int                 disabled;   /* true if the listener is disabled */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
 
+#ifndef NO_EXTERNALS
 extern LISTENER         *listeners; /* all available listeners */
+#endif /* NO_EXTERNALS */
 
 typedef struct  {
     int                 sock;
@@ -358,6 +375,22 @@ typedef struct  {
 #define HEADER_REFERER              7
 #define HEADER_USER_AGENT           8
 #define HEADER_URI                  9
+#define HEADER_DESTINATION          10
+
+/* control request stuff */
+typedef enum    {
+    CTRL_LST,
+    CTRL_EN_LSTN, CTRL_DE_LSTN,
+    CTRL_EN_SVC, CTRL_DE_SVC,
+    CTRL_EN_BE, CTRL_DE_BE,
+}   CTRL_CODE;
+
+typedef struct  {
+    CTRL_CODE   cmd;
+    int         listener;
+    int         service;
+    int         backend;
+}   CTRL_CMD;
 
 #ifdef  NEED_INADDRT
 /* for oldish Unices - normally this is in /usr/include/netinet/in.h */
@@ -369,6 +402,11 @@ typedef u_int32_t   in_addr_t;
 typedef u_int16_t   in_port_t;
 #endif
 
+#ifdef  NEED_TIMET
+/* for oldish Unices - normally this is in /usr/include/time.h */
+typedef u_int32_t   time_t;
+#endif
+
 /*
  * handle an HTTP request
  */
@@ -377,27 +415,27 @@ extern void *thr_http(void *);
 /*
  * Log an error to the syslog or to stderr
  */
-extern void logmsg(int, char *, ...);
+extern void logmsg(const int, const char *, ...);
 
 /*
  * Translate inet address into a string
  */
-extern void addr2str(char *, int, struct in_addr *);
+extern void addr2str(char *, const int, const struct in_addr *);
 
 /*
  * Return a string representation for a back-end address
  */
-extern void str_be(char *, int, BACKEND *);
+extern void str_be(char *, const int, const BACKEND *);
 
 /*
  * Find the right service for a request
  */
-extern SERVICE  *get_service(LISTENER *, char *, char **);
+extern SERVICE  *get_service(const LISTENER *, const char *, char **const);
 
 /*
  * Find the right back-end for a request
  */
-extern BACKEND  *get_backend(SERVICE *, struct in_addr, char *, char **);
+extern BACKEND  *get_backend(SERVICE *const, const struct in_addr *, const char *, char **const);
 
 /*
  * Find if a redirect needs rewriting
@@ -405,28 +443,33 @@ extern BACKEND  *get_backend(SERVICE *, struct in_addr, char *, char **);
  * (1) if the redirect was done to the correct location with the wrong protocol
  * (2) if the redirect was done to the back-end rather than the listener
  */
-extern int  need_rewrite(char *, char *, LISTENER *, BACKEND *);
+extern int  need_rewrite(const int, char *const, char *const, const LISTENER *, const BACKEND *);
 /*
  * (for cookies only) possibly create session based on response headers
  */
-extern void upd_session(SERVICE *, char **, BACKEND *);
+extern void upd_session(SERVICE *const, char **const, BACKEND *const);
 
 /*
  * Parse a header
  */
-extern int  check_header(char *, char *);
+extern int  check_header(const char *, char *);
 
 /*
  * mark a backend host as dead;
  * do nothing if no resurection code is active
  */
-extern void kill_be(SERVICE *, BACKEND *);
+extern void kill_be(SERVICE *const, const BACKEND *);
+
+/*
+ * Update the number of requests and time to answer for a given back-end
+ */
+extern void upd_be(BACKEND *const be, const double);
 
 /*
  * Non-blocking version of connect(2). Does the same as connect(2) but
  * ensures it will time-out after a much shorter time period CONN_TO.
  */
-extern int  connect_nb(int, struct sockaddr *, socklen_t, int);
+extern int  connect_nb(const int, const struct sockaddr *, const socklen_t, const int);
 
 /*
  * Check if dead hosts returned to life;
@@ -437,7 +480,7 @@ extern void *thr_resurect(void *);
 /*
  * Parse arguments/config file
  */
-extern void config_parse(int, char **);
+extern void config_parse(const int, char **const);
 
 /*
  * RSA ephemeral keys: how many and how often
@@ -462,3 +505,9 @@ extern void init_RSAgen(void);
  * runs every T_RSA_KEYS seconds
  */
 extern void *thr_RSAgen(void *);
+
+/*
+ * The controlling thread
+ * listens to client requests and calls the appropriate functions
+ */
+extern void *thr_control(void *);
