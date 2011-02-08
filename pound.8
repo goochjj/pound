@@ -235,6 +235,7 @@ Specify the logging level: 0 for no logging, 1 (default) for regular
 logging, 2 for extended logging (show chosen backend server as well),
 3 for Apache-like format (Common Log Format with Virtual Host) and 4
 (same as 3 but without the virtual host information).
+This value can be overridden for specific listeners.
 .TP
 \fBAlive\fR value
 Specify how often
@@ -243,6 +244,23 @@ will check for resurected back-end hosts (default: 30 seconds). In
 general, it is a good idea to set this as low as possible - it
 will find resurected hosts faster. However, if you set it too
 low it will consume resources - so beware.
+.TP
+\fBClient\fR value
+Specify for how long
+.B Pound
+will wait for a client request (default: 10 seconds). After this
+long has passed without the client sending any data
+.B Pound
+will close the connection. Set it higher if your clients
+time-out on a slow network or over-loaded server, lower if you
+start getting DOS attacks or run into problems with IE clients.
+This value can be overridden for specific listeners.
+.TP
+\fBTimeOut\fR val
+How long should
+.B Pound
+wait for a response from the back-end (in seconds). Default: 15 seconds.
+This value can be overridden for specific back-ends.
 .TP
 \fBSSLEngine\fR "name"
 Use an OpenSSL hardware acceleration card called \fIname\fR. Available
@@ -306,14 +324,9 @@ POLL, BMOVE, BCOPY, BDELETE, CONNECT).
 additionally allow MS RPC extensions verbs (RPC_IN_DATA, RPC_OUT_DATA).
 .TP
 \fBClient\fR value
-Specify for how long
-.B Pound
-will wait for a client request (default: 10 seconds). After this
-long has passed without the client sending any data
-.B Pound
-will close the connection. Set it higher if your clients
-time-out on a slow network or over-loaded server, lower if you
-start getting DOS attacks or run into problems with IE clients.
+Override the global
+.I Client
+time-out value.
 .TP
 \fBCheckURL\fR "pattern to match"
 Define a pattern that must be matched by each request sent to this
@@ -371,6 +384,11 @@ If 1 force
 .B Pound
 to change the Destination: header in requests. The header is changed to point
 to the back-end itself with the correct protocol. Default: 0.
+.TP
+\fBLogLevel\fR value
+Override the global
+.I LogLevel
+value.
 .TP
 \fBService\fR
 This defines a private service (see below for service definition syntax). This
@@ -593,9 +611,9 @@ back-ends will be used more often than lower priority ones, so you should
 define higher priorities for more capable servers.
 .TP
 \fBTimeOut\fR val
-How long should
-.B Pound
-wait for a response from the back-end (in seconds). Default: 15 seconds.
+Override the global
+.I TimeOut
+value.
 .TP
 \fBHAport\fR [ address ] port
 A port (and optional address) to be used for server function checks. See below

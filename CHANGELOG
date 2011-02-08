@@ -1,4 +1,20 @@
 ------------------------------------------------------------------------
+r38 | roseg | 2007-01-03 18:25:30 +0100 (Wed, 03 Jan 2007) | 13 lines
+
+Release 2.2.1
+
+Enhancements:
+  - allow specific Listeners to override the gloabl LogLevel value
+  - allow a default Client value to be defined at the global level
+  - allow a default TimeOut value to be defined at the global level
+  - added compile-time flags for file owner and group
+
+Bug fixes:
+  - fixed some problems in the installation procedure
+  - fixed problem in SSL session string
+  - added protocol check in need_rewrite
+
+------------------------------------------------------------------------
 r37 | roseg | 2006-12-16 10:18:38 +0100 (Sat, 16 Dec 2006) | 45 lines
 
 Release 2.2

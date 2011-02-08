@@ -704,10 +704,11 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
         return 1;
     if(rewr_loc == 1) {
         /*
-         * check if the Location points to the Listener but with the wrong port
+         * check if the Location points to the Listener but with the wrong port or protocol
          */
         if(memcmp(&lstn->addr.sin_addr.s_addr, &addr.sin_addr.s_addr, sizeof(addr.sin_addr.s_addr)) == 0
-        && memcmp(&lstn->addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) != 0)
+        &&  (memcmp(&lstn->addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) != 0
+            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https")))
             return 1;
     }
     return 0;

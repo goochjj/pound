@@ -38,7 +38,6 @@ char        *user,              /* user to run as */
 int         alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
-            log_level,          /* logging mode - 0, 1, 2 */
             print_log,          /* print log messages to stdout/stderr */
             control_sock;       /* control socket */
 

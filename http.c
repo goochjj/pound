@@ -582,7 +582,7 @@ thr_http(void *arg)
                     cont = atol(buf);
                 break;
             case HEADER_ILLEGAL:
-                if(log_level > 0) {
+                if(lstn->log_level > 0) {
                     addr2str(caddr, MAXBUF - 1, &from_host);
                     logmsg(LOG_NOTICE, "bad header from %s (%s)", caddr, headers[n]);
                 }
@@ -958,7 +958,7 @@ thr_http(void *arg)
             else 
                 strncpy(buf, cur_backend->url, sizeof(buf) - 1);
             redirect_reply(cl, buf);
-            switch(log_level) {
+            switch(lstn->log_level) {
             case 0:
                 break;
             case 1:
@@ -1169,7 +1169,7 @@ thr_http(void *arg)
         strip_eol(response);
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);
         log_bytes(s_res_bytes, res_bytes);
-        switch(log_level) {
+        switch(lstn->log_level) {
         case 0:
             break;
         case 1:

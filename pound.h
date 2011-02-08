@@ -237,7 +237,6 @@ extern char *user,              /* user to run as */
 extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
-            log_level,          /* logging mode - 0, 1, 2 */
             print_log,          /* print log messages to stdout/stderr */
             control_sock;       /* control socket */
 
@@ -355,6 +354,7 @@ typedef struct _listener {
     int                 rewr_loc;   /* rewrite location response */
     int                 rewr_dest;  /* rewrite destination header */
     int                 disabled;   /* true if the listener is disabled */
+    int                 log_level;  /* log level for this listener */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;

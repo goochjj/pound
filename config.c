@@ -90,6 +90,9 @@ static char *xhttp[] = {
     "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
 };
 
+static int  log_level = 1;
+static int  clnt_to = 10;
+static int  be_to = 15;
 static int  n_lin = 0;
 
 /*
@@ -110,7 +113,7 @@ parse_be(FILE *const f_conf, const int is_emergency)
     memset(res, 0, sizeof(BACKEND));
     res->be_type = BACK_END;
     res->domain = PF_UNSPEC;
-    res->to = is_emergency? 120: 15;
+    res->to = is_emergency? 120: be_to;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
     res->priority = 1;
@@ -504,12 +507,13 @@ parse_HTTP(FILE *const f_conf)
         exit(1);
     }
     memset(res, 0, sizeof(LISTENER));
-    res->to = 10;
+    res->to = clnt_to;
     res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
         logmsg(LOG_ERR, "line %d: xHTTP bad default pattern - aborted", n_lin);
         exit(1);
@@ -596,6 +600,8 @@ parse_HTTP(FILE *const f_conf)
             res->rewr_loc = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&RewriteDestination, lin, 4, matches, 0)) {
             res->rewr_dest = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
+            res->log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(f_conf);
@@ -652,12 +658,13 @@ parse_HTTPS(FILE *const f_conf)
         exit(1);
     }
 
-    res->to = 10;
+    res->to = clnt_to;
     res->rewr_loc = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
         logmsg(LOG_ERR, "line %d: xHTTP bad default pattern - aborted", n_lin);
         exit(1);
@@ -744,6 +751,8 @@ parse_HTTPS(FILE *const f_conf)
             res->rewr_loc = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&RewriteDestination, lin, 4, matches, 0)) {
             res->rewr_dest = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
+            res->log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Cert, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1) {
@@ -849,7 +858,7 @@ parse_HTTPS(FILE *const f_conf)
             }
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
-            sprintf(lin, "%d-Pound-%l", getpid(), random());
+            sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             return res;
@@ -914,8 +923,12 @@ parse_file(FILE *const f_conf)
                 }
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Client, lin, 4, matches, 0)) {
+            clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
             alive_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
+            be_to = atoi(lin + matches[1].rm_so);
 #if HAVE_OPENSSL_ENGINE_H
         } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
@@ -1100,7 +1113,6 @@ config_parse(const int argc, char **const argv)
     alive_to = 30;
     daemonize = 1;
     log_facility = LOG_DAEMON;
-    log_level = 1;
 
     services = NULL;
     listeners = NULL;
