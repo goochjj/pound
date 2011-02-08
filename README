@@ -1,0 +1,442 @@
+POUND - REVERSE-PROXY AND LOAD-BALANCER
+
+The Pound program is a reverse proxy, load balancer and
+HTTPS front-end for Web server(s). Pound was developed
+to enable distributing the load among several Web-servers
+and to allow for a convenient SSL wrapper for those Web
+servers that do not offer it natively. Pound is distributed
+under the GPL - no warranty, it's free to use, copy and
+give away.
+
+
+WHAT POUND IS:
+
+(1) a reverse-proxy: it passes requests from client
+    browsers to one or more back-end servers.
+(2) a load balancer: it will distribute the requests from
+    the client browsers among several back-end servers,
+    while keeping session information.
+(3) an SSL wrapper: Pound will decrypt HTTPS requests
+    from client browsers and pass them as plain HTTP
+    to the back-end browsers.
+(4) an HTTP/HTTPS sanitizer: Pound will verify requests
+    for correctness and accept only well-formed ones.
+(5) a fail over-server: should a back-end server fail,
+    Pound will take note of the fact and stop passing
+    requests to it until it recovers.
+(6) a request redirector: requests may be distributed
+    among servers according to the requested URL.
+
+Pound is a very small program, easily audited for security
+problems. It can run as setuid/setgid and/or in a chroot
+jail. Pound does not access the hard-disk at all (except
+for reading the certificate file on start, if required)
+and should thus pose no security threat to any machine.
+
+
+WHAT POUND IS NOT:
+
+(1) Pound is not a Web server: by itself, Pound serves no
+    content - it contacts the back-end server(s) for that
+    purpose.
+(2) Pound is not a Web accelerator: no caching is done -
+    every request is passed "as is" to a back-end server.
+
+
+STATUS
+
+As of release 1.0 Pound is declared to be production-quality code.
+
+Quite a few people have reported using Pound succesfully in production
+environments. The largest volume reported to date is a site with an
+average of about 3.5M requests per day, peaking at over 300 requests/sec.
+
+Pound was succesfully used in production with a variety of Web servers,
+including Apache, IIS, Zope, WebLogic, Jakarta/Tomcat, iPlanet, etc. In
+general Pound passes requests and responses back and forth unchanged,
+so we have no reason to think that any web server would be incompatible.
+
+Client browsers that were tested:
+
+- IE 5.0/5.5 (Windows) HTTP/HTTPS
+- Netscape 4.7 (Windows/Linux) HTTP/HTTPS
+- Mozilla (Windows/Linux) HTTP/HTTPS
+- Konqueror (Linux) HTTP/HTTPS
+- Galeon (Linux) HTTP/HTTPS
+- Opera (Linux/Windows) HTTP/HTTPS
+- Lynx (Linux) HTTP
+
+Given that Pound is in production and no problems were reported, we have
+no reason to believe that other browsers would present a problem. A few
+issues were observed with problematic SSL implementations, most notably
+with Opera 6, but these should be OK in the present version.
+
+
+INSTALLATION
+
+(1) Pound was tested on Linux, Solaris and OpenBSD, but
+    it should work unchanged on just about any modern
+    Unix-like system. You will require OpenSSL and
+    libpthread.
+(2) Download the pound.tgz file and unpack it. Do the usual
+    thing:
+
+        ./configure
+
+    Two options are available for the configure script:
+
+        -with-ssl=ssl_dir   OpenSSL home directory
+        -with-log=facility  log facility to use
+
+    Check that the resulting Makefile is correct and possibly
+    adjust flags as needed on your system. Compile:
+
+        make
+
+    If it works, you may want to do some testing before
+    installing.
+(3) Install the executable somewhere (it's likely that
+    /usr/local/sbin would make a good choice), as well
+    as the manual page (pound.8 -> /usr/local/man/man8).
+    The supplied Makefile will do it for you.
+(4) Make sure Pound gets started on boot. Read the man
+    page for available options and examples.
+
+
+COPYRIGHT
+
+Pound is copyrighted by Apsis GmbH and is distributed under
+the terms of the GNU Public License. Basically, this means
+that you can use it free of charge, copy it, distribute it
+(provided the copyright is maintained and the full package
+is distributed), modify it, or line a bird-cage with it.
+
+We would be happy to hear from you if you use it and
+suggestions and improvements are gladly accepted.
+
+
+CONTACT
+
+Robert Segall - roseg@apsis.ch
+
+Apsis GmbH
+P.O.Box
+8707 Uetikon am See
+Switzerland
++41-1-920 4904
+http://www.apsis.ch
+
+
+ZOPE
+
+A special note for Zope users: the original intent on
+developing Pound was to allow distributing the load
+among several Zope servers running on top of ZEO. This
+it does.
+
+A special problem arises when you try using Pound as an
+SSL wrapper: Zope assumes that the requests are made via
+HTTP and insists on prepending 'http://' to the (correct)
+address in the replies, including in the <base> tag and
+the absolute URL's it generates (for images for example).
+This is clearly an undesirable behavior.
+
+In order to address this issue, a modified z2.py (as well
+as a patch) is included in the distribution. The main
+difference is that this z2.py allows starting an additional
+HTTP server via the -y flag that sets the environment
+HTTPS variable - thus correcting the problem. That means
+that in order to use Pound as an SSL wrapper you need to:
+
+- start Zope (modify the 'start' file) as
+    python -X -w 8080 -y 8443 ...
+- start _two_ copies of Pound on the front-end: one listens
+  on port 80 and passes requests to port 8080, the second
+  listens on port 443 and passes requests to port 8443.
+
+
+VIRTUAL HOSTS IN ZOPE
+
+For reasons I can't quite grasp, it seems that a lot of Zope
+users are convinced that virtual hosts are only possible through
+the Apache/VHM combination and that it requires some kind of
+magic incantation at midnight in order to work (I won't even
+start on the virgin sacrifices).
+
+The simple fact is that VHM and the Apache VirtualHost directives
+(as well as various tricks through mod_rewrite and mod_proxy) are
+(almost) mutually exclusive: they perform exactly the same
+functions and, leaving aside the logging issues, are used
+independently of each other.  Let me repeat that: you may use the
+VHM without Apache - just click on the VHM mappings tab and add
+whatever virtual host you wish. From this moment on any request
+to that host will be mapped back and forth by Zope to the required
+URL. This works 8 you access Zope directly or via any number
+of proxies on the way, Pound included.
+
+To test: add a new host name to your /etc/hosts file, making it an
+alias for localhost - something like
+
+    127.0.0.1 localhost www.testhost.mine
+
+Add a mapping in VHM from www.testhost.mine to some Zope folder
+(Examples is already there). Point your browser to http://localhost
+and you get the normal Zope start page; point it to
+http://www.testhost.mine and you'll see the Examples starting page.
+All requests are mapped correctly, and the URL's in the pages (such
+as base or absoluteURL) are translated correctly in the response.
+
+
+SESSIONS
+
+Pound has the ability to keep track of sessions between a client
+browser and a back-end server. Unfortunately, HTTP is defined as
+a stateless protocol, which complicates matters: many schemes have
+been invented to allow keeping track of sessions, none of which works
+perfectly. Even worse, sessions are critical in order to allow
+web-based applications to function correctly - it is vital that once
+a session is established all subsequent requests from the same browser
+be directed to the same back-end server.
+
+Three possible ways of detecting a session have been implemented in
+Pound (hopefully the most useful ones): by client address, by URL
+parameter and by cookie.
+
+- by client address: in this scheme Pound directs all requests from
+  the same client IP address to the same back-end server. Put the
+  line "Session IP 300" in the configuration file to achieve this effect.
+  If the timeout value is negative, requests from a given address will
+  always be directed to the same back-end server, otherwise the initial
+  assignment is random. The value indicates what period of inactivity is
+  allowed before the session is discarded.
+
+- by URL parameter: quite often session information is passed through URL
+  parameters (the browser is pointed to something like http://xxx?id=123).
+  Put the line "Session URL id 120" to support this scheme and the sessions
+  will be tracked based on the value of the "id" parameter.
+
+- by cookie value: applications that use this method pass a certain cookie
+  back and forth. Add the line "Session COOKIE sess 180" to your configuration
+  file - the sessions will be tracked by the value of the "sess" cookie.
+
+Please note the following restrictions on session tracking:
+
+- session tracking is always associated with a certain UrlGroup. Thus each
+  group may have other methods and parameters.
+- there is no default session: if you have not defined any sessions no
+  session tracking will be done.
+- only one session definition is allowed per URL group (this may change in
+  a future version). If your application has alternative methods for sessions
+  you will have to define a separate UrlGroup for each method.
+
+
+REQUEST LOGGING
+
+As a general rule, Pound passes all headers as they arrive from the client
+browser to the back-end server(s). There are two exceptions to this rule: Pound
+may add information about the SSL client certificate (as described below), and
+it will add an X-Forwarded-For header. The general format is
+
+  X-Forwarded-for: client-IP-address
+
+The back-end server(s) may use this extra information in order to create their
+log-files with the real client address (otherwise all requests will appear
+to originate from Pound itself, which is rather useless).
+
+In addition, Pound logs requests and replies to the system log. This is controlled
+by the LogLevel configuration variable (0 - no logging, 1 - normal log, 2 - full log).
+By default the messages go to the LOG_DAEMON facility, but you can change this in
+the configuration. If you don't want to, you can just do a
+
+    fgrep pound /var/log/messages
+
+to get all the messages generated by Pound.
+
+
+HTTPS CERTIFICATES
+
+If a client browser connects via HTTPS and if it presents a
+certificate and if HTTPSHeaders is set, Pound will obtain the
+certificate data and add the following HTTP headers to the
+request it makes to the server:
+
+- X-SSL-Subject: information about the certificate owner
+- X-SSL-Issuer: information about the certificate issuer (CA)
+- X-SSL-notBefore: begin validity date for the certificate
+- X-SSL-notAfter: end validity date for the certificate
+
+It is the application's responsibility to actually use these
+headers - Pound just passes this information without checking
+it in any way (except for signature and encryption correctness).
+
+
+SIMILAR SYSTEMS
+
+Quite a few people asked "What is wrong with Apache/Squid/
+stunnel/your_favorite? Do we really need another proxy
+system?". The simple answer is that there is nothing wrong -
+they are all excellent systems that do their jobs very well.
+The reasoning behind Pound is however slightly different:
+
+- In my experience, a load-balancer may easily become a
+  bottle-neck in itself. If you have a heavily loaded site,
+  there are few things more depressing than seeing your
+  "load-balancer" slow down the entire network. This means that
+  the load-balancer should be kept as light-weight as possible.
+
+- Security: auditing a large system for security issues is a
+  major undertaking for anybody (ask Bill Gates about it). This
+  implies that in order to avoid introducing new vulnerabilities
+  into a system (after all, your installation is only as secure
+  as its weakest component) the proxy/load-balancer should be
+  kept as small as possible.
+
+- Protection: I assume Pound will be the only component exposed
+  to the Internet - your back-end servers will run in a protected
+  network behind it. This means that Pound should filter requests
+  and make sure only valid, correctly formed ones are passed to the
+  back-end servers, thus protecting them from malicious clients.
+
+Taking these criteria into consideration, it is easy to see why
+the other systems mentioned above do not fit:
+
+- Apache (with mod_proxy and mod_backhand): great system, but very
+  large. Imposes a significant load on the system, complex set-up
+  procedure (and it is so easy to get it wrong: check how many Apache
+  servers allow proxying from and to external hosts). While Apache
+  has proven remarkably exploit free, I wouldn't wish to go into a
+  security audit for the tens of thousands of lines of code involved,
+  not to mention all the additional modules.
+
+- Squid: great caching proxy, but even should load-balancing
+  features become available in the future, do you really need
+  caching on the load-balancer? After all, Pound can easily run on a
+  disk-less system, whereas with Squid you'd better prepare a high
+  throughput RAID. Squid is still perfectly usable as a caching
+  proxy between Pound and the actual Web server, should it lack
+  its own cache (which Zope happily has).
+
+- stunnel: probably comes closest to my understanding of software
+  design (does one job only and does it very well). However, it
+  lacks the load balancing and HTTP filtering features that I
+  considered necessary. Using stunnel in front of Pound (for HTTPS)
+  would have made sense, except that integrating HTTPS into Pound
+  proved to be so simple that it was not worth the trouble.
+
+- your favorite system: let me know how it looks in light of the
+  above criteria - I am always interested in new ideas.
+
+
+DEDICATED SERVERS
+
+Some people asked about the possibility of dedicating specific
+back-end servers to some clients - in other words, if a request
+originates from a certain IP address or group of addresses then
+it should be sent to a specific group of back-end servers.
+
+Given the ease with which IP addresses can be forged I am personally
+doubtful of the utility of such a feature. Even should you think it
+desirable, it is probably best implemented via the packet filter,
+rather than a proxy server. Assuming that requests from x.com are
+to go to s1.local, requests from y.com to s2.local and everything
+else to s3.local and s4.local, here is how to do it:
+
+- make sure your firewall blocks requests to port 8080, 8081 and
+  8082
+- start three instances of Pound:
+  (1) listens on port 8080, passes requests to s1.local port 80
+  (2) listens on port 8081, passes requests to s2.local port 80
+  (3) listens on port 8082, passes requests to s3.local port 80 and
+      s4.local port 80
+- have your packet filter redirect requests to the right local ports
+  based on the origin address. In OpenBSD pf syntax this would be
+  something like:
+    rdr on rl0 from x.com to myhost.com port 80 -> localhost port 8080
+    rdr on rl0 from y.com to myhost.com port 80 -> localhost port 8081
+    rdr on rl0 from any to myhost.com port 80 -> localhost port 8082
+  or in Linux iptables:
+    iptables -t nat -A PREROUTING -p tcp -s x.com --dport 80 -i eth0 -j DNAT --to 127.0.0.1:8080
+    iptables -t nat -A PREROUTING -p tcp -s y.com --dport 80 -i eth0 -j DNAT --to 127.0.0.1:8081
+    iptables -t nat -A PREROUTING -p tcp --dport 80 -i eth0 -j DNAT --to 127.0.0.1:8082
+
+This would give you the desired effect and probably better
+performance than a purely proxy-based solution (though the
+performance improvement is debatable, at least on Linux).
+
+
+WebDAV
+
+As of version 1.0 Pound supports the full WebDAV command-set. In
+fact, it has been tested and is known to (almost) work with the
+Microsoft Outlook Web Gateway, which is quite remarkable given that
+Microsoft's own proxy does not.
+
+Regretably, Microsoft adherence to standards leaves something to be
+desired: they decided to add some characters to their URL's - thus
+breaking a whole set of RFC's.
+
+Rather then change Pound to accept these characters (which could create
+some serious issues with security on other systems) we have made this
+behaviour dependent on a compile-time switch. This is not accessible
+through the config file - you'll have to add -DMSDAV to the CFLAGS in
+the Makefile manually. You are free to do so, but be aware of what the
+implications are!
+
+In addition to this flag you must specify 'WebDAV 1' in the config file.
+If you also use the SSL wrapper feature in front of a Microsoft server
+you should probably also add 'HTTPSHeaders "Front-End-Https: on"'.
+
+
+OTHER ISSUES
+
+The following problems were reported by various people who use pound:
+
+- delays in loading pages when the client browser is IE 5.5 (possibly
+  limited to W2K/XP). It seems that IE opens exactly 4 connections (sockets) to
+  the server and keeps them open until some time-out or until the server closes
+  the connection. This works fine, unless you redirect IE to another server -
+  given that all 4 sockets are used IE waits for a while before the redirect is
+  actually performed.
+
+  Solution: use the directive "Client 1" to ensure that Pound closes sockets very
+  early, thus freeing the necessary resources. Experiment with the time-out - as
+  it may cause problems with slow connections.
+
+- Pound fails to start; HTTPS is enabled and the message "can't read private key
+  from file xxx</em>" appears in the log.
+
+  Solution: make sure that the certificate file includes:
+
+  - the server certificate
+  - the private key; the key may NOT be password-protected
+
+  The file should be in PEM format. The OpenSSL command to generate a self-signed
+  certificate in the correct format would be something like:
+
+    openssl req -x509 -newkey rs:1024 -keyout test.pem -out test.pem -days 365 -nodes
+
+  Note the '-nodes' flag - it's important!
+
+
+ACKNOWLEDGMENTS
+
+Ken Lalonde (ken@torus.ca) contributed very useful remarks and
+suggestions, as well as correcting a few code errors.
+
+Frank Denis (j@pureftpd.org) contributed a few excellent code
+patches and some good ideas.
+
+Jim Washington (jwashin@vt.edu) contributed the code for WebDAV
+and tested it.
+
+Luuk de Boer (luuk@planet.nl) did some serious testing and
+debugging of the WebDAV code for Microsoft servers.
+
+Abner G. Jacobsen (abner@integraweb.com.br) did a lot of testing
+in a production environment and contributed some very nice ideas.
+
+Gurkan Sengun (gurkan@linuks.mine.nu) tested Pound on Solaris,
+contributed the Solaris cc flags and makes a Solaris 7 pre-compiled
+version available on his Web-site (www.linuks.mine.nu)
+
+All the others who tested Pound and told me about their results.

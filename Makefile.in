@@ -1,0 +1,58 @@
+# Pound - the reverse-proxy load-balancer
+# Copyright (C) 2002 Apsis GmbH
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330,
+# Boston, MA  02111-1307, USA.
+#
+# Contact information:
+# Apsis GmbH
+# P.O.Box
+# 8707 Uetikon am See
+# Switzerland
+# Tel: +41-1-920 4904
+# EMail: roseg@apsis.ch
+#
+# $Id: Makefile.in,v 1.0 2002/10/31 15:21:25 roseg Prod roseg $
+
+CC=@CC@
+
+# Configuration file default; if none, look at config.c for default!
+F_CONF=/usr/local/etc/pound/pound.cfg
+
+CFLAGS=-DF_CONF=\"$(F_CONF)\" -DAEMON @CFLAGS@
+
+LIBS=@LIBS@
+
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+
+OBJS=pound.o http.o config.o svc.o
+
+all:	pound pound.8
+
+pound:	$(OBJS)
+		$(CC) @LDFLAGS@ -o pound $(OBJS) $(LIBS)
+
+$(OBJS):	pound.h
+
+install:	all
+		@INSTALL@ -o bin -g bin -m 555 -s pound @sbindir@
+		@INSTALL@ -o bin -g bin -m 644 pound.8 @mandir@/man8
+
+clean:
+		rm -f pound $(OBJS)
+
+uninstall:
+		-rm -f @sbindir@/pound @mandir@/man8/pound.8 @mandir@/cat8/pound.8

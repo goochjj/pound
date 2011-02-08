@@ -1,0 +1,452 @@
+.TH POUND "8" "May 2002" "pound" "System Manager's Manual"
+.SH NAME
+pound \- HTTP/HTTPS reverse-proxy and load-balancer
+.SH SYNOPSIS
+.TP
+.B pound
+[\fI-f config_file\fR]
+.SH DESCRIPTION
+.PP
+.B Pound
+is a reverse-proxy load balancing server. It accepts requests from HTTP/HTTPS
+clients and distributes them to one or more Web servers. The HTTPS requests are
+decrypted and passed to the back-ends as plain HTTP.
+.PP
+If more than one back-end server is defined,
+.B Pound
+chooses one of them randomly, based on defined priorities. By default,
+.B Pound
+keeps track of associations between clients and back-end servers (sessions).
+.SH OPTIONS
+Options available (see also below for configuration file options):
+.TP
+\fB\-f\fR config_file
+Location of the configuration file (see below for a full description of the format).
+Default:
+.I /usr/local/etc/pound/pound.cfg
+.PP
+In general, any number of back-end servers may be specified. Use the priority to
+affect the load distribution among unequal-performance servers.
+.PP
+One (or more) copies of
+.B Pound
+should be started at boot time. Use "big iron" if you expect heavy loads: while
+.B Pound
+is as light-weight as I know how to make it, with a lot of simultaneous requests it
+will use quite a bit of CPU and memory. Multiple CPUs are your friend.
+.SH "CONFIGURATION FILE"
+Each line in the file is considered a complete configuration directive. The directives
+are case-insensitive. Empty lines or lines starting in '#' are ignored.
+.PP
+Here is the directive syntax:
+.TP
+\fBListenHTTP\fR host,port
+Specify the address and port number where
+.B Pound
+will listen for HTTP requests. Multiple directives imply listening on multiple ports.
+.TP
+\fBListenHTTPS\fR host,port cert_file [ciphers]
+Specify the address and port number where
+.B Pound
+will listen for HTTPS requests.
+.I cert_file
+is the file containing the certificate (and signature) for this port; the same file may
+be specified for multiple ports (as above - multiple directives imply listening on
+multiple ports).
+If specified,
+.I ciphers
+is the list of ciphers that will be accepted by the SSL connection; it is a
+string in the same format as in OpenSSL
+.I ciphers(1)
+and
+.I SSL_CTX_set_cipher_list(3).
+Both
+.I ListenHTTP
+and
+.I ListenHTTPS
+may be specified as may times as required.
+.TP
+\fBHTTPSHeaders\fR ["header"]
+Add HTTPS-specific headers.  By default,
+.B Pound
+passes requests unchanged to the back-end server(s). If not empty, the value is an additional
+header for the request.
+.TP
+\fBUser\fR user_name
+Specify the user
+.B Pound
+will run as (must be defined in \fI/etc/passwd\fR).
+.TP
+\fBGroup\fR group_name
+Specify the group
+.B Pound
+will run as (must be defined in \fI/etc/group\fR).
+.TP
+\fBRootJail\fR directory_path_and_name
+Specify the directory that
+.B Pound
+will chroot to at runtime.
+.TP
+\fBExtendedHTTP\fR value
+if value is 1, allow extended HTTP requests (PUT, DELETE).
+By default,
+.B Pound
+only allows GET, POST and HEAD.
+.TP
+\fBWebDAV\fR value
+if value is 1, allow WebDAV requests (LOCK, UNLOCK, SUBSCRIBE, PROPFIND, PROPPATCH, SEARCH, POLL, MKCOL, MOVE,
+COPY, DELETE, BDELETE, CONNECT, OPTIONS, TRACE). This, as far as I can tell, is what Microsoft needs in its
+private WebDAV version. Whether my understanding of their semantics is correct is debatable. Whether their
+understanding of their semantics is correct is also debatable (they had to patch their own proxy several
+times in order to support WebDAV).
+.TP
+\fBLogLevel\fR value
+Specify the logging level: 0 for no logging, 1 (default) for regular
+logging (same format as regular Web servers, such as Apache), 2 for
+extended logging (show chosen backend server as well).
+.TP
+\fBAlive\fR value
+Specify how often
+.B Pound
+will check for resurected back-end hosts (default: 30 seconds). In
+general, it is a good idea to set this as low as possible - it
+will find resurected hosts faster. However, if you set it too
+low it will consume resources - so beware.
+.TP
+\fBClient\fR value
+Specify for how long
+.B Pound
+will wait for a client request (default: 10 seconds). After this
+long has passed without the client sending any data
+.B Pound
+will close the connection. Set it higher if your clients
+time-out on a slow network or over-loaded server, lower is you
+start getting DOS attacks or run into problems with IE clients.
+.TP
+\fBUrlGroup\fR "pattern"
+Specify a group of backend servers based on a URL pattern. All
+requests fitting the pattern will be served by the defined servers.
+.I Pattern
+is a regular pattern as specified in regex(7) - extended version.
+The patterns are tested in order of definition, so the last pattern
+should be a catch-all
+.I ".*"
+The group ends with a
+.I EndGroup
+directive.
+.TP
+\fBBackEnd\fR address,port,priority[,ha_port]
+Specify a backend server: address and port. Priority is 1 to 9
+and defines a weighting - higher priority servers get used more
+often. May only be used in an
+.I UrlGroup
+directive. If no servers are specified, then the specified URLs
+will be simply blocked.
+.TP
+\fBSession\fR TYPE [id] seconds
+Specify the time (in seconds) that a session will be kept.
+May be used exactly once and only in an
+.I UrlGroup
+directive. \fITYPE\fR is one of:
+.IP
+\fBIP\fR - the session is kept based on client IP address. No \fIid\fR is allowed.
+.IP
+\fBURL\fR - the session is kept based on the value of a parameter in the request
+URL. The \fIid\fR indicates which parameter will be checked.
+.IP
+\fBCOOKIE\fR - the session is kept based on a cookie (in the request or the response).
+The \fIid\fR indicates which cookie will be checked.
+.TP
+\fBHeadRequire\fR header "pattern"
+Specifiy header(s) that
+.B must
+appear in the request. Only requests that include the specified HTTP header
+will match.  May only be used in an
+.I UrlGroup
+directive. The headers will be checked against the "^header: *pattern$" regular
+pattern. As many
+.I HeadRequire
+directives as necessary may appear in a single group.
+.TP
+\fBHeadDeny\fR header "pattern"
+Specifiy headers that
+.B may not
+appear in the request. Only requests that do not include the specified HTTP header
+will match.  May only be used in an
+.I UrlGroup
+directive. The headers will be checked against the "^header: *pattern$" regular
+pattern. As many
+.I HeadDeny
+directives as necessary may appear in a single group.
+.PP
+See below for some examples.
+.SH HIGH-AVAILABILITY
+.B Pound
+attempts to keep track of active back-end servers, and will temporarily disable
+servers that do not respond (though not necessarily dead: an overloaded server
+that
+.B Pound
+cannot establish a connection to will be considered dead). However, every
+.I alive_check
+seconds, an attempt is made to connect to the dead servers in case they have become
+active again. If this attempt succeeds, connections will be innitiated to them again.
+.PP
+In general it is a good idea to set this time interval as low as is consistent with
+your resources in order to benefit from resurected servers at the earliest possible
+time. The default value of 30 seconds is probably a good choice.
+.PP
+Set the interval to 0 to disable this feature. The clients that happen upon a
+dead backend server will just receive a
+.I "503 Service Unavailable"
+message.
+.PP
+The \fIha_port\fR parameter specifies an additional port that is used only for viability
+checks: if this port is specified in a \fIBackEnd\fR directive, \fIPound\fR will attempt
+periodically (every \fIAlive\fR seconds) to connect to this port. If the port does not
+respond the server is considered dead.
+.SH HTTPS HEADERS
+If a client browser connects to
+.B Pound
+via HTTPS and if it presents a client certificate and if
+.I HTTPSHeaders
+is set (HTTPSHeaders "value"),
+.B Pound
+adds the following headers to the request it issues to the server:
+.TP
+\fBvalue\fR
+The value, if present, is added to the headers.
+.TP
+\fBX-SSL-Subject\fR
+Details about the certificate owner.
+.TP
+\fBX-SSL-Issuer\fR
+Details about the certificate issuer (Certificate Authority).
+.TP
+\fBX-SSL-notBefore\fR
+Starting date of certificate validity.
+.TP
+\fBX-SSL-notAfter\fR
+Ending date of certificate validity.
+.PP
+It is the application's responsability to actually use these
+headers - Pound just passes this information without checking
+it in any way (except for signature and encryption correctness).
+.SH SECURITY
+.PP
+In general,
+.B Pound
+does not read or write to the hard-disk. The exceptions are reading the configuration file
+and (possibly) the server certificate file(s), which are opened read-only on startup, read,
+and closed. Following this there is no disk access whatsoever, so using a RootJail
+directive is only for extra security bonus points.
+.PP
+.B Pound
+tries to sanitise all HTTP/HTTPS requests: the request itself, the headers and the contents
+are checked for conformance to the RFC's and only valid requests are passed to the back-end
+servers. This is not absolutely fool-proof - as the recent Apache problem with chunked
+transfers demonstrated. However, given the current standards, this is the best that can
+be done - HTTP is an inherently weak protocol.
+.SH ADDITIONAL NOTES
+.B Pound
+uses the system log for messages (default facility LOG_DAEMON). The format is very similar to
+other web servers, so that if you want to use a log tool:
+.TP
+    fgrep pound /var/log/messages | your_log_tool
+.PP
+Translating HTTPS to HTTP is an iffy proposition: no client information is passed to
+the server itself (certificates, etc) and the backend server may be misled if it
+uses absolute URLs. A patch for \fIZope\fR is included in the distribution to address
+this issue - for other Web servers you are on your own. May the source be with you.
+.PP
+.B Pound
+deals with (and sanitizes) HTTP/1.1 requests. Thus even if you have an HTTP/1.0 server,
+a single connection to an HTTP/1.1 client is kept, while the connection to the back-end
+server is re-opened as necessary.
+.SH EXAMPLES
+To translate HTTPS requests to a local HTTP server (assuming your network address
+is 123.123.123.123):
+.IP
+ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+.br
+
+.br
+UrlGroup ".*"
+.br
+BackEnd 127.0.0.1,80,1
+.br
+EndGroup
+.PP
+To distribute the HTTP/HTTPS requests to three read-only Web servers, where the third one
+is a newer and faster machine:
+.IP
+ListenHTTP 123.123.123.123,80
+.br
+ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+.br
+
+.br
+UrlGroup ".*"
+.br
+BackEnd 192.168.0.10,80,1
+.br
+BackEnd 192.168.0.11,80,1
+.br
+BackEnd 192.168.0.12,80,3
+.br
+EndGroup
+.PP
+To distribute the HTTP/HTTPS requests to two Web servers with long session times; also
+change the uid/gid of the running program and do a chroot:
+.IP
+ListenHTTP 123.123.123.123,80
+.br
+ListenHTTP 123.123.123.123,8080
+.br
+ListenHTTPS 123.123.123.123,443 /etc/pound/server.pem
+.br
+User www
+.br
+Group www
+.br
+RootJail /var/pound
+.br
+
+.br
+UrlGroup ".*"
+.br
+BackEnd 192.168.0.10,80,1
+.br
+BackEnd 192.168.0.11,80,1
+.br
+Session IP 600
+.br
+EndGroup
+.PP
+To separate between image requests and other Web content and block all requests
+for a specific URL:
+.IP
+ListenHTTP 123.123.123.123,80
+.br
+
+.br
+# Images server(s)
+.br
+UrlGroup ".*.(jpg|gif)"
+.br
+BackEnd 192.168.0.12,80,1
+.br
+EndGroup
+.br
+
+.br
+# Block all requests for /forbidden
+.br
+UrlGroup "/forbidden.*"
+.br
+EndGroup
+.br
+
+.br
+# Catch-all server(s)
+.br
+UrlGroup ".*"
+.br
+BackEnd 192.168.0.10,80,1
+.br
+BackEnd 192.168.0.11,80,1
+.br
+Session IP 300
+.br
+EndGroup
+.PP
+Here is a more complex example: assume your static images (GIF/JPEG) are to be served
+from a single back-end 192.168.0.10. In addition, 192.168.0.11 is to do the
+hosting for www.myserver.com with URL-based sessions, and 192.168.0.20 (a 1GHz PIII)
+and 192.168.0.21 (800Mhz Duron) are for all other requests (cookie-based sessions).
+The logging will be done by the back-end servers.  The configuration file may look like this:
+.IP
+# Main listening ports
+.br
+ListenHTTP  1.2.3.4
+.br
+ListenHTTPS 1.2.3.4,443 /etc/pound/pound.pem
+.br
+User nobody
+.br
+Group nogroup
+.br
+RootJail /var/pound/jail
+.br
+Client 15
+.br
+Alive 60
+.br
+HTTPSHeaders
+.br
+LogLevel 0
+.br
+
+.br
+# Image server
+.br
+UrlGroup ".*.(jpg|gif)"
+.br
+BackEnd 192.168.0.10,80,1
+.br
+EndGroup
+.br
+
+.br
+# Virtual host www.myserver.com
+.br
+UrlGroup ".*sessid=.*"
+.br
+HeadRequire ".*www.myserver.com"
+.br
+BackEnd 192.168.0.11,80,1
+.br
+Session URL sessid 120
+.br
+EndGroup
+.br
+
+.br
+# Everybody else
+.br
+UrlGroup ".*"
+.br
+BackEnd 192.168.0.11,20,5
+.br
+BackEnd 192.168.0.11,21,4
+.br
+Session COOKIE userid 180
+.br
+EndGroup
+.br
+.SH FILES
+.TP
+\fI/var/run/pound.pid\fR
+this is where
+.B Pound
+will attempt to record its process id.
+.TP
+\fI/usr/local/etc/pound/pound.cfg\fR
+the default configuration file (the location may be changed when compiling - see the
+F_CONF flag in the Makefile).
+.TP
+\fI/usr/local/etc/pound/cert.pem\fR
+the certificate file(s) for HTTPS. The location must be defined in the configuration
+file - this is only a suggestion. The file must contain a PEM-encoded certificate
+and a PEM-encoded private key (not password protected). See
+.I OpenSSL(1)
+for details. This file should be well protected, lest someone gets your server
+private key.
+.SH AUTHOR
+Written by Robert Segall, Apsis GmbH.
+.SH "REPORTING BUGS"
+Report bugs to <roseg@apsis.ch>.
+.SH COPYRIGHT
+Copyright \(co 2002 Apsis GmbH.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.

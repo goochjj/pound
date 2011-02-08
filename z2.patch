@@ -1,0 +1,70 @@
+570a
+            hs.install_handler(zh)
+
+    # HTTPS Server
+    if HTTPS_PORT:
+        if type(HTTPS_PORT) is type(0): HTTPS_PORT=((IP_ADDRESS, HTTPS_PORT),)
+        for address, port in HTTPS_PORT:
+            hs = zhttp_server(
+                ip=address,
+                port=port,
+                resolver=rs,
+                logger_object=lg)
+
+            # Handler for a published module. zhttp_handler takes 3 arguments:
+            # The name of the module to publish, and optionally the URI base
+            # which is basically the SCRIPT_NAME, and optionally a dictionary
+            # with CGI environment variables which override default
+            # settings. The URI base setting is useful when you want to
+            # publish more than one module with the same HTTP server. The CGI
+            # environment setting is useful when you want to proxy requests
+            # from another web server to ZServer, and would like the CGI
+            # environment to reflect the CGI environment of the other web
+            # server.    
+
+            try:
+                del HTTPS_ENV['HTTP']
+            except KeyError:
+                pass
+            HTTPS_ENV['HTTPS']='ON'
+
+            zh = zhttp_handler(MODULE, '', HTTPS_ENV)
+.
+396a
+            HTTPS_PORT=server_info(HTTPS_PORT, v, 443)
+.
+390a
+        elif o=='-y':
+            HTTPS_PORT=server_info(HTTPS_PORT, v)
+.
+385c
+            MONITOR_PORT=HTTP_PORT=HTTPS_PORT=FTP_PORT=FCGI_PORT=0
+.
+342c
+                               'hz:Z:t:i:a:d:u:w:y:W:f:p:m:Sl:2DP:rF:L:XM:')
+.
+270a
+# Port for HTTPS Server. The standard port for HTTPS services is 443.
+HTTPS_PORT=8443
+
+# HTTPS enivornment settings.
+HTTPS_ENV={}
+
+.
+106c
+    The "WebDAV source" port.  If this is a dash (e.g. -W -), then
+.
+103a
+  -y port
+  
+    The encrypted Web server (HTTPS) port.  This defaults to %(HTTPS_PORT)s.
+    The standard port for HTTP services is 443.  If this is a dash
+    (e.g. -y -), then HTTPS is disabled.
+
+    The number can be preeceeded by an ip address follwed by a colon
+    to specify an address to listen on. This allows different servers
+    to listen on different addresses.
+
+    Multiple -y options can be provided to run multiple servers.
+
+.
