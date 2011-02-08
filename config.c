@@ -26,10 +26,20 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.0 2002/10/31 15:21:24 roseg Prod roseg $";
+static char *rcs_id = "$Id: config.c,v 1.1 2003/01/09 01:28:39 roseg Rel roseg $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.1  2003/01/09 01:28:39  roseg
+ * Better auto-conf detection
+ * LogLevel 3 for Apache-like log (Combined Log Format)
+ * Don't ask client for certificate if no SSL headers required
+ * Added handling for 'Connection: closed' header
+ * Added monitor process to restart worker process if crashed
+ * Added possibility to listen on all interfaces
+ * Fixed HeadDeny code
+ * Fixed problem with threads on *BSD
+ *
  * Revision 1.0  2002/10/31 15:21:24  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -118,7 +128,7 @@ parse_file(char *fname)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ExtendedHTTP, "^[ \t]*ExtendedHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0123])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&UrlGroup, "^[ \t]*UrlGroup[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)

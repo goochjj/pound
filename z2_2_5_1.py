@@ -371,6 +371,7 @@ try:
             if o: 
               os.environ[o]=v
               HTTP_ENV[o]=v
+              HTTPS_ENV[o]=v
         else:
             raise 'Invalid argument', a
 

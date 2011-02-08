@@ -26,10 +26,20 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.0 2002/10/31 15:21:24 roseg Prod roseg $";
+static char *rcs_id = "$Id: pound.c,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.1  2003/01/09 01:28:40  roseg
+ * Better auto-conf detection
+ * LogLevel 3 for Apache-like log (Combined Log Format)
+ * Don't ask client for certificate if no SSL headers required
+ * Added handling for 'Connection: closed' header
+ * Added monitor process to restart worker process if crashed
+ * Added possibility to listen on all interfaces
+ * Fixed HeadDeny code
+ * Fixed problem with threads on *BSD
+ *
  * Revision 1.0  2002/10/31 15:21:24  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -130,8 +140,12 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
         HEADER,             /* Allowed header */
         CHUNKED,            /* Transfer-encoding: chunked header */
         CONT_LEN,           /* Content-length header */
+        CONN_CLOSED,        /* Connection: closed header */
         CHUNK_HEAD,         /* chunk header line */
         RESP_IGN;           /* responses for which we ignore content */
+
+/* worker pid */
+static  pid_t               son = 0;
 
 /*
  * handle SIGTERM - exit
@@ -139,17 +153,10 @@ regex_t HTTP,               /* normal HTTP requests: GET, POST, HEAD */
 static void
 h_term(int sig)
 {
-    syslog(LOG_NOTICE, "received SIGTERM - exiting...");
+    syslog(LOG_NOTICE, "received signal %d - exiting...", sig);
+    if(son > 0)
+        kill(son, SIGTERM);
     exit(0);
-}
-
-/*
- * handle SIGPIPE - exit thread
- */
-static void
-h_pipe(int sig)
-{
-    pthread_exit(NULL);
 }
 
 /*
@@ -200,10 +207,9 @@ main(int argc, char **argv)
     syslog(LOG_NOTICE, "starting...");
 
     signal(SIGTERM, h_term);
-    /*
-     * to avoid problems with some non-standard SSL clients, Konqueror in particualr
-     */
-    signal(SIGPIPE, h_pipe);
+    signal(SIGINT, h_term);
+    signal(SIGQUIT, h_term);
+    signal(SIGPIPE, SIG_IGN);
 
     config_parse(argc, argv);
 
@@ -221,13 +227,14 @@ main(int argc, char **argv)
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&XHTTP, "^(PUT|DELETE) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&WEBDAV, "^(LOCK|UNLOCK|SUBSCRIBE|PROPFIND|PROPPATCH|BPROPPATCH|SEARCH|POLL|MKCOL|MOVE|BMOVE|COPY|BCOPY|DELETE|BDELETE|CONNECT|OPTIONS|TRACE) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
+    || regcomp(&WEBDAV, "^(LOCK|UNLOCK) ([A-Za-z0-9~;/?:%@&=+$,_.!'()-]+) HTTP/1.[01]$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #endif
-    || regcomp(&HEADER, "^[A-Za-z][A-Za-z0-9_-]*:.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CHUNKED, "^Transfer-encoding: chunked$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HEADER, "^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CHUNKED, "^Transfer-encoding:[ \t]*chunked$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CHUNK_HEAD, "^([0-9a-f]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&CONT_LEN, "^Content-length: ([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CONT_LEN, "^Content-length:[ \t]*([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CONN_CLOSED, "^Connection:[ \t]*close$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LISTEN_ADDR, "^([^,]+),([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|304).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
@@ -255,15 +262,22 @@ main(int argc, char **argv)
                 exit(1);
             }
             http[i][matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(http[i])) == NULL) {
-                syslog(LOG_ERR, "Unknown HTTP host %s", http[i]);
-                exit(1);
+            if(i == 0 && strcmp(http[i], "*") == 0) {
+                /*
+                 * listen on all interfaces; this is only allowed on the first (and probably unique) address
+                 */
+                h_addr.sin_addr.s_addr = INADDR_ANY;
+            } else {
+                if((host = gethostbyname(http[i])) == NULL) {
+                    syslog(LOG_ERR, "Unknown HTTP host %s", http[i]);
+                    exit(1);
+                }
+                memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
             }
-            memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
             /* port */
             h_addr.sin_port = (in_port_t)htons(atoi(http[i] + matches[2].rm_so));
 
-            if(addr_in_use(&h_addr)) {
+            if(h_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&h_addr)) {
                 syslog(LOG_WARNING, "%s:%s already in use - skipped", http[i], http[i] + matches[2].rm_so);
                 http_sock[i] = -1;
             } else {
@@ -311,19 +325,26 @@ main(int argc, char **argv)
 
             /* host */
             if(regexec(&LISTEN_ADDR, https[i], 3, matches, 0)) {
-                syslog(LOG_ERR, "bad HTTP spec %s - aborted", https[i]);
+                syslog(LOG_ERR, "bad HTTPS spec %s - aborted", https[i]);
                 exit(1);
             }
             https[i][matches[1].rm_eo] = '\0';
-            if((host = gethostbyname(https[i])) == NULL) {
-                syslog(LOG_ERR, "Unknown HTTP host %s", https[i]);
-                exit(1);
+            if(i == 0 && strcmp(https[i], "*") == 0) {
+                /*
+                 * listen on all interfaces; this is only allowed on the first (and probably unique) address
+                 */
+                h_addr.sin_addr.s_addr = INADDR_ANY;
+            } else {
+                if((host = gethostbyname(https[i])) == NULL) {
+                    syslog(LOG_ERR, "Unknown HTTPS host %s", https[i]);
+                    exit(1);
+                }
+                memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
             }
-            memcpy(&h_addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(h_addr.sin_addr.s_addr));
             /* port */
             h_addr.sin_port = (in_port_t)htons(atoi(https[i] + matches[2].rm_so));
 
-            if(addr_in_use(&h_addr)) {
+            if(h_addr.sin_addr.s_addr != INADDR_ANY && addr_in_use(&h_addr)) {
                 syslog(LOG_WARNING, "%s:%s already in use - skipped", https[i], https[i] + matches[2].rm_so);
                 https_sock[i] = -1;
             } else {
@@ -364,10 +385,6 @@ main(int argc, char **argv)
     }
 
     max_fd++;
-
-    /* thread stuff */
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
     /* set uid if necessary */
     if(user) {
@@ -437,102 +454,127 @@ main(int argc, char **argv)
             exit(1);
         }
 
-    /* start the pruner */
-    if(pthread_create(&thr, &attr, thr_prune, NULL)) {
-        syslog(LOG_ERR, "create thr_prune: %m - aborted");
-        exit(1);
-    }
+    /* split off into monitor and working process */
+    for(;;)
+        if((son = fork()) > 0) {
+            int status;
 
-    /* start resurector (if necessary) */
-    if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
-        syslog(LOG_ERR, "create thr_resurect: %m - aborted");
-        exit(1);
-    }
+            while(wait(&status) != son)
+                syslog(LOG_ERR, "MONITOR: bad wait (%m)");
+            if(WIFEXITED(status))
+                syslog(LOG_ERR, "MONITOR: worker exited nurmally %d, restarting...", WEXITSTATUS(status));
+            else if(WIFSIGNALED(status))
+                syslog(LOG_ERR, "MONITOR: worker exited on signal %d, restarting...", WTERMSIG(status));
+            else
+                syslog(LOG_ERR, "MONITOR: worker exited (stopped?) %d, restarting...", status);
+        } else if (son == 0) {
+            /* thread stuff */
+            pthread_attr_init(&attr);
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
 #ifdef  NEED_STACK
-    /* set new stack size - necessary for OpenBSD/FreeBSD */
-    if(pthread_attr_setstacksize(&attr, 1 << 18)) {
-        syslog(LOG_ERR, "can't set stack size - aborted");
-        exit(1);
-    }
+            /* set new stack size - necessary for OpenBSD/FreeBSD */
+            if(pthread_attr_setstacksize(&attr, 1 << 18)) {
+                syslog(LOG_ERR, "can't set stack size - aborted");
+                exit(1);
+            }
 #endif
 
-    /* and start working */
-    for(;;) {
-        FD_ZERO(&socks);
-        for(i = 0; http[i]; i++)
-            if(http_sock[i] >= 0)
-                FD_SET(http_sock[i], &socks);
-        for(i = 0; https[i]; i++)
-            if(https_sock[i] >= 0)
-                FD_SET(https_sock[i], &socks);
-        if((i = select(max_fd, &socks, NULL, NULL, NULL)) < 0) {
-            syslog(LOG_WARNING, "select: %m");
+            /* start the pruner */
+            if(pthread_create(&thr, &attr, thr_prune, NULL)) {
+                syslog(LOG_ERR, "create thr_prune: %m - aborted");
+                exit(1);
+            }
+
+            /* start resurector (if necessary) */
+            if(pthread_create(&thr, &attr, thr_resurect, NULL)) {
+                syslog(LOG_ERR, "create thr_resurect: %m - aborted");
+                exit(1);
+            }
+
+            /* and start working */
+            for(;;) {
+                FD_ZERO(&socks);
+                for(i = 0; http[i]; i++)
+                    if(http_sock[i] >= 0)
+                        FD_SET(http_sock[i], &socks);
+                for(i = 0; https[i]; i++)
+                    if(https_sock[i] >= 0)
+                        FD_SET(https_sock[i], &socks);
+                if((i = select(max_fd, &socks, NULL, NULL, NULL)) < 0) {
+                    syslog(LOG_WARNING, "select: %m");
+                } else {
+                    for(i = 0; http[i]; i++) {
+                        if(http_sock[i] >= 0 && FD_ISSET(http_sock[i], &socks)) {
+                            memset(&clnt_addr, 0, sizeof(clnt_addr));
+                            clnt_length = sizeof(clnt_addr);
+                            if((clnt = accept(http_sock[i], (struct sockaddr *)&clnt_addr,
+                                (socklen_t *)&clnt_length)) < 0) {
+                                syslog(LOG_WARNING, "HTTP accept: %m");
+                            } else if (clnt_addr.sin_family != AF_INET) {
+                                /* may happen on FreeBSD, I am told */
+                                syslog(LOG_WARNING, "HTTP connection prematurely closed by peer");
+                                close(clnt);
+                            } else {
+                                thr_arg *arg;
+
+                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                    syslog(LOG_WARNING, "HTTP arg: malloc");
+                                    close(clnt);
+                                } else {
+                                    arg->sock = clnt;
+                                    arg->from_host = clnt_addr.sin_addr;
+                                    arg->is_ssl = 0;
+                                    arg->cert = NULL;
+                                    arg->pkey = NULL;
+                                    arg->ciphers = NULL;
+                                    if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+                                        syslog(LOG_WARNING, "HTTP pthread_create: %m");
+                                        free(arg);
+                                        close(clnt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for(i = 0; https[i]; i++) {
+                        if(https_sock[i] >= 0 && FD_ISSET(https_sock[i], &socks)) {
+                            memset(&clnt_addr, 0, sizeof(clnt_addr));
+                            clnt_length = sizeof(clnt_addr);
+                            if((clnt = accept(https_sock[i], (struct sockaddr *)&clnt_addr,
+                                (socklen_t *)&clnt_length)) < 0) {
+                                syslog(LOG_WARNING, "HTTPS accept: %m");
+                            } else if (clnt_addr.sin_family != AF_INET) {
+                                /* may happen on FreeBSD, I am told */
+                                syslog(LOG_WARNING, "HTTPS connection prematurely closed by peer");
+                                close(clnt);
+                            } else {
+                                thr_arg *arg;
+
+                                if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
+                                    syslog(LOG_WARNING, "HTTPS arg: malloc");
+                                    close(clnt);
+                                } else {
+                                    arg->sock = clnt;
+                                    arg->from_host = clnt_addr.sin_addr;
+                                    arg->is_ssl = 1;
+                                    arg->cert = x509cert[i];
+                                    arg->pkey = pkey[i];
+                                    arg->ciphers = ciphers[i];
+                                    if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
+                                        syslog(LOG_WARNING, "HTTPS pthread_create: %m");
+                                        free(arg);
+                                        close(clnt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else {
-            for(i = 0; http[i]; i++) {
-                if(http_sock[i] >= 0 && FD_ISSET(http_sock[i], &socks)) {
-                    memset(&clnt_addr, 0, sizeof(clnt_addr));
-                    clnt_length = sizeof(clnt_addr);
-                    if((clnt = accept(http_sock[i], (struct sockaddr *)&clnt_addr, (socklen_t *)&clnt_length)) < 0) {
-                        syslog(LOG_WARNING, "HTTP accept: %m");
-                    } else if (clnt_addr.sin_family != AF_INET) {
-                        /* may happen on FreeBSD, I am told */
-                        syslog(LOG_WARNING, "HTTP connection prematurely closed by peer");
-                        close(clnt);
-                    } else {
-                        thr_arg *arg;
-
-                        if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
-                            syslog(LOG_WARNING, "HTTP arg: malloc");
-                            close(clnt);
-                        } else {
-                            arg->sock = clnt;
-                            arg->from_host = clnt_addr.sin_addr;
-                            arg->is_ssl = 0;
-                            arg->cert = NULL;
-                            arg->pkey = NULL;
-                            arg->ciphers = NULL;
-                            if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
-                                syslog(LOG_WARNING, "HTTP pthread_create: %m");
-                                free(arg);
-                                close(clnt);
-                            }
-                        }
-                    }
-                }
-            }
-            for(i = 0; https[i]; i++) {
-                if(https_sock[i] >= 0 && FD_ISSET(https_sock[i], &socks)) {
-                    memset(&clnt_addr, 0, sizeof(clnt_addr));
-                    clnt_length = sizeof(clnt_addr);
-                    if((clnt = accept(https_sock[i], (struct sockaddr *)&clnt_addr, (socklen_t *)&clnt_length)) < 0) {
-                        syslog(LOG_WARNING, "HTTPS accept: %m");
-                    } else if (clnt_addr.sin_family != AF_INET) {
-                        /* may happen on FreeBSD, I am told */
-                        syslog(LOG_WARNING, "HTTPS connection prematurely closed by peer");
-                        close(clnt);
-                    } else {
-                        thr_arg *arg;
-
-                        if((arg = (thr_arg *)malloc(sizeof(thr_arg))) == NULL) {
-                            syslog(LOG_WARNING, "HTTPS arg: malloc");
-                            close(clnt);
-                        } else {
-                            arg->sock = clnt;
-                            arg->from_host = clnt_addr.sin_addr;
-                            arg->is_ssl = 1;
-                            arg->cert = x509cert[i];
-                            arg->pkey = pkey[i];
-                            arg->ciphers = ciphers[i];
-                            if(pthread_create(&thr, &attr, thr_http, (void *)arg)) {
-                                syslog(LOG_WARNING, "HTTPS pthread_create: %m");
-                                free(arg);
-                                close(clnt);
-                            }
-                        }
-                    }
-                }
-            }
+            /* failed to spawn son */
+            syslog(LOG_ERR, "Can't fork worker (%m) - aborted");
+            exit(1);
         }
-    }
 }

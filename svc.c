@@ -26,10 +26,20 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.0 2002/10/31 15:21:25 roseg Prod roseg $";
+static char *rcs_id = "$Id: svc.c,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.1  2003/01/09 01:28:40  roseg
+ * Better auto-conf detection
+ * LogLevel 3 for Apache-like log (Combined Log Format)
+ * Don't ask client for certificate if no SSL headers required
+ * Added handling for 'Connection: closed' header
+ * Added monitor process to restart worker process if crashed
+ * Added possibility to listen on all interfaces
+ * Fixed HeadDeny code
+ * Fixed problem with threads on *BSD
+ *
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -240,9 +250,9 @@ get_grp(char *url, char **headers)
             continue;
         /* disallowed headers */
         for(found = 0, i = 0; !found && i < groups[n]->n_deny; i++)
-        for(found = 1, j = 0; found && j < (MAXHEADERS - 1) && headers[j]; j++)
+        for(found = j = 0; !found && j < (MAXHEADERS - 1) && headers[j]; j++)
             if(!regexec(&groups[n]->head_deny[i], headers[j], 0, NULL, 0))
-                found = 0;
+                found = 1;
         if(found)
             continue;
         break;

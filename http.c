@@ -26,10 +26,20 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.0 2002/10/31 15:21:24 roseg Prod roseg $";
+static char *rcs_id = "$Id: http.c,v 1.1 2003/01/09 01:28:39 roseg Rel roseg $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.1  2003/01/09 01:28:39  roseg
+ * Better auto-conf detection
+ * LogLevel 3 for Apache-like log (Combined Log Format)
+ * Don't ask client for certificate if no SSL headers required
+ * Added handling for 'Connection: closed' header
+ * Added monitor process to restart worker process if crashed
+ * Added possibility to listen on all interfaces
+ * Fixed HeadDeny code
+ * Fixed problem with threads on *BSD
+ *
  * Revision 1.0  2002/10/31 15:21:24  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -114,7 +124,7 @@ err_reply(BIO *c, char *head, char *txt)
  * Read and write some binary data
  */
 static int
-copy_bin(BIO *cl, BIO *be, long cont)
+copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes)
 {
     char        buf[MAXBUF];
     int         res;
@@ -127,6 +137,8 @@ copy_bin(BIO *cl, BIO *be, long cont)
         if(BIO_write(be, buf, res) != res)
             return -2;
         cont -= res;
+        if(res_bytes)
+            *res_bytes += res;
     }
     return 0;
 }
@@ -150,7 +162,7 @@ strip_eol(char *lin)
  * Copy chunked
  */
 static int
-copy_chunks(BIO *cl, BIO *be)
+copy_chunks(BIO *cl, BIO *be, long *res_bytes)
 {
     char        buf[MAXBUF];
     long        cont;
@@ -174,7 +186,7 @@ copy_chunks(BIO *cl, BIO *be)
             return -3;
         }
         if(cont > 0L) {
-            if(copy_bin(cl, be, cont)) {
+            if(copy_bin(cl, be, cont, res_bytes)) {
                 syslog(LOG_WARNING, "error copy chunk cont: %m");
                 return -4;
             }
@@ -313,6 +325,33 @@ verify_cert(int ok, X509_STORE_CTX *ctx)
     return 1;
 }
 
+/*
+ * Apache log-file-style time format
+ */
+static char *
+log_time(time_t when)
+{
+    static char res[32];
+
+    strftime(res, sizeof(res), "%d/%b/%Y:%H:%M:%S %z", localtime(&when));
+    return res;
+}
+
+/*
+ * Apache log-file-style number format
+ */
+static char *
+log_bytes(long cnt)
+{
+    static char res[16];
+
+    if(cnt > 0L)
+        snprintf(res, sizeof(res), "%ld", cnt);
+    else
+        strcpy(res, "-");
+    return res;
+}
+
 /* Cleanup code. This should really be in the pthread_cleanup_push, except for bugs in some implementations */
 #define clean_all() {   \
     if(be != NULL) { BIO_flush(be); BIO_free_all(be); be = NULL; } \
@@ -333,10 +372,11 @@ thr_http(void *arg)
     thr_arg             *a;
     struct in_addr      from_host;
     struct sockaddr_in  *srv;
-    int                 cl_11, be_11, res, chunked, n, sock, no_cont;
-    time_t              req_last, req_now;
-    char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], **headers, *a_ciphers;
-    long                cont;
+    int                 cl_11, be_11, res, chunked, n, sock, no_cont, conn_closed;
+    char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], **headers,
+                        headers_ok[MAXHEADERS], *a_ciphers, v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF];
+    long                cont, res_bytes;
+    time_t              req_start;
     regmatch_t          matches[3];
     struct linger       l;
     GROUP               *grp;
@@ -344,10 +384,10 @@ thr_http(void *arg)
     a = (thr_arg *)arg;
     from_host = a->from_host;
     sock = a->sock;
-    n = 0;
+    n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
     l.l_onoff = 1;
-    l.l_linger = 5;
+    l.l_linger = 30;
     setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
     a_cert = a->cert;
     a_pkey = a->pkey;
@@ -394,7 +434,10 @@ thr_http(void *arg)
             BIO_free_all(cl);
             pthread_exit(NULL);
         }
-        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
+        if(https_headers)
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
+        else
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, verify_cert);
         SSL_CTX_set_verify_depth(ctx, 0);
         SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
         SSL_CTX_set_options(ctx, SSL_OP_ALL);
@@ -436,6 +479,12 @@ thr_http(void *arg)
     be = NULL;
 
     for(cl_11 = be_11 = 0;;) {
+        req_start = time(NULL);
+        res_bytes = 0L;
+        v_host[0] = referer[0] = u_agent[0] = '\0';
+        conn_closed = 0;
+        for(n = 0; n < MAXHEADERS; n++)
+            headers_ok[n] = 1;
         if((headers = get_headers(cl)) == NULL) {
             if(!cl_11) {
                 syslog(LOG_WARNING, "error read from %s: %m", inet_ntoa(from_host));
@@ -470,14 +519,29 @@ thr_http(void *arg)
 
         /* check other headers */
         for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
-            if(regexec(&HEADER, headers[n], 1, matches, 0)) {
-                syslog(LOG_WARNING, "bad header from %s: %m", inet_ntoa(from_host));
+            if(regexec(&HEADER, headers[n], 3, matches, 0)) {
+                if(log_level > 0)
+                    syslog(LOG_WARNING, "bad header from %s (%s)", inet_ntoa(from_host), headers[n]);
+                headers_ok[n] = 0;
+                /*
+                syslog(LOG_WARNING, "bad header from %s (%s)", inet_ntoa(from_host), headers[n]);
                 err_reply(cl, h500, e500);
                 free_headers(headers);
                 clean_all();
                 pthread_exit(NULL);
-            }
-            if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
+                */
+            } else if(!strncasecmp(headers[n] + matches[1].rm_so, "Host", matches[1].rm_eo - matches[1].rm_so)) {
+                strncpy(v_host, headers[n] + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+                v_host[matches[2].rm_eo - matches[2].rm_so] = '\0';
+            } else if(!strncasecmp(headers[n] + matches[1].rm_so, "Referer", matches[1].rm_eo - matches[1].rm_so)) {
+                strncpy(referer, headers[n] + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+                referer[matches[2].rm_eo - matches[2].rm_so] = '\0';
+            } else if(!strncasecmp(headers[n] + matches[1].rm_so, "User-agent", matches[1].rm_eo - matches[1].rm_so)) {
+                strncpy(u_agent, headers[n] + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
+                u_agent[matches[2].rm_eo - matches[2].rm_so] = '\0';
+            } else if(!regexec(&CONN_CLOSED, headers[n], 1, matches, 0))
+                conn_closed = 1;
+            else if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
                 chunked = 1;
             else if(!regexec(&CONT_LEN, headers[n], 2, matches, 0))
                 cont = atol(headers[n] + matches[1].rm_so);
@@ -519,10 +583,10 @@ thr_http(void *arg)
                 kill_be(srv);
                 continue;
             }
-            n = 0;
+            n = 1;
             setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
             l.l_onoff = 1;
-            l.l_linger = 5;
+            l.l_linger = 30;
             setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
             if((be = BIO_new_socket(sock, 1)) == NULL) {
                 syslog(LOG_WARNING, "BIO_new_socket server failed");
@@ -539,11 +603,12 @@ thr_http(void *arg)
                 pthread_exit(NULL);
             }
             be = BIO_push(bb, be);
-            req_last = time(NULL);
         }
 
         /* send the request */
         for(n = 0; n < MAXHEADERS && headers[n]; n++) {
+            if(!headers_ok[n])
+                continue;
             if(BIO_printf(be, "%s\r\n", headers[n]) <= 0) {
                 syslog(LOG_WARNING, "error write to %s:%hd: %m",
                     inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
@@ -620,14 +685,14 @@ thr_http(void *arg)
 
         if(cl_11 && chunked) {
             /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-            if(copy_chunks(cl, be)) {
+            if(copy_chunks(cl, be, NULL)) {
                 err_reply(cl, h500, e500);
                 clean_all();
                 pthread_exit(NULL);
             }
         } else if(cont > 0L) {
             /* had Content-length, so do raw reads/writes for the length */
-            if(copy_bin(cl, be, cont)) {
+            if(copy_bin(cl, be, cont, NULL)) {
                 syslog(LOG_WARNING, "error copy cont: %m");
                 err_reply(cl, h500, e500);
                 clean_all();
@@ -658,7 +723,9 @@ thr_http(void *arg)
             no_cont = 1;
 
         for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
-            if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
+            if(!regexec(&CONN_CLOSED, headers[n], 1, matches, 0))
+                conn_closed = 1;
+            else if(!regexec(&CHUNKED, headers[n], 1, matches, 0))
                 chunked = 1;
             else if(!regexec(&CONT_LEN, headers[n], 2, matches, 0))
                 cont = atol(headers[n] + matches[1].rm_so);
@@ -685,14 +752,14 @@ thr_http(void *arg)
             /* ignore this if request was HEAD */
             if(be_11 && chunked) {
                 /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-                if(copy_chunks(be, cl)) {
+                if(copy_chunks(be, cl, &res_bytes)) {
                     /* copy_chunks() has its own error messages */
                     clean_all();
                     pthread_exit(NULL);
                 }
             } else if(cont > 0L) {
                 /* had Content-length, so do raw reads/writes for the length */
-                if(copy_bin(be, cl, cont)) {
+                if(copy_bin(be, cl, cont, &res_bytes)) {
                     syslog(LOG_WARNING, "error copy cont: %m");
                     clean_all();
                     pthread_exit(NULL);
@@ -709,7 +776,8 @@ thr_http(void *arg)
                         syslog(LOG_WARNING, "error copy response body: %m");
                         clean_all();
                         pthread_exit(NULL);
-                    }
+                    } else
+                        res_bytes += res;
                 }
             }
         }
@@ -731,13 +799,22 @@ thr_http(void *arg)
             snprintf(buf, sizeof(buf), "%s:%hd", inet_ntoa(srv->sin_addr), ntohs(srv->sin_port));
             syslog(LOG_NOTICE, "%s %s - %s (%s)", inet_ntoa(from_host), request, response, buf);
             break;
+        case 3:
+            if(v_host[0])
+                syslog(LOG_NOTICE, "%s %s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", v_host, inet_ntoa(from_host),
+                    log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
+                    referer, u_agent);
+            else
+                syslog(LOG_NOTICE, "%s - - [%s] \"%s\" %c%c%c %s \"%s\" \"%s\"", inet_ntoa(from_host),
+                    log_time(req_start), request, response[9], response[10], response[11], log_bytes(res_bytes),
+                    referer, u_agent);
         }
 
         if(!be_11) {
             BIO_free_all(be);
             be = NULL;
         }
-        if(!cl_11)
+        if(!cl_11 || conn_closed)
             break;
     }
 

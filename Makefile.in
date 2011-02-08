@@ -24,12 +24,9 @@
 # Tel: +41-1-920 4904
 # EMail: roseg@apsis.ch
 #
-# $Id: Makefile.in,v 1.0 2002/10/31 15:21:25 roseg Prod roseg $
+# $Id: Makefile.in,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $
 
 CC=@CC@
-
-# Configuration file default; if none, look at config.c for default!
-F_CONF=/usr/local/etc/pound/pound.cfg
 
 CFLAGS=-DF_CONF=\"$(F_CONF)\" -DAEMON @CFLAGS@
 
@@ -37,6 +34,9 @@ LIBS=@LIBS@
 
 prefix=@prefix@
 exec_prefix=@exec_prefix@
+
+# Configuration file default; if none, look at config.c for default!
+F_CONF=@sysconfdir@/pound.cfg
 
 OBJS=pound.o http.o config.o svc.o
 

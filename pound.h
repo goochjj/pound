@@ -27,9 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.0 2002/10/31 15:21:25 roseg Prod roseg $
- *
- * $Log: pound.h,v $
+ * $Id: pound.h,v 1.1 2003/01/09 01:28:40 roseg Rel roseg $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -103,6 +101,7 @@
 #include    <regex.h>
 #include    <ctype.h>
 #include    <errno.h>
+#include    <sys/wait.h>
 
 extern int errno;
 
@@ -186,6 +185,7 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 HEADER,     /* Allowed header */
                 CHUNKED,    /* Transfer-encoding: chunked header */
                 CONT_LEN,   /* Content-length header */
+                CONN_CLOSED,/* Connection: closed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_IGN;   /* responses for which we ignore content */
 
@@ -213,6 +213,11 @@ GROUP *get_grp(char *, char **);
  * Find the host to connect to
  */
 extern struct sockaddr_in *get_be(GROUP *, struct in_addr, char *, char **);
+
+/*
+ * (for cookies only) possibly create session based on response headers
+ */
+extern void upd_session(GROUP *, char **, struct sockaddr_in  *);
 
 /*
  * mark a backend host as dead;

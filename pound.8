@@ -44,6 +44,8 @@ Here is the directive syntax:
 Specify the address and port number where
 .B Pound
 will listen for HTTP requests. Multiple directives imply listening on multiple ports.
+A host name of "*" implies listening on all available interfaces, in which case only
+one directive is allowed.
 .TP
 \fBListenHTTPS\fR host,port cert_file [ciphers]
 Specify the address and port number where
@@ -52,7 +54,7 @@ will listen for HTTPS requests.
 .I cert_file
 is the file containing the certificate (and signature) for this port; the same file may
 be specified for multiple ports (as above - multiple directives imply listening on
-multiple ports).
+multiple ports). A host name of "*" implies listening on all available interfaces.
 If specified,
 .I ciphers
 is the list of ciphers that will be accepted by the SSL connection; it is a
@@ -67,10 +69,11 @@ and
 may be specified as may times as required.
 .TP
 \fBHTTPSHeaders\fR ["header"]
-Add HTTPS-specific headers.  By default,
+Add HTTPS-specific headers. By default,
 .B Pound
 passes requests unchanged to the back-end server(s). If not empty, the value is an additional
-header for the request.
+header for the request. Please note: if HTTPSHeaders is not specified, no client certificate
+will be requested on connection establishment.
 .TP
 \fBUser\fR user_name
 Specify the user
@@ -102,8 +105,8 @@ times in order to support WebDAV).
 .TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
-logging (same format as regular Web servers, such as Apache), 2 for
-extended logging (show chosen backend server as well).
+logging, 2 for extended logging (show chosen backend server as well)
+and 3 for Apache-like format (Common Log Format with Virtual Host).
 .TP
 \fBAlive\fR value
 Specify how often
