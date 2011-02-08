@@ -182,7 +182,7 @@
 #if HAVE_LIBPCREPOSIX
 #if HAVE_PCREPOSIX_H
 #include    <pcreposix.h>
-#elif HAVE_PCRE_PCREPOSIX
+#elif HAVE_PCRE_PCREPOSIX_H
 #include    <pcre/pcreposix.h>
 #else
 #error "You have libpcreposix, but the header files are missing. Use --disable-pcreposix"
@@ -229,6 +229,12 @@
 #include    <stdarg.h>
 #else
 #include    <varargs.h>
+#endif
+
+#if HAVE_FNMATCH_H
+#include    <fnmatch.h>
+#else
+#error "Pound needs fnmatch.h"
 #endif
 
 #ifndef __STDC__
@@ -347,28 +353,34 @@ typedef struct _service {
 extern SERVICE          *services;  /* global services (if any) */
 #endif /* NO_EXTERNALS */
 
+typedef struct _pound_ctx {
+    SSL_CTX             *ctx;
+    char                *server_name;
+    struct _pound_ctx   *next;
+} POUND_CTX;
+
 /* Listener definition */
 typedef struct _listener {
-    struct addrinfo     addr;       /* IPv4/6 address */
-    int                 sock;       /* listening socket */
-    SSL_CTX             *ctx;       /* CTX for SSL connections */
-    int                 clnt_check; /* client verification mode */
-    int                 noHTTPS11;  /* HTTP 1.1 mode for SSL */
-    char                *add_head;  /* extra SSL header */
-    regex_t             verb;       /* pattern to match the request verb against */
-    int                 to;         /* client time-out */
-    int                 has_pat;    /* was a URL pattern defined? */
-    regex_t             url_pat;    /* pattern to match the request URL against */
-    char                *err414,    /* error messages */
+    struct addrinfo     addr;           /* IPv4/6 address */
+    int                 sock;           /* listening socket */
+    POUND_CTX           *ctx;           /* CTX for SSL connections */
+    int                 clnt_check;     /* client verification mode */
+    int                 noHTTPS11;      /* HTTP 1.1 mode for SSL */
+    char                *add_head;      /* extra SSL header */
+    regex_t             verb;           /* pattern to match the request verb against */
+    int                 to;             /* client time-out */
+    int                 has_pat;        /* was a URL pattern defined? */
+    regex_t             url_pat;        /* pattern to match the request URL against */
+    char                *err414,        /* error messages */
                         *err500,
                         *err501,
                         *err503;
-    long                max_req;    /* max. request size */
-    MATCHER             *head_off;  /* headers to remove */
-    int                 rewr_loc;   /* rewrite location response */
-    int                 rewr_dest;  /* rewrite destination header */
-    int                 disabled;   /* true if the listener is disabled */
-    int                 log_level;  /* log level for this listener */
+    long                max_req;        /* max. request size */
+    MATCHER             *head_off;      /* headers to remove */
+    int                 rewr_loc;       /* rewrite location response */
+    int                 rewr_dest;      /* rewrite destination header */
+    int                 disabled;       /* true if the listener is disabled */
+    int                 log_level;      /* log level for this listener */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
@@ -438,6 +450,11 @@ extern void *thr_http(void *);
  * Log an error to the syslog or to stderr
  */
 extern void logmsg(const int, const char *, ...);
+
+/*
+ * Parse a URL, possibly decoding hexadecimal-encoded characters
+ */
+extern int cpURL(char *, char *, int);
 
 /*
  * Translate inet/inet6 address into a string

@@ -1,4 +1,22 @@
 ------------------------------------------------------------------------
+r68 | roseg | 2010-06-23 19:18:39 +0200 (Wed, 23 Jun 2010) | 15 lines
+
+Release 2.6a
+
+Stable release 2.5.1
+
+Enhancements:
+    - support for SNI via multiple Cert directives (thanks to Joe Gooch)
+    - translate hexadecimal characters in URL for pattern matching
+    - added support for a "Disabled" directive in the configuration
+
+Bug fixes:
+    - keep sessions for disabled back-ends, continue using them until the time-out
+    - fixed memory leak in session removal
+    - user IgnoreCase for CheckURL too
+    - fixed some issues with OpenSolaris build (thanks to Spradling Cloyce)
+
+------------------------------------------------------------------------
 r67 | roseg | 2010-02-02 12:49:00 +0100 (Tue, 02 Feb 2010) | 9 lines
 
 Release 2.5

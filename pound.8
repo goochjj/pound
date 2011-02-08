@@ -307,6 +307,9 @@ does not listen for any commands. The commands may be issued by using
 the
 .I poundctl(8)
 program.
+.TP
+\fBInclude\fR "/path/to/file"
+Include the file as though it were part of the configuration file.
 .SH "HTTP Listener"
 An HTTP listener defines an address and port that
 .B Pound
@@ -454,12 +457,31 @@ is the file containing the certificate, possibly a certificate chain and the sig
 for this server. This directive is
 .B mandatory
 for HTTPS listeners.
+.IP
+Please note that multiple
+.I Cert
+directives are allowed if your OpenSSL version supports SNI. In such cases,
+the first directive is the default certificate, with additional certificates
+used if the client requests them.
+.IP
+The ordering of the directives is important: the first certificate where the CN
+matches the client request will be used, so put your directives in the
+most-specific-to-least specific order (i.e. wildcard certificates
+.B after
+host-specific certificates).
+.IP
+.I Cert
+directives
+.B must
+precede all other SSL-specific directives.
 .TP
 \fBClientCert\fR 0|1|2|3 depth
 Ask for the client's HTTPS certificate: 0 - don't ask (default), 1 - ask,
 2 - ask and fail if no certificate was presented, 3 - ask but do not verify.
-.I depth
-is the depth of verification for a client certificate (up to 9).
+.I Depth
+is the depth of verification for a client certificate (up to 9). The default
+depth limit is 9, allowing for the peer certificate and additional 9 CA
+certificates that must be verified.
 .TP
 \fBCiphers\fR "acceptable:cipher:list"
 This is the list of ciphers that will be accepted by the SSL connection; it is a
@@ -550,6 +572,14 @@ the service matching is attempted.
 \fBDynScale\fR 0|1
 Enable or disable dynamic rescaling for the current service. This value will
 override the value globally defined.
+.TP
+\fBDisabled\fR 0|1
+Start
+.B Pound
+with this service disabled (1) or enabled (0). If started as disabled, the
+service can be later enabled with
+.I poundctl
+(8).
 .TP
 \fBBackEnd\fR
 Directives enclosed between a
@@ -682,6 +712,14 @@ the "High Availability" section for a more detailed discussion. By default
 .B Pound
 uses the same address as the back-end server, but you may use a separate address
 if you wish. This directive applies only to non Unix-domain servers.
+.TP
+\fBDisabled\fR 0|1
+Start
+.B Pound
+with this back-end disabled (1) or enabled (0). If started as disabled, the
+back-end can be later enabled with
+.I poundctl
+(8).
 .SH "Emergency"
 The emergency server will be used once all existing back-ends are "dead".
 All configuration directives enclosed between

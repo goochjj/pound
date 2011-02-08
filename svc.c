@@ -108,10 +108,15 @@ static void
 t_old(TABNODE *t, void *arg)
 {
     ALL_ARG *a;
+    TABNODE *res;
 
     a = (ALL_ARG *)arg;
     if(t->last_acc < a->lim)
-        lh_delete(a->tab, t);
+        if((res = lh_delete(a->tab, t)) != NULL) {
+            free(res->key);
+            free(res->content);
+            free(res);
+        }
     return;
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
@@ -138,10 +143,15 @@ static void
 t_cont(TABNODE *t, void *arg)
 {
     ALL_ARG *a;
+    TABNODE *res;
 
     a = (ALL_ARG *)arg;
     if(memcmp(t->content, a->content, a->cont_len) == 0)
-        lh_delete(a->tab, t);
+        if((res = lh_delete(a->tab, t)) != NULL) {
+            free(res->key);
+            free(res->content);
+            free(res);
+        }
     return;
 }
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, void *)
@@ -257,6 +267,70 @@ addr2str(char *const res, const int res_len, const struct addrinfo *addr, const 
 #error "Pound needs inet_ntop()"
 #endif
     return;
+}
+
+/*
+ * Parse a URL, possibly decoding hexadecimal-encoded characters
+ */
+int
+cpURL(char *res, char *src, int len)
+{
+    int     state;
+    char    *kp_res;
+
+    for(kp_res = res, state = 0; len > 0; len--)
+        switch(state) {
+        case 1:
+            if(*src >= '0' && *src <= '9') {
+                *res = *src++ - '0';
+                state = 2;
+            } else if(*src >= 'A' && *src <= 'F') {
+                *res = *src++ - 'A' + 10;
+                state = 2;
+            } else if(*src >= 'a' && *src <= 'f') {
+                *res = *src++ - 'a' + 10;
+                state = 2;
+            } else {
+                *res++ = '%';
+                *res++ = *src++;
+                state = 0;
+            }
+            break;
+        case 2:
+            if(*src >= '0' && *src <= '9') {
+                *res = *res * 16 + *src++ - '0';
+                res++;
+                state = 0;
+            } else if(*src >= 'A' && *src <= 'F') {
+                *res = *res * 16 + *src++ - 'A' + 10;
+                res++;
+                state = 0;
+            } else if(*src >= 'a' && *src <= 'f') {
+                *res = *res * 16 + *src++ - 'a' + 10;
+                res++;
+                state = 0;
+            } else {
+                *res++ = '%';
+                *res++ = *(src - 1);
+                *res++ = *src++;
+                state = 0;
+            }
+            break;
+        default:
+            if(*src != '%')
+                *res++ = *src++;
+            else {
+                src++;
+                state = 1;
+            }
+            break;
+        }
+    if(state > 0)
+        *res++ = '%';
+    if(state > 1)
+        *res++ = *(src - 1);
+    *res = '\0';
+    return res - kp_res;
 }
 
 /*
@@ -471,28 +545,31 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
 {
     BACKEND     *res;
     char        key[KEY_SIZE + 1];
-    int         ret_val;
+    int         ret_val, no_be;
     void        *vp;
-
-    if(svc->tot_pri <= 0)
-        /* it might be NULL, but that is OK */
-        return svc->emergency;
 
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "get_backend() lock: %s", strerror(ret_val));
+
+    no_be = (svc->tot_pri <= 0);
+
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
-        res = rand_backend(svc->backends, random() % svc->tot_pri);
+        res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host, 1);
         if(svc->sess_ttl < 0)
-            res = hash_backend(svc->backends, svc->abs_pri, key);
+            res = no_be? svc->emergency: hash_backend(svc->backends, svc->abs_pri, key);
         else if((vp = t_find(svc->sessions, key)) == NULL) {
-            /* no session yet - create one */
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
-            t_add(svc->sessions, key, &res, sizeof(res));
+            if(no_be)
+                res = svc->emergency;
+            else {
+                /* no session yet - create one */
+                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                t_add(svc->sessions, key, &res, sizeof(res));
+            }
         } else
             memcpy(&res, vp, sizeof(res));
         break;
@@ -500,30 +577,38 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
     case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
             if(svc->sess_ttl < 0)
-                res = hash_backend(svc->backends, svc->abs_pri, key);
+                res = no_be? svc->emergency: hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
-                /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
-                t_add(svc->sessions, key, &res, sizeof(res));
+                if(no_be)
+                    res = svc->emergency;
+                else {
+                    /* no session yet - create one */
+                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    t_add(svc->sessions, key, &res, sizeof(res));
+                }
             } else
                 memcpy(&res, vp, sizeof(res));
         } else {
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
+            res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     default:
         /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
             if(svc->sess_ttl < 0)
-                res = hash_backend(svc->backends, svc->abs_pri, key);
+                res = no_be? svc->emergency: hash_backend(svc->backends, svc->abs_pri, key);
             else if((vp = t_find(svc->sessions, key)) == NULL) {
-                /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
-                t_add(svc->sessions, key, &res, sizeof(res));
+                if(no_be)
+                    res = svc->emergency;
+                else {
+                    /* no session yet - create one */
+                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    t_add(svc->sessions, key, &res, sizeof(res));
+                }
             } else
                 memcpy(&res, vp, sizeof(res));
         } else {
-            res = rand_backend(svc->backends, random() % svc->tot_pri);
+            res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     }
@@ -556,7 +641,7 @@ upd_session(SERVICE *const svc, char **const headers, BACKEND *const be)
 
 /*
  * mark a backend host as dead/disabled; remove its sessions if necessary
- *  disable_only == 1:  mark as disabled, remove sessions
+ *  disable_only == 1:  mark as disabled
  *  disable_only == 0:  mark as dead, remove sessions
  *  disable_only == -1:  mark as enabled
  */
@@ -764,7 +849,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
          */
         if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
         && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
-            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+            || strcasecmp(proto, lstn->ctx? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
@@ -776,7 +861,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
          */
         if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
         && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
-            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+            || strcasecmp(proto, lstn->ctx? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
