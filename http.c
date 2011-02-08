@@ -26,7 +26,7 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 2.0 2006/02/01 11:45:30 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 2.0 2006/02/01 11:45:30 roseg Rel roseg $";
 
 /*
  * $Log: http.c,v $
@@ -1155,7 +1155,7 @@ thr_http(void *arg)
                 }
             }
 
-            /* possibly record session information (only for cookies) */
+            /* possibly record session information (only for cookies/header) */
             upd_session(svc, &headers[1], cur_backend);
 
             /* send the response */

@@ -26,7 +26,7 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 2.0 2006/02/01 11:45:31 roseg Rel $";
+static char *rcs_id = "$Id: svc.c,v 2.0 2006/02/01 11:45:31 roseg Rel roseg $";
 
 /*
  * $Log: svc.c,v $
@@ -550,7 +550,7 @@ get_HEADERS(char *res, SERVICE *svc, char **headers)
     int         i, n;
     regmatch_t  matches[4];
 
-    /* this will match S_COOKIE, S_HEADER and S_BASIC */
+    /* this will match SESS_COOKIE, SESS_HEADER and SESS_BASIC */
     for(i = 0; headers[i]; i++) {
         if(regexec(&svc->sess_pat, headers[i], 4, matches, 0))
             continue;
@@ -600,11 +600,11 @@ get_backend(SERVICE *svc, struct in_addr from_host, char *request, char **header
 
     pthread_mutex_lock(&svc->mut);
     switch(svc->sess_type) {
-    case S_NONE:
+    case SESS_NONE:
         /* choose one back-end randomly */
         res = rand_backend(svc->backends, random() % svc->tot_pri);
         break;
-    case S_IP:
+    case SESS_IP:
         /* "sticky" mappings */
         addr = from_host.s_addr;
         pri = 0;
@@ -612,9 +612,9 @@ get_backend(SERVICE *svc, struct in_addr from_host, char *request, char **header
             pri = (pri << 3) ^ (addr & 0xff);
             addr = (addr >> 8);
         }
-        res = rand_backend(svc->backends, (addr & 0xffff) % svc->tot_pri);
+        res = rand_backend(svc->backends, (pri & 0xffff) % svc->tot_pri);
         break;
-    case S_PARM:
+    case SESS_PARM:
         if(get_REQUEST(key, svc, request)) {
             if((sp = sess_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
@@ -625,7 +625,7 @@ get_backend(SERVICE *svc, struct in_addr from_host, char *request, char **header
         }
         break;
     default:
-        /* this works for S_BASIC, S_HEADER and S_COOKIE */
+        /* this works for SESS_BASIC, SESS_HEADER and SESS_COOKIE */
         if(get_HEADERS(key, svc, headers)) {
             if((sp = sess_find(svc->sessions, key)) == NULL) {
                 /* no session yet - create one */
@@ -644,13 +644,15 @@ get_backend(SERVICE *svc, struct in_addr from_host, char *request, char **header
 }
 
 /*
- * (for cookies only) possibly create session based on response headers
+ * (for cookies/header only) possibly create session based on response headers
  */
 void
 upd_session(SERVICE *svc, char **headers, BACKEND *be)
 {
     char            key[KEY_SIZE + 1];
 
+    if(svc->sess_type != SESS_HEADER && svc->sess_type != SESS_COOKIE)
+        return;
     pthread_mutex_lock(&svc->mut);
     if(get_HEADERS(key, svc, headers))
         if(sess_find(svc->sessions, key) == NULL)
@@ -800,7 +802,7 @@ thr_resurect(void *arg)
     time_t      last_time, cur_time;
     int         n, sock;
 
-    for(last_time = time(NULL);;) {
+    for(last_time = time(NULL) - alive_to;;) {
         cur_time = time(NULL);
         if((n = alive_to - (cur_time - last_time)) > 0)
             sleep(n);
@@ -809,14 +811,14 @@ thr_resurect(void *arg)
         /* remove stale sessions */
         for(lstn = listeners; lstn; lstn = lstn->next)
         for(svc = lstn->services; svc; svc = svc->next)
-            if(svc->sess_type != S_NONE) {
+            if(svc->sess_type != SESS_NONE) {
                 pthread_mutex_lock(&svc->mut);
                 svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
                 svc->sessions = sess_balance(svc->sessions);
                 pthread_mutex_unlock(&svc->mut);
             }
         for(svc = services; svc; svc = svc->next)
-            if(svc->sess_type != S_NONE) {
+            if(svc->sess_type != SESS_NONE) {
                 pthread_mutex_lock(&svc->mut);
                 svc->sessions = sess_clean(svc->sessions, last_time - svc->sess_ttl);
                 svc->sessions = sess_balance(svc->sessions);
@@ -946,6 +948,7 @@ RSA_tmp_callback(SSL *ssl, int is_export, int keylength)
 /*
  * Pre-generate ephemeral RSA keys
  */
+void
 init_RSAgen()
 {
     int n;
@@ -953,15 +956,15 @@ init_RSAgen()
     for(n = 0; n < N_RSA_KEYS; n++) {
         if((RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL)) == NULL) {
             logmsg(LOG_ERR,"RSA_generate(%d, 512) failed", n);
-            return -1;
+            return;
         }
         if((RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL)) == NULL) {
             logmsg(LOG_ERR,"RSA_generate(%d, 1024) failed", n);
-            return -2;
+            return;
         }
     }
     pthread_mutex_init(&RSA_mut, NULL);
-    return 0;
+    return;
 }
 
 /*

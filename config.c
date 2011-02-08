@@ -26,7 +26,7 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 2.0 2006/02/01 11:45:28 roseg Rel $";
+static char *rcs_id = "$Id: config.c,v 2.0 2006/02/01 11:45:28 roseg Rel roseg $";
 
 /*
  * $Log: config.c,v $
@@ -243,10 +243,14 @@ typedef struct _code {
 
 static CODE facilitynames[] = {
     { "auth", LOG_AUTH },
+#ifdef  LOG_AUTHPRIV
     { "authpriv", LOG_AUTHPRIV },
+#endif
     { "cron", LOG_CRON },
     { "daemon", LOG_DAEMON },
+#ifdef  LOG_FTP
     { "ftp", LOG_FTP },
+#endif
     { "kern", LOG_KERN },
     { "lpr", LOG_LPR },
     { "mail", LOG_MAIL },
@@ -368,22 +372,22 @@ parse_sess(FILE *f_conf, SERVICE *svc)
             /* comment or empty line */
             continue;
         } else if(!regexec(&Type, lin, 4, matches, 0)) {
-            if(svc->sess_type != S_NONE) {
+            if(svc->sess_type != SESS_NONE) {
                 logmsg(LOG_ERR, "Multiple Session types in one Service - aborted");
                 exit(1);
             }
             lin[matches[1].rm_eo] = '\0';
             cp = lin + matches[1].rm_so;
             if(!strcasecmp(cp, "IP"))
-                svc->sess_type = S_IP;
+                svc->sess_type = SESS_IP;
             else if(!strcasecmp(cp, "COOKIE"))
-                svc->sess_type = S_COOKIE;
+                svc->sess_type = SESS_COOKIE;
             else if(!strcasecmp(cp, "PARM"))
-                svc->sess_type = S_PARM;
+                svc->sess_type = SESS_PARM;
             else if(!strcasecmp(cp, "BASIC"))
-                svc->sess_type = S_BASIC;
+                svc->sess_type = SESS_BASIC;
             else if(!strcasecmp(cp, "HEADER"))
-                svc->sess_type = S_HEADER;
+                svc->sess_type = SESS_HEADER;
             else {
                 logmsg(LOG_ERR, "Unknown Session type \"%s\" - aborted", cp);
                 exit(1);
@@ -391,7 +395,7 @@ parse_sess(FILE *f_conf, SERVICE *svc)
         } else if(!regexec(&TTL, lin, 4, matches, 0)) {
             svc->sess_ttl = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&ID, lin, 4, matches, 0)) {
-            if(svc->sess_type != S_COOKIE && svc->sess_type != S_PARM && svc->sess_type != S_HEADER) {
+            if(svc->sess_type != SESS_COOKIE && svc->sess_type != SESS_PARM && svc->sess_type != SESS_HEADER) {
                 logmsg(LOG_ERR, "no ID permitted unless COOKIE/PARM/HEADER Session - aborted");
                 exit(1);
             }
@@ -401,7 +405,7 @@ parse_sess(FILE *f_conf, SERVICE *svc)
                 exit(1);
             }
         } else if(!regexec(&End, lin, 4, matches, 0)) {
-            if(svc->sess_type == S_NONE) {
+            if(svc->sess_type == SESS_NONE) {
                 logmsg(LOG_ERR, "Session type not defined - aborted");
                 exit(1);
             }
@@ -409,30 +413,30 @@ parse_sess(FILE *f_conf, SERVICE *svc)
                 logmsg(LOG_ERR, "Session TTL not defined - aborted");
                 exit(1);
             }
-            if((svc->sess_type == S_COOKIE || svc->sess_type == S_PARM || svc->sess_type == S_HEADER)
+            if((svc->sess_type == SESS_COOKIE || svc->sess_type == SESS_PARM || svc->sess_type == SESS_HEADER)
             && svc->sess_parm == NULL) {
                 logmsg(LOG_ERR, "Session ID not defined - aborted");
                 exit(1);
             }
-            if(svc->sess_type == S_COOKIE) {
+            if(svc->sess_type == SESS_COOKIE) {
                 snprintf(lin, MAXBUF - 1, "Cookie:.*[ \t]%s=([^;]*)", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
                     logmsg(LOG_ERR, "COOKIE pattern \"%s\" failed - aborted", lin);
                     exit(1);
                 }
-            } else if(svc->sess_type == S_PARM) {
+            } else if(svc->sess_type == SESS_PARM) {
                 snprintf(lin, MAXBUF - 1, "[?&]%s=([^&;#]*)", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
                     logmsg(LOG_ERR, "PARM pattern \"%s\" failed - aborted", lin);
                     exit(1);
                 }
-            } else if(svc->sess_type == S_BASIC) {
+            } else if(svc->sess_type == SESS_BASIC) {
                 snprintf(lin, MAXBUF - 1, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)[ \t]*");
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
                     logmsg(LOG_ERR, "BASIC pattern \"%s\" failed - aborted", lin);
                     exit(1);
                 }
-            } else if(svc->sess_type == S_HEADER) {
+            } else if(svc->sess_type == SESS_HEADER) {
                 snprintf(lin, MAXBUF - 1, "%s:[ \t]*([^ \t]*)[ \t]*", svc->sess_parm);
                 if(regcomp(&svc->sess_pat, lin, REG_ICASE | REG_NEWLINE | REG_EXTENDED)) {
                     logmsg(LOG_ERR, "HEADER pattern \"%s\" failed - aborted", lin);
@@ -467,7 +471,7 @@ parse_service(FILE *f_conf)
         exit(1);
     }
     memset(res, 0, sizeof(SERVICE));
-    res->sess_type = S_NONE;
+    res->sess_type = SESS_NONE;
     while(fgets(lin, MAXBUF, f_conf)) {
         if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
             lin[strlen(lin) - 1] = '\0';

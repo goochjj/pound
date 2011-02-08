@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 2.0 2006/02/01 11:45:32 roseg Rel $
+ * $Id: pound.h,v 2.0 2006/02/01 11:45:32 roseg Rel roseg $
  * $Log: pound.h,v $
  * Revision 2.0  2006/02/01 11:45:32  roseg
  * Enhancements:
@@ -289,7 +289,7 @@ typedef struct _matcher {
 
 /* back-end types */
 typedef enum    { BACK_END, REDIRECTOR }    BE_TYPE;
-typedef enum    { S_NONE, S_IP, S_COOKIE, S_PARM, S_HEADER, S_BASIC }   SESS_TYPE;
+typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_BASIC }   SESS_TYPE;
 
 /* back-end definition */
 typedef struct _backend {
@@ -463,7 +463,7 @@ extern RSA  *RSA_tmp_callback(SSL *, int, int);
 /*
  * Pre-generate ephemeral RSA keys
  */
-extern int  init_RSAgen(void);
+extern void init_RSAgen(void);
 
 /*
  * Periodically regenerate ephemeral RSA keys

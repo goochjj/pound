@@ -775,6 +775,9 @@ ACKNOWLEDGMENTS
     Luuk de Boer did some serious testing and debugging of the WebDAV
     code for Microsoft servers.
 
+    Alession Cervellin packages and makes available Solaris packages for
+    various Pound versions.
+
     David Couture found some nasty, lurking bugs, as well as contributing
     some serious testing on big hardware.
 
@@ -792,6 +795,8 @@ ACKNOWLEDGMENTS
     Phil Lodwick contributed essential parts of the high-availability code and
     came up with some good ideas. In addition, did some serious testing under
     heavy loads.
+
+    Simon Matter packages and makes available RPMs for various Pound versions.
 
     Jan-Piet Mens raised some interesting security points about the HTTPS
     implementation and brought the original idea for SSL header filtering.

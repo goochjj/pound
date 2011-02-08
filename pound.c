@@ -26,7 +26,7 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 2.0 2006/02/01 11:45:31 roseg Rel $";
+static char *rcs_id = "$Id: pound.c,v 2.0 2006/02/01 11:45:31 roseg Rel roseg $";
 
 /*
  * $Log: pound.c,v $
