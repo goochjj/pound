@@ -239,7 +239,7 @@ logmsg(const int priority, const char *fmt, ...)
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
     if(log_facility == -1) {
-        if(priority == LOG_INFO) {
+        if(priority == LOG_INFO || priority == LOG_DEBUG) {
             printf("%s\n", buf);
             fflush(stdout);
         } else {
@@ -277,7 +277,7 @@ va_dcl
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
     if(log_facility == -1) {
-        if(priority == LOG_INFO) {
+        if(priority == LOG_INFO || priority == LOG_DEBUG) {
             printf("%s\n", buf);
             fflush(stdout);
         } else {
@@ -611,7 +611,7 @@ kill_be(SERVICE *const svc, const BACKEND *be)
         if(b->alive && !b->disabled)
             svc->tot_pri += b->priority;
     }
-    svc->sessions = t_clean(svc->sessions, be, sizeof(be));
+    svc->sessions = t_clean(svc->sessions, &be, sizeof(be));
     if(ret_val = pthread_mutex_unlock(&svc->mut))
         logmsg(LOG_WARNING, "kill_be() unlock: %s", strerror(ret_val));
     return;
@@ -621,23 +621,23 @@ kill_be(SERVICE *const svc, const BACKEND *be)
  * Update the number of requests and time to answer for a given back-end
  */
 void
-upd_be(BACKEND *const be, const double elapsed)
+upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
 {
-#ifndef NO_DYNSCALE
     int     ret_val;
 
-    if(ret_val = pthread_mutex_lock(&be->mut))
-        logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
-    be->t_requests += elapsed;
-    if(++be->n_requests > 30000) {
-        /* scale it down */
-        be->n_requests /= 2;
-        be->t_requests /= 2;
+    if(svc->dynscale) {
+        if(ret_val = pthread_mutex_lock(&be->mut))
+            logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
+        be->t_requests += elapsed;
+        if(++be->n_requests > RESCALE_MAX) {
+            /* scale it down */
+            be->n_requests /= 2;
+            be->t_requests /= 2;
+        }
+        be->t_average = be->t_requests / be->n_requests;
+        if(ret_val = pthread_mutex_unlock(&be->mut))
+            logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
     }
-    be->t_average = be->t_requests / be->n_requests;
-    if(ret_val = pthread_mutex_unlock(&be->mut))
-        logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
-#endif  /* NO_DYNSCALE */
     return;
 }
 
@@ -1028,9 +1028,8 @@ do_expire(void)
 
 /*
  * Rescale back-end priorities if needed
- * runs every 15 minutes
+ * runs every 5 minutes
  */
-#ifndef NO_DYNSCALE
 static void
 do_rescale(void)
 {
@@ -1043,13 +1042,19 @@ do_rescale(void)
     /* scale the back-end priorities */
     for(lstn = listeners; lstn; lstn = lstn->next)
     for(svc = lstn->services; svc; svc = svc->next) {
+        if(!svc->dynscale)
+            continue;
         average = sq_average = 0.0;
         n = 0;
         for(be = svc->backends; be; be = be->next) {
             if(be->be_type != BACK_END || !be->alive || be->disabled)
                 continue;
+            if(ret_val = pthread_mutex_lock(&be->mut))
+                logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
             average += be->t_average;
             sq_average += be->t_average * be->t_average;
+            if(ret_val = pthread_mutex_unlock(&be->mut))
+                logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
             n++;
         }
         if(n <= 1)
@@ -1057,19 +1062,36 @@ do_rescale(void)
         sq_average /= n;
         average /= n;
         sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
+        sq_average *= 3;    /* we only want things outside of 3 standard deviations */
         if(ret_val = pthread_mutex_lock(&svc->mut)) {
             logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
             continue;
         }
         for(be = svc->backends; be; be = be->next) {
-            if(be->be_type != BACK_END || !be->alive || be->disabled)
+            if(be->be_type != BACK_END || !be->alive || be->disabled || be->n_requests < RESCALE_MIN)
                 continue;
             if(be->t_average < (average - sq_average)) {
                 be->priority++;
+                if(ret_val = pthread_mutex_lock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
+                while(be->n_requests > RESCALE_BOT) {
+                    be->n_requests /= 2;
+                    be->t_requests /= 2;
+                }
+                if(ret_val = pthread_mutex_unlock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
                 svc->tot_pri++;
             }
             if(be->t_average > (average + sq_average) && be->priority > 1) {
                 be->priority--;
+                if(ret_val = pthread_mutex_lock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
+                while(be->n_requests > RESCALE_BOT) {
+                    be->n_requests /= 2;
+                    be->t_requests /= 2;
+                }
+                if(ret_val = pthread_mutex_unlock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
                 svc->tot_pri--;
             }
         }
@@ -1078,13 +1100,19 @@ do_rescale(void)
     }
 
     for(svc = services; svc; svc = svc->next) {
+        if(!svc->dynscale)
+            continue;
         average = sq_average = 0.0;
         n = 0;
         for(be = svc->backends; be; be = be->next) {
             if(be->be_type != BACK_END || !be->alive || be->disabled)
                 continue;
+            if(ret_val = pthread_mutex_lock(&be->mut))
+                logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
             average += be->t_average;
             sq_average += be->t_average * be->t_average;
+            if(ret_val = pthread_mutex_unlock(&be->mut))
+                logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
             n++;
         }
         if(n <= 1)
@@ -1092,19 +1120,36 @@ do_rescale(void)
         sq_average /= n;
         average /= n;
         sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
+        sq_average *= 3;    /* we only want things outside of 3 standard deviations */
         if(ret_val = pthread_mutex_lock(&svc->mut)) {
             logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
             continue;
         }
         for(be = svc->backends; be; be = be->next) {
-            if(be->be_type != BACK_END || !be->alive || be->disabled)
+            if(be->be_type != BACK_END || !be->alive || be->disabled || be->n_requests < RESCALE_MIN)
                 continue;
             if(be->t_average < (average - sq_average)) {
                 be->priority++;
+                if(ret_val = pthread_mutex_lock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
+                while(be->n_requests > RESCALE_BOT) {
+                    be->n_requests /= 2;
+                    be->t_requests /= 2;
+                }
+                if(ret_val = pthread_mutex_unlock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
                 svc->tot_pri++;
             }
             if(be->t_average > (average + sq_average) && be->priority > 1) {
                 be->priority--;
+                if(ret_val = pthread_mutex_lock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
+                while(be->n_requests > RESCALE_BOT) {
+                    be->n_requests /= 2;
+                    be->t_requests /= 2;
+                }
+                if(ret_val = pthread_mutex_unlock(&be->mut))
+                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
                 svc->tot_pri--;
             }
         }
@@ -1114,7 +1159,6 @@ do_rescale(void)
 
     return;
 }
-#endif  /* NO_DYNSCALE */
 
 static pthread_mutex_t  RSA_mut;                    /* mutex for RSA keygen */
 static RSA              *RSA512_keys[N_RSA_KEYS];   /* ephemeral RSA keys */
@@ -1211,10 +1255,8 @@ thr_timer(void *arg)
     n_wait = EXPIRE_TO;
     if(n_wait > alive_to)
         n_wait = alive_to;
-#ifndef NO_DYNSCALE
     if(n_wait > RESCALE_TO)
         n_wait = RESCALE_TO;
-#endif
     if(n_wait > T_RSA_KEYS)
         n_wait = T_RSA_KEYS;
     for(last_time = time(NULL) - n_wait;;) {
@@ -1226,12 +1268,10 @@ thr_timer(void *arg)
             last_RSA = time(NULL);
             do_RSAgen();
         }
-#ifndef NO_DYNSCALE
         if((last_time - last_rescale) > RESCALE_TO) {
             last_rescale = time(NULL);
             do_rescale();
         }
-#endif
         if((last_time - last_alive) > alive_to) {
             last_alive = time(NULL);
             do_resurect();
@@ -1250,14 +1290,15 @@ static void
 dump_sess(const int control_sock, const TREENODE *sess, BACKEND *const backends)
 {
     TREENODE    t;
-    BACKEND     *be;
+    BACKEND     *be, *bep;
     int         n_be, sz;
 
     if(sess) {
         dump_sess(control_sock, sess->left, backends);
         t = *sess;
+        memcpy(&bep, t.content, sizeof(bep));
         for(n_be = 0, be = backends; be; be = be->next, n_be++)
-            if(memcmp(be, t.content, sizeof(be)) == 0)
+            if(be == bep)
                 break;
         if(!be)
             /* should NEVER happen */
@@ -1456,7 +1497,7 @@ thr_control(void *arg)
             }
             if(ret_val = pthread_mutex_lock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() add session lock: %s", strerror(ret_val));
-            svc->sessions = t_add(svc->sessions, cmd.key, be, sizeof(be));
+            svc->sessions = t_add(svc->sessions, cmd.key, &be, sizeof(be));
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() add session unlock: %s", strerror(ret_val));
             break;

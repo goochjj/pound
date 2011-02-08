@@ -19,6 +19,67 @@ usage(const char *arg0)
     exit(1);
 }
 
+static void
+be_prt(const int sock)
+{
+    BACKEND be;
+    int     n_be;
+
+    n_be = 0;
+    while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
+        if(be.disabled < 0)
+            break;
+        if(be.domain == PF_INET)
+            printf("    %3d. Backend PF_INET %s:%hd %s (%d %.3f sec) %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
+                ntohs(be.addr.in.sin_port), be.disabled? "DISABLED": "active", be.priority, be.t_average,
+                be.alive? "alive": "DEAD");
+        else
+            printf("    %3d. Backend PF_UNIX %s %s (%d %.3f sec) %s\n", n_be++, be.addr.un.sun_path,
+                be.disabled? "DISABLED": "active", be.priority, be.t_average, be.alive? "alive": "DEAD");
+    }
+    return;
+}
+
+static void
+sess_prt(const int sock)
+{
+    TREENODE    sess;
+    int         n_be, n_sess, cont_len;
+    char        buf[KEY_SIZE + 1];
+
+    n_sess = 0;
+    while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
+        if(sess.content == NULL)
+            break;
+        read(sock, &n_be, sizeof(n_be));
+        read(sock, &cont_len, sizeof(cont_len));
+        memset(buf, 0, KEY_SIZE + 1);
+        read(sock, buf, cont_len);
+        printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
+    }
+    return;
+}
+
+static void
+svc_prt(const int sock)
+{
+    SERVICE     svc;
+    int         n_svc;
+
+    n_svc = 0;
+    while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
+        if(svc.disabled < 0)
+            break;
+        if(svc.name[0])
+            printf("  %3d. Service \"%s\" %s (%d)\n", n_svc++, svc.name, svc.disabled? "DISABLED": "active", svc.tot_pri);
+        else
+            printf("  %3d. Service %s (%d)\n", n_svc++, svc.disabled? "DISABLED": "active", svc.tot_pri);
+        be_prt(sock);
+        sess_prt(sock);
+    }
+    return;
+}
+
 static int
 get_sock(const char *sock_name)
 {
@@ -169,68 +230,10 @@ main(const int argc, char **argv)
                 break;
             printf("%3d. %s Listener %s:%hd %s\n", n_lstn++, lstn.ctx? "HTTPS" : "http",
                 inet_ntoa(lstn.addr.sin_addr), ntohs(lstn.addr.sin_port), lstn.disabled? "*D": "a");
-            n_svc = 0;
-            while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
-                if(svc.disabled < 0)
-                    break;
-                if(svc.name[0])
-                    printf("  %3d. Service \"%s\" %s\n", n_svc++, svc.name, svc.disabled? "*D": "a");
-                else
-                    printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
-                n_be = 0;
-                while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
-                    if(be.disabled < 0)
-                        break;
-                    if(be.domain == PF_INET)
-                        printf("    %3d. Backend PF_INET %s:%hd %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
-                            ntohs(be.addr.in.sin_port), be.disabled? "*D": "a");
-                    else
-                        printf("    %3d. Backend PF_UNIX %s %s\n", n_be++, be.addr.un.sun_path,
-                            be.disabled? "*D": "");
-                }
-                n_sess = 0;
-                while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
-                    if(sess.content == NULL)
-                        break;
-                    read(sock, &n_be, sizeof(n_be));
-                    read(sock, &i, sizeof(i));
-                    memset(buf, 0, KEY_SIZE + 1);
-                    read(sock, buf, i);
-                    printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
-                }
-            }
+            svc_prt(sock);
         }
         printf(" -1. Global services\n");
-        n_svc = 0;
-        while(read(sock, (void *)&svc, sizeof(SERVICE)) == sizeof(SERVICE)) {
-            if(svc.disabled < 0)
-                break;
-            if(svc.name[0])
-                printf("  %3d. Service \"%s\" %s\n", n_svc++, svc.name, svc.disabled? "*D": "a");
-            else
-                printf("  %3d. Service %s\n", n_svc++, svc.disabled? "*D": "a");
-            n_be = 0;
-            while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
-                if(be.disabled < 0)
-                    break;
-                if(be.domain == PF_INET)
-                    printf("    %3d. Backend PF_INET %s:%hd %s\n", n_be++, inet_ntoa(be.addr.in.sin_addr),
-                        ntohs(be.addr.in.sin_port), be.disabled? "*D": "a");
-                else
-                    printf("    %3d. Backend PF_UNIX %s %s\n", n_be++, be.addr.un.sun_path,
-                        be.disabled? "*D": "");
-            }
-            n_sess = 0;
-            while(read(sock, (void *)&sess, sizeof(TREENODE)) == sizeof(TREENODE)) {
-                if(sess.content == NULL)
-                    break;
-                read(sock, &n_be, sizeof(n_be));
-                read(sock, &i, sizeof(i));
-                memset(buf, 0, KEY_SIZE + 1);
-                read(sock, buf, i);
-                printf("    %3d. Session %s -> %d\n", n_sess++, buf, n_be);
-            }
-        }
+        svc_prt(sock);
     }
     return 0;
 }

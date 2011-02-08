@@ -39,6 +39,7 @@ int         alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */
+            grace,              /* grace period before shutdown */
             control_sock;       /* control socket */
 
 SERVICE     *services;          /* global services (if any) */
@@ -52,6 +53,8 @@ regex_t HEADER,             /* Allowed header */
         /* RESP_REDIR,         /* responses for which we rewrite Location */
         LOCATION,           /* the host we are redirected to */
         AUTHORIZATION;      /* the Authorisation header */
+
+static int  shut_down = 0;
 
 #ifndef  SOL_TCP
 /* for systems without the definition */
@@ -104,15 +107,36 @@ l_id(void)
 }
 
 /*
- * handle SIGTERM - exit
+ * handle SIGTERM/SIGQUIT - exit
  */
 static RETSIGTYPE
 h_term(const int sig)
 {
     logmsg(LOG_NOTICE, "received signal %d - exiting...", sig);
     if(son > 0)
-        kill(son, SIGTERM);
+        kill(son, sig);
     exit(0);
+}
+
+/*
+ * handle SIGHUP/SIGINT - exit after grace period
+ */
+static RETSIGTYPE
+h_shut(const int sig)
+{
+    int         status;
+    LISTENER    *lstn;
+
+    logmsg(LOG_NOTICE, "received signal %d - shutting down...", sig);
+    if(son > 0) {
+        for(lstn = listeners; lstn; lstn = lstn->next)
+            close(lstn->sock);
+        kill(son, sig);
+        while(wait(&status) != son)
+            logmsg(LOG_ERR, "MONITOR: bad wait (%s)", strerror(errno));
+        exit(0);
+    } else
+        shut_down = 1;
 }
 
 /*
@@ -145,8 +169,9 @@ main(const int argc, char **argv)
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
+    signal(SIGHUP, h_shut);
+    signal(SIGINT, h_shut);
     signal(SIGTERM, h_term);
-    signal(SIGINT, h_term);
     signal(SIGQUIT, h_term);
     signal(SIGPIPE, SIG_IGN);
 
@@ -339,6 +364,14 @@ main(const int argc, char **argv)
 
             /* and start working */
             for(;;) {
+                if(shut_down) {
+                    logmsg(LOG_NOTICE, "shutting down...");
+                    for(lstn = listeners; lstn; lstn = lstn->next)
+                        close(lstn->sock);
+                    sleep(grace);
+                    logmsg(LOG_NOTICE, "grace period expired - exiting...");
+                    exit(0);
+                }
                 for(lstn = listeners, i = 0; i < n_listeners; lstn = lstn->next, i++) {
                     polls[i].events = POLLIN | POLLPRI;
                     polls[i].revents = 0;

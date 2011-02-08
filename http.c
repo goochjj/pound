@@ -1171,7 +1171,7 @@ thr_http(void *arg)
             }
         }
         end_req = cur_time();
-        upd_be(cur_backend, end_req - start_req);
+        upd_be(svc, cur_backend, end_req - start_req);
 
         /* log what happened */
         strip_eol(request);
@@ -1208,9 +1208,11 @@ thr_http(void *arg)
                 response[11], s_res_bytes, referer, u_agent);
             break;
         case 5:
-            logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s)",
+            logmsg(LOG_INFO, "%s %s - %s [%s] \"%s\" %c%c%c %s \"%s\" \"%s\" (%s -> %s) %.3f sec",
+                v_host[0]? v_host: "-",
                 caddr, u_name[0]? u_name: "-", req_time, request, response[9], response[10],
-                response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf);
+                response[11], s_res_bytes, referer, u_agent, svc->name[0]? svc->name: "-", buf,
+                (end_req - start_req) / 1000000.0);
             break;
         }
 

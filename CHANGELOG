@@ -1,4 +1,51 @@
 ------------------------------------------------------------------------
+r46 | roseg | 2007-04-11 15:00:11 +0200 (Wed, 11 Apr 2007) | 8 lines
+
+Release 2.3
+
+Enhancements:
+  - added display of configuration switches
+  - added grace period for shutdown (based on an idea from Rune Saetre)
+
+Bug fixes:
+
+------------------------------------------------------------------------
+r45 | roseg | 2007-04-04 18:15:53 +0200 (Wed, 04 Apr 2007) | 8 lines
+
+Release 2.2.8
+
+Enhancements:
+  - more tweaking of the dynamic rescaling code
+  - more information in poundctl printout
+
+Bug fixes:
+
+------------------------------------------------------------------------
+r44 | roseg | 2007-03-12 18:12:14 +0100 (Mon, 12 Mar 2007) | 8 lines
+
+Release 2.2.7
+
+Enhancements:
+  - dynamic scaling is now a configuration directive (DynScale)
+  - added vhost to LogLevel 5
+
+Bug fixes:
+
+------------------------------------------------------------------------
+r43 | roseg | 2007-03-02 10:30:01 +0100 (Fri, 02 Mar 2007) | 11 lines
+
+Release 2.2.6
+
+Enhancements:
+  - added transaction time to LogLevel 5
+  - added priority display for poundctl
+
+Bug fixes:
+  - fixed problem when adding session via poundctl
+  - fixed problem in session dump to poundctl
+  - fixed problem in kill_be call to t_clean
+
+------------------------------------------------------------------------
 r42 | roseg | 2007-02-19 18:19:22 +0100 (Mon, 19 Feb 2007) | 7 lines
 
 Release 2.2.5

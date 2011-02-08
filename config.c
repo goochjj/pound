@@ -77,8 +77,9 @@ static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogL
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
-static regex_t  Redirect, TimeOut, Session, Type, TTL, ID;
+static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  Grace;
 
 static regmatch_t   matches[5];
 
@@ -95,6 +96,7 @@ static int  def_facility = LOG_DAEMON;
 static int  clnt_to = 10;
 static int  be_to = 15;
 static int  n_lin = 0;
+static int  dynscale = 0;
 
 /*
  * parse a back-end
@@ -117,7 +119,7 @@ parse_be(FILE *const f_conf, const int is_emergency)
     res->to = is_emergency? 120: be_to;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
-    res->priority = 1;
+    res->priority = 5;
     memset(&res->HA, 0, sizeof(res->HA));
     res->url = NULL;
     res->next = NULL;
@@ -324,6 +326,7 @@ parse_service(FILE *const f_conf, const char *svc_name)
     }
     memset(res, 0, sizeof(SERVICE));
     res->sess_type = SESS_NONE;
+    res->dynscale = dynscale;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -450,6 +453,8 @@ parse_service(FILE *const f_conf, const char *svc_name)
             for(be = res->backends; be; be = be->next)
                 res->tot_pri += be->priority;
             return res;
+        } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
+            res->dynscale = atoi(lin + matches[1].rm_so);
         } else {
             logmsg(LOG_ERR, "line %d: unknown directive \"%s\" - aborted", n_lin, lin);
             exit(1);
@@ -945,12 +950,16 @@ parse_file(FILE *const f_conf)
                         def_facility = facilitynames[i].c_val;
                         break;
                     }
+        } else if(!regexec(&Grace, lin, 4, matches, 0)) {
+            grace = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Client, lin, 4, matches, 0)) {
             clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
             alive_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
+            dynscale = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             be_to = atoi(lin + matches[1].rm_so);
 #if HAVE_OPENSSL_ENGINE_H
@@ -1052,6 +1061,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-5])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Grace, "^[ \t]*Grace[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Control, "^[ \t]*Control[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1088,6 +1098,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DynScale, "^[ \t]*DynScale[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1122,6 +1133,27 @@ config_parse(const int argc, char **const argv)
         case 'V':
             print_log = 1;
             logmsg(LOG_DEBUG, "Version %s", VERSION);
+            logmsg(LOG_DEBUG, "  Configuration switches:");
+#ifdef  C_SUPER
+            if(strcmp(C_SUPER, "0"))
+                logmsg(LOG_DEBUG, "    --disable-super");
+#endif
+#ifdef  C_SSL
+            if(strcmp(C_SSL, ""))
+                logmsg(LOG_DEBUG, "    --with-ssl=%s", C_SSL);
+#endif
+#ifdef  C_T_RSA
+            if(strcmp(C_T_RSA, "0"))
+                logmsg(LOG_DEBUG, "    --with-t_rsa=%s", C_T_RSA);
+#endif
+#ifdef  C_OWNER
+            if(strcmp(C_OWNER, ""))
+                logmsg(LOG_DEBUG, "    --with-owner=%s", C_OWNER);
+#endif
+#ifdef  C_GROUP
+            if(strcmp(C_GROUP, ""))
+                logmsg(LOG_DEBUG, "    --with-group=%s", C_GROUP);
+#endif
             logmsg(LOG_DEBUG, "Exiting...");
             exit(0);
             break;
@@ -1146,6 +1178,7 @@ config_parse(const int argc, char **const argv)
 
     alive_to = 30;
     daemonize = 1;
+    grace = 30;
 
     services = NULL;
     listeners = NULL;
@@ -1172,6 +1205,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Daemon);
     regfree(&LogFacility);
     regfree(&LogLevel);
+    regfree(&Grace);
     regfree(&Alive);
     regfree(&SSLEngine);
     regfree(&Control);
@@ -1208,6 +1242,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Type);
     regfree(&TTL);
     regfree(&ID);
+    regfree(&DynScale);
     regfree(&ClientCert);
     regfree(&AddHeader);
     regfree(&Ciphers);

@@ -144,7 +144,7 @@ puts itself in the background. Normal operational messages will still go to sysl
 \fB\-V\fR
 Print version:
 .B Pound
-will exit immediately after printing the current version.
+will exit immediately after printing the current version and configuration flags.
 .TP
 \fB\-c\fR
 Check only:
@@ -243,6 +243,13 @@ and
 used).
 This value can be overridden for specific listeners.
 .TP
+\fBDynScale\fR 0|1
+Enable or disable the dynamic rescaling code (default: 0). If enabled
+.B Pound
+will periodically try to modify the back-end priorities in order to
+equalise the response times from the various back-ends.
+This value can be overridden for specific services.
+.TP
 \fBAlive\fR value
 Specify how often
 .B Pound
@@ -262,11 +269,21 @@ time-out on a slow network or over-loaded server, lower if you
 start getting DOS attacks or run into problems with IE clients.
 This value can be overridden for specific listeners.
 .TP
-\fBTimeOut\fR val
+\fBTimeOut\fR value
 How long should
 .B Pound
 wait for a response from the back-end (in seconds). Default: 15 seconds.
 This value can be overridden for specific back-ends.
+.TP
+\fBGrace\fR value
+How long should
+.B Pound
+continue to answer existing connections after a receiving and INT or HUP
+signal (default: 30 seconds). The configured listeners are closed
+immediately. You can bypass this behaviour by stopping
+.B Pound
+with a TERM or QUIT signal, in which case the program exits without any
+delay.
 .TP
 \fBSSLEngine\fR "name"
 Use an OpenSSL hardware acceleration card called \fIname\fR. Available
@@ -512,6 +529,10 @@ directive, the matching headers are removed
 .B before
 the service matching is attempted.
 .TP
+\fBDynScale\fR 0|1
+Enable or disable dynamic rescaling for the current service. This value will
+override the value globally defined.
+.TP
 \fBBackEnd\fR
 Directives enclosed between a
 .I BackEnd
@@ -615,7 +636,7 @@ will connect to. This is a
 parameter for non Unix-domain back-ends.
 .TP
 \fBPriority\fR val
-The priority of this back-end (between 1 and 9, 1 is default). Higher priority
+The priority of this back-end (between 1 and 9, 5 is default). Higher priority
 back-ends will be used more often than lower priority ones, so you should
 define higher priorities for more capable servers.
 .TP

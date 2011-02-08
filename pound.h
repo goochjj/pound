@@ -238,6 +238,7 @@ extern int  alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */
+            grace,              /* grace period before shutdown */
             control_sock;       /* control socket */
 
 extern regex_t  HEADER,     /* Allowed header */
@@ -326,6 +327,7 @@ typedef struct _service {
     regex_t             sess_pat;   /* pattern to match the session data */
     char                *sess_parm; /* session cookie or parameter */
     TREENODE            *sessions;  /* currently active sessions */
+    int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
 }   SERVICE;
@@ -475,27 +477,30 @@ extern int  check_header(const char *, char *);
 extern void kill_be(SERVICE *const, const BACKEND *);
 
 /*
+ * Rescale back-end priorities if needed
+ * runs every 5 minutes
+ */
+#ifndef RESCALE_TO
+#define RESCALE_TO  300
+#endif
+
+/*
+ * Dynamic rescaling constants
+ */
+#define RESCALE_MAX 32000
+#define RESCALE_MIN 8000
+#define RESCALE_BOT 4000
+
+/*
  * Update the number of requests and time to answer for a given back-end
  */
-extern void upd_be(BACKEND *const be, const double);
+extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
 
 /*
  * Non-blocking version of connect(2). Does the same as connect(2) but
  * ensures it will time-out after a much shorter time period CONN_TO.
  */
 extern int  connect_nb(const int, const struct sockaddr *, const socklen_t, const int);
-
-/*
- * Rescale back-end priorities if needed
- * runs every 15 minutes
- */
-#ifndef NO_DYNSCALE
-
-#ifndef RESCALE_TO
-#define RESCALE_TO  900
-#endif
-
-#endif
 
 /*
  * Parse arguments/config file
