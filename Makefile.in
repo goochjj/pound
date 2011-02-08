@@ -24,7 +24,7 @@
 # Tel: +41-1-920 4904
 # EMail: roseg@apsis.ch
 #
-# $Id: Makefile.in,v 1.5 2003/10/14 08:35:45 roseg Rel $
+# $Id: Makefile.in,v 1.6 2003/11/30 22:56:27 roseg Rel $
 
 CC=@CC@
 

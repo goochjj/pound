@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.5 2003/10/14 08:35:45 roseg Rel $";
+static char *rcs_id = "$Id: svc.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.6  2003/11/30 22:56:26  roseg
+ * Callback for RSA ephemeral keys:
+ *     - generated in a separate thread
+ *     - used if required (IE 5.0?)
+ * New X-SSL-cipher header encryption level/method
+ * Added CheckURL parameter in config file
+ *     - perform syntax check only if value 1 (default 0)
+ * Allow for empty query/param strings in URL syntax
+ * Additional SSL engine loading code
+ * Added parameter for CA certificates
+ *     - CA list is sent to client
+ * Verify client certificates up to given depth
+ * Fixed vulnerability in syslog handling
+ *
  * Revision 1.5  2003/10/14 08:35:45  roseg
  * Session by Basic Authentication:
  *     Session BASIC parameter added
@@ -149,7 +163,7 @@ logmsg(int priority, char *fmt, ...)
         fprintf(stderr, "%s: %s\n", t_stamp, buf);
     }
 #else
-    syslog(priority, buf);
+    syslog(priority, "%s", buf);
 #endif
     return;
 }
@@ -177,7 +191,7 @@ va_dcl
         fprintf(stderr, "%s: %s\n", t_stamp, buf);
     }
 #else
-    syslog(priority, buf);
+    syslog(priority, "%s", buf);
 #endif
     return;
 }
@@ -745,5 +759,54 @@ thr_resurect(void *arg)
                 close(sock);
             }
         }
+    }
+}
+
+static pthread_mutex_t  RSA_mut;                    /* mutex for RSA keygen */
+static RSA              *RSA512_keys[N_RSA_KEYS];   /* ephemeral RSA keys */
+static RSA              *RSA1024_keys[N_RSA_KEYS];  /* ephemeral RSA keys */
+
+/*
+ * return a pre-generated RSA key
+ */
+RSA *
+RSA_tmp_callback(SSL *ssl, int is_export, int keylength)
+{
+    RSA *res;
+
+    pthread_mutex_lock(&RSA_mut);
+    res = (keylength <= 512)? RSA512_keys[rand() % N_RSA_KEYS]: RSA1024_keys[rand() % N_RSA_KEYS];
+    pthread_mutex_unlock(&RSA_mut);
+    return res;
+}
+
+/*
+ * Periodically regenerate ephemeral RSA keys
+ * runs every T_RSA_KEYS seconds
+ */
+void *
+thr_RSAgen(void *arg)
+{
+    int n;
+
+    pthread_mutex_init(&RSA_mut, NULL);
+    pthread_mutex_lock(&RSA_mut);
+fprintf(stderr, "start RSA gen\n");
+    for(n = 0; n < N_RSA_KEYS; n++) {
+        RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
+        RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+    }
+fprintf(stderr, "done RSA gen\n");
+    pthread_mutex_unlock(&RSA_mut);
+    for(;;) {
+        sleep(T_RSA_KEYS);
+        pthread_mutex_lock(&RSA_mut);
+        for(n = 0; n < N_RSA_KEYS; n++) {
+            RSA_free(RSA512_keys[n]);
+            RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
+            RSA_free(RSA1024_keys[n]);
+            RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
+        }
+        pthread_mutex_unlock(&RSA_mut);
     }
 }

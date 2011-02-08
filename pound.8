@@ -85,6 +85,13 @@ is not empty it represents the value of a header to be added to the request. The
 tells Pound what to do about client certificates: 0 - don't ask (default), 1 - ask,
 2 - ask and fail if no certificate was presented.
 .TP
+\fBCAlist CAcert_file verify_depth
+Set the list of "trusted" CA's for this server. The CAcert_file is a file containing
+a sequence of CA certificates (PEM format). The names of the define CAs will be sent
+to the client on connection).
+Verify_depth is the depth of verification for a client certificate (up to 9). A
+value of 0 (the default) implies no verification at all.
+.TP
 \fBUser\fR user_name
 Specify the user
 .B Pound
@@ -175,6 +182,11 @@ Default: "This method may not be used.".
 \fBErr503\fR "filename"
 A file with the text to be displayed if an Error 503 occurs.
 Default: "The service is not available. Please try again later.".
+.TP
+\fBCheckURL\fR value
+If value is 1 check the requested URL for correct syntax. If value is 0
+(default) no checking is performed, and additional CSsegment or similar
+directives are quietly ignored.
 .TP
 \fBCSsegment\fR chars
 The allowed character set for the segment part of the request. Same for

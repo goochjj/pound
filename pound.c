@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.5 2003/10/14 08:35:45 roseg Rel $";
+static char *rcs_id = "$Id: pound.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.6  2003/11/30 22:56:26  roseg
+ * Callback for RSA ephemeral keys:
+ *     - generated in a separate thread
+ *     - used if required (IE 5.0?)
+ * New X-SSL-cipher header encryption level/method
+ * Added CheckURL parameter in config file
+ *     - perform syntax check only if value 1 (default 0)
+ * Allow for empty query/param strings in URL syntax
+ * Additional SSL engine loading code
+ * Added parameter for CA certificates
+ *     - CA list is sent to client
+ * Verify client certificates up to given depth
+ * Fixed vulnerability in syslog handling
+ *
  * Revision 1.5  2003/10/14 08:35:45  roseg
  * Session by Basic Authentication:
  *     Session BASIC parameter added
@@ -163,6 +177,8 @@ int     server_to;          /* server timeout */
 int     log_level;          /* logging mode - 0, 1, 2 */
 int     https_headers;      /* add HTTPS-specific headers */
 char    *https_header;      /* HTTPS-specific header to add */
+char    *ssl_CAlst;         /* CA certificate list (path to file) */
+int     ssl_vdepth;         /* max verification depth */
 int     allow_xtd;          /* allow extended HTTP - PUT, DELETE */
 int     allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
 int     no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
@@ -183,6 +199,7 @@ char    **http,             /* HTTP port to listen on */
         *CS_qid,            /* character set of query id */
         *CS_qval,           /* character set of query value */
         *CS_frag;           /* character set of fragment */
+int     check_URL;          /* check URL for correct syntax */
 regex_t *head_off;          /* headers to remove */
 int     n_head_off;         /* how many of them */
 
@@ -274,8 +291,18 @@ addr_in_use(struct sockaddr_in *addr)
  * Dummy certificate verification
  */
 static int
-verify_cert(int ok, X509_STORE_CTX *ctx)
+verify_cert(int pre_ok, X509_STORE_CTX *ctx)
 {
+    if(!pre_ok)
+        /* we already had an error */
+        return 0;
+
+    if(ssl_vdepth > 0 && X509_STORE_CTX_get_error_depth(ctx) > ssl_vdepth) {
+        /* certificate chain too long */
+        X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_CHAIN_TOO_LONG);
+        return 0;
+    }
+
     return 1;
 }
 
@@ -322,6 +349,10 @@ main(int argc, char **argv)
     /* select SSL engine */
     if (ssl_engine != NULL) {
         ENGINE  *e;
+
+#if OPENSSL_VERSION_NUMBER >= 0x00907000L
+        ENGINE_load_builtin_engines();
+#endif
 
         if (!(e = ENGINE_by_id(ssl_engine))) {
             logmsg(LOG_ERR, "could not find %s engine", ssl_engine);
@@ -514,11 +545,26 @@ main(int argc, char **argv)
                     SSL_CTX_set_verify(ctx[i], SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE, verify_cert);
                 else
                     SSL_CTX_set_verify(ctx[i], SSL_VERIFY_NONE, verify_cert);
-                SSL_CTX_set_verify_depth(ctx[i], 0);
+                SSL_CTX_set_verify_depth(ctx[i], ssl_vdepth);
                 SSL_CTX_set_mode(ctx[i], SSL_MODE_AUTO_RETRY);
                 SSL_CTX_set_options(ctx[i], SSL_OP_ALL);
                 if(ciphers[i])
                     SSL_CTX_set_cipher_list(ctx[i], ciphers[i]);
+                SSL_CTX_set_tmp_rsa_callback(ctx[i], RSA_tmp_callback);
+                if(ssl_CAlst != NULL) {
+                    STACK_OF(X509_NAME) *cert_names;
+
+                    if((cert_names = SSL_load_client_CA_file(ssl_CAlst)) == NULL) {
+                        logmsg(LOG_ERR, "SSL_load_client_CA_file failed - aborted");
+                        exit(1);
+                    }
+                    SSL_CTX_set_client_CA_list(ctx[i], cert_names);
+
+                    if(SSL_CTX_load_verify_locations(ctx[i], ssl_CAlst, NULL) != 1) {
+                        logmsg(LOG_ERR, "SSL_CTX_load_verify_locations failed - aborted");
+                        exit(1);
+                    }
+                }
             }
         }
     }
@@ -633,6 +679,15 @@ main(int argc, char **argv)
                 logmsg(LOG_ERR, "create thr_resurect: %s - aborted", strerror(errno));
                 exit(1);
             }
+
+            /* start the RSA key generator */
+            if(pthread_create(&thr, &attr, thr_RSAgen, NULL)) {
+                logmsg(LOG_ERR, "create thr_RSAgen: %s - aborted", strerror(errno));
+                exit(1);
+            }
+
+            /* pause to make sure the service threads were started */
+            sleep(3);
 
             /* and start working */
             for(;;) {

@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.5 2003/10/14 08:35:45 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.6  2003/11/30 22:56:26  roseg
+ * Callback for RSA ephemeral keys:
+ *     - generated in a separate thread
+ *     - used if required (IE 5.0?)
+ * New X-SSL-cipher header encryption level/method
+ * Added CheckURL parameter in config file
+ *     - perform syntax check only if value 1 (default 0)
+ * Allow for empty query/param strings in URL syntax
+ * Additional SSL engine loading code
+ * Added parameter for CA certificates
+ *     - CA list is sent to client
+ * Verify client certificates up to given depth
+ * Fixed vulnerability in syslog handling
+ *
  * Revision 1.5  2003/10/14 08:35:45  roseg
  * Session by Basic Authentication:
  *     Session BASIC parameter added
@@ -296,7 +310,7 @@ bio_callback(BIO *bio, int cmd, const char *argp, int argi, long argl, long ret)
             BIO_get_fd(bio, &s);
             FD_ZERO(&socks);
             FD_SET(s, &socks);
-            if((v = select(s + 1, &socks, NULL, NULL, &to)) == 1)
+            if((v = select(s + 1, &socks, NULL, NULL, &to)) > 0)
                 break;
             /* if select() returned 0 a time-out occured */
             if(v == 0) {
@@ -416,10 +430,12 @@ log_bytes(long cnt)
  * Check the validity of a URL
  */
 static int
-check_URL(char *line)
+URL_syntax(char *line)
 {
     int len, span;
 
+    if(!check_URL)
+        return 0;
     for(len = 0; line[len] == '/'; ) {
         len++;
         if(!(span = strspn(line + len, CS_segment))) {
@@ -437,8 +453,15 @@ check_URL(char *line)
     if(line[len] == '?') {
         len++;
         for(;;) {
-            if(!(span = strspn(line + len, CS_qid)))
+            if(!(span = strspn(line + len, CS_qid))) {
+                if(line[len] == '#' || line[len] == '\0')
+                    break;
+                if(line[len] == '&') {
+                    len++;
+                    continue;
+                }
                 return -2;
+            }
             len += span;
             if(line[len] == '=') {
                 len++;
@@ -472,6 +495,7 @@ thr_http(void *arg)
     BIO                 *cl, *be, *bb;
     X509                *x509;
     SSL_CTX             *ctx;
+    SSL                 *ssl;
     thr_arg             *a;
     struct in_addr      from_host;
     struct sockaddr_in  *srv, to_host;
@@ -509,8 +533,6 @@ thr_http(void *arg)
     }
 
     if(ctx != NULL) {
-        SSL     *ssl;
-
         if((bb = BIO_new_ssl(ctx, 0)) == NULL) {
             logmsg(LOG_WARNING, "BIO_new_ssl(ctx, 0) failed");
             BIO_free_all(cl);
@@ -533,7 +555,11 @@ thr_http(void *arg)
                 BIO_free_all(cl);
                 pthread_exit(NULL);
             }
-            x509 = SSL_get_peer_certificate(ssl);
+            if((x509 = SSL_get_peer_certificate(ssl)) != NULL && SSL_get_verify_result(ssl) != X509_V_OK) {
+                logmsg(LOG_WARNING, "Bad certificate from %s", inet_ntoa(from_host));
+                BIO_free_all(cl);
+                pthread_exit(NULL);
+            }
         }
         /*
          * This is dealt with in the handshake
@@ -594,7 +620,7 @@ thr_http(void *arg)
         cl_11 = (request[strlen(request) - 1] == '1');
         strncpy(url, request + matches[2].rm_so, matches[2].rm_eo - matches[2].rm_so);
         url[matches[2].rm_eo - matches[2].rm_so] = '\0';
-        if(check_URL(url)) {
+        if(URL_syntax(url)) {
             logmsg(LOG_WARNING, "bad URL \"%s\" from %s", url, inet_ntoa(from_host));
             err_reply(cl, h501, e501);
             free_headers(headers);
@@ -735,6 +761,8 @@ thr_http(void *arg)
 
         /* if SSL put additional headers for client certificate */
         if(ctx != NULL) {
+            SSL_CIPHER  *cipher;
+
             if(https_header != NULL)
                 if(BIO_printf(be, "%s\r\n", https_header) <= 0) {
                     logmsg(LOG_WARNING, "error write HTTPSHeader to %s:%hd: %s",
@@ -796,6 +824,17 @@ thr_http(void *arg)
                     pthread_exit(NULL);
                 }
                 BIO_free_all(bb);
+            }
+            if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
+                SSL_CIPHER_description(cipher, buf, MAXBUF);
+                if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
+                    logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
+                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
+                    err_reply(cl, h500, e500);
+                    BIO_free_all(bb);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
             }
         }
         /* put additional client IP header */
@@ -915,7 +954,7 @@ thr_http(void *arg)
                         clean_all();
                         pthread_exit(NULL);
                     }
-                } else if(!skip && is_readable(be, 0)) {
+                } else if(!skip) {
                     /*
                      * old-style response - content until EOF
                      * also implies the client may not use HTTP/1.1
@@ -945,6 +984,8 @@ thr_http(void *arg)
         strip_eol(request);
         strip_eol(response);
         switch(log_level) {
+        case 0:
+            break;
         case 1:
             logmsg(LOG_INFO, "%s %s - %s", inet_ntoa(from_host), request, response);
             break;

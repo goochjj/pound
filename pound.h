@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.5 2003/10/14 08:35:45 roseg Rel $
+ * $Id: pound.h,v 1.6 2003/11/30 22:56:26 roseg Rel $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -258,6 +258,8 @@ extern int  server_to;          /* server timeout */
 extern int  log_level;          /* logging mode - 0, 1, 2 */
 extern int  https_headers;      /* add HTTPS-specific headers */
 extern char *https_header;      /* HTTPS-specific header to add */
+extern char *ssl_CAlst;         /* CA certificate list (path to file) */
+extern int  ssl_vdepth;         /* max verification depth */
 extern int  allow_xtd;          /* allow extended HTTP - PUT, DELETE */
 extern int  allow_dav;          /* allow WebDAV - LOCK, UNLOCK */
 extern int  no_https_11;        /* disallow HTTP/1.1 clients for SSL connections */
@@ -278,6 +280,7 @@ extern char **http,             /* HTTP port to listen on */
             *CS_qid,            /* character set of query id */
             *CS_qval,           /* character set of query value */
             *CS_frag;           /* character set of fragment */
+extern int  check_URL;          /* check URL for correct syntax */
 
 extern regex_t  *head_off;          /* headers to remove */
 extern int      n_head_off;         /* how many of them */
@@ -286,6 +289,8 @@ extern int      n_head_off;         /* how many of them */
 #define MAXHEADERS  128
 #define MAXCHAIN    8
 #define GLOB_SESS   15
+#define N_RSA_KEYS  11
+#define T_RSA_KEYS  300
 
 /* Backend definition */
 typedef struct {
@@ -433,3 +438,14 @@ extern void *thr_resurect(void *);
  * Parse arguments/config file
  */
 extern void config_parse(int, char **);
+
+/*
+ * return a pre-generated RSA key
+ */
+extern RSA *RSA_tmp_callback(SSL *, int, int);
+
+/*
+ * Periodically regenerate ephemeral RSA keys
+ * runs every T_RSA_KEYS seconds
+ */
+void *thr_RSAgen(void *);

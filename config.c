@@ -26,10 +26,24 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.5 2003/10/14 08:32:03 roseg Rel $";
+static char *rcs_id = "$Id: config.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.6  2003/11/30 22:56:26  roseg
+ * Callback for RSA ephemeral keys:
+ *     - generated in a separate thread
+ *     - used if required (IE 5.0?)
+ * New X-SSL-cipher header encryption level/method
+ * Added CheckURL parameter in config file
+ *     - perform syntax check only if value 1 (default 0)
+ * Allow for empty query/param strings in URL syntax
+ * Additional SSL engine loading code
+ * Added parameter for CA certificates
+ *     - CA list is sent to client
+ * Verify client certificates up to given depth
+ * Fixed vulnerability in syslog handling
+ *
  * Revision 1.5  2003/10/14 08:32:03  roseg
  * Session by Basic Authentication:
  *     Session BASIC parameter added
@@ -171,10 +185,10 @@ parse_file(char *fname)
     FILE                *fconf;
     char                lin[MAXBUF], pat[MAXBUF];
     regex_t             Empty, Comment, ListenHTTP, ListenHTTPS, HTTPSHeaders, MaxRequest, HeadRemove,
-                        SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
+                        SSL_CAlist, SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
                         User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
-                        Err500, Err501, Err503, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG;
+                        Err500, Err501, Err503, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -188,6 +202,7 @@ parse_file(char *fname)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([012])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #if HAVE_OPENSSL_ENGINE_H
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #endif
@@ -221,6 +236,7 @@ parse_file(char *fname)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_SEGMENT, "^[ \t]*CSsegment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_PARM, "^[ \t]*CSparameter[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_QID, "^[ \t]*CSqid[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -347,6 +363,13 @@ parse_file(char *fname)
                 }
             } else
                 https_header = NULL;
+        } else if(!regexec(&SSL_CAlist, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((ssl_CAlst = strdup(lin + matches[1].rm_so)) == NULL) {
+                logmsg(LOG_ERR, "CAlist config: out of memory - aborted");
+                exit(1);
+            }
+            ssl_vdepth = atoi(lin + matches[2].rm_so);
         } else if(!regexec(&Err500, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             e500 = file2str(lin + matches[1].rm_so);
@@ -447,6 +470,8 @@ parse_file(char *fname)
             server_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
             max_req = atol(lin + matches[1].rm_so);
+        } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
+            check_URL = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&UrlGroup, lin, 4, matches, 0)) {
             if(in_group) {
                 logmsg(LOG_ERR, "UrlGroup in UrlGroup - aborted");
@@ -621,6 +646,7 @@ parse_file(char *fname)
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&HTTPSHeaders);
+    regfree(&SSL_CAlist);
 #if HAVE_OPENSSL_ENGINE_H
     regfree(&SSLEngine);
 #endif
@@ -645,6 +671,7 @@ parse_file(char *fname)
     regfree(&Err500);
     regfree(&Err501);
     regfree(&Err503);
+    regfree(&CheckURL);
     regfree(&CS_SEGMENT);
     regfree(&CS_PARM);
     regfree(&CS_QID);
@@ -669,6 +696,8 @@ config_parse(int argc, char **argv)
     log_level = 1;
     https_headers = 0;
     https_header = NULL;
+    ssl_CAlst = NULL;
+    ssl_vdepth = 0;
     allow_xtd = 0;
     allow_dav = 0;
     no_https_11 = 0;
@@ -686,6 +715,7 @@ config_parse(int argc, char **argv)
     e500 = e501 = e503 = NULL;
     CS_segment = CS_parm = CS_qid = CS_qval = CS_frag = NULL;
     head_off = NULL;
+    check_URL = 0;
 
     if(argc == 1) {
         /* without arguments - use default configuration file */
@@ -733,7 +763,7 @@ config_parse(int argc, char **argv)
     if(CS_qid == NULL)
         CS_qid = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-{}|\\^[]'";
     if(CS_qval == NULL)
-        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-{}|\\^[]'";
+        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-{}|\\^[]'+";
     if(CS_frag == NULL)
         CS_frag = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%{}|\\^[]'";
 #else
@@ -748,7 +778,7 @@ config_parse(int argc, char **argv)
     if(CS_qid == NULL)
         CS_qid = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-";
     if(CS_qval == NULL)
-        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-";
+        CS_qval = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.!~*'(),%-+";
     if(CS_frag == NULL)
         CS_frag = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.!~*'(),%-";
 #endif
