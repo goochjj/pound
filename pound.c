@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: pound.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
+static char *rcs_id = "$Id: pound.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
 
 /*
  * $Log: pound.c,v $
+ * Revision 1.7  2004/03/24 06:59:59  roseg
+ * Fixed bug in X-SSL-CIPHER description
+ * Changed README to stx format for consistency
+ * Addedd X-SSL-certificate with full client certificate
+ * Improved the response times on HTTP/0.9 (content without Content-length)
+ * Improved response granularity on above - using unbuffered BIO now
+ * Fixed problem with IE/SSL (SSL_set_shutdown)
+ * Avoid error messages on premature EOF from client
+ * Fixed HeadRemove code so all headers are checked without exception
+ * Improved autoconf detection
+ *
  * Revision 1.6  2003/11/30 22:56:26  roseg
  * Callback for RSA ephemeral keys:
  *     - generated in a separate thread
@@ -318,10 +329,10 @@ main(int argc, char **argv)
 {
     pthread_t           thr;
     pthread_attr_t      attr;
-    int                 *http_sock, *https_sock, clnt_length, i, n, max_fd, clnt;
+    int                 *http_sock, *https_sock, clnt_length, i, n, n_polls, clnt;
     struct sockaddr_in  host_addr, clnt_addr;
     struct hostent      *host;
-    fd_set              socks;
+    struct pollfd       *polls;
     uid_t               user_id;
     gid_t               group_id;
     FILE                *fpid;
@@ -386,15 +397,13 @@ main(int argc, char **argv)
     || regcomp(&CHUNK_HEAD, "^([0-9a-f]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LISTEN_ADDR, "^([^,]+),([1-9][0-9]*)$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_SKIP, "^HTTP/1.1 100.*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|304).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RESP_IGN, "^HTTP/1.[01] (10[1-9]|1[1-9][0-9]|204|30[12347]).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RESP_REDIR, "^HTTP/1.[01] 30[1237].*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LOCATION, "(http|https)://([^/]+)/(.*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad Regex - aborted");
         exit(1);
     }
-
-    max_fd = 0;
 
     /* get HTTP address and port */
     if(http[0]) {
@@ -440,8 +449,6 @@ main(int argc, char **argv)
                     logmsg(LOG_ERR, "HTTP socket create: %s - aborted", strerror(errno));
                     exit(1);
                 }
-                if(http_sock[i] > max_fd)
-                    max_fd = http_sock[i];
                 opt = 1;
                 setsockopt(http_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
                 if(bind(http_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
@@ -508,8 +515,6 @@ main(int argc, char **argv)
                     logmsg(LOG_ERR, "HTTPS socket create: %s - aborted", strerror(errno));
                     exit(1);
                 }
-                if(https_sock[i] > max_fd)
-                    max_fd = https_sock[i];
                 opt = 1;
                 setsockopt(https_sock[i], SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
                 if(bind(https_sock[i], (struct sockaddr *)&host_addr, (socklen_t)sizeof(host_addr)) < 0) {
@@ -569,7 +574,25 @@ main(int argc, char **argv)
         }
     }
 
-    max_fd++;
+    /* alloc the poll structures */
+    n_polls = 0;
+    for(i = 0; http[i]; i++)
+        if(http_sock[i] >= 0)
+            n_polls++;
+    for(i = 0; https[i]; i++)
+        if(https_sock[i] >= 0)
+            n_polls++;
+    if((polls = (struct pollfd *)calloc(n_polls, sizeof(struct pollfd))) == NULL) {
+        logmsg(LOG_ERR, "Out of memory for poll - aborted");
+        exit(1);
+    }
+    n = 0;
+    for(i = 0; http[i]; i++)
+        if(http_sock[i] >= 0)
+            polls[n++].fd = http_sock[i];
+    for(i = 0; https[i]; i++)
+        if(https_sock[i] >= 0)
+            polls[n++].fd = https_sock[i];
 
     /* set uid if necessary */
     if(user) {
@@ -691,18 +714,18 @@ main(int argc, char **argv)
 
             /* and start working */
             for(;;) {
-                FD_ZERO(&socks);
-                for(i = 0; http[i]; i++)
-                    if(http_sock[i] >= 0)
-                        FD_SET(http_sock[i], &socks);
-                for(i = 0; https[i]; i++)
-                    if(https_sock[i] >= 0)
-                        FD_SET(https_sock[i], &socks);
-                if((i = select(max_fd, &socks, NULL, NULL, NULL)) < 0) {
-                    logmsg(LOG_WARNING, "select: %s", strerror(errno));
+                for(i = 0; i < n_polls; i++) {
+                    polls[i].events = POLLIN | POLLPRI;
+                    polls[i].revents = 0;
+                }
+                if(poll(polls, n_polls, -1) < 0) {
+                    logmsg(LOG_WARNING, "poll: %s", strerror(errno));
                 } else {
+                    n = -1;
                     for(i = 0; http[i]; i++) {
-                        if(http_sock[i] >= 0 && FD_ISSET(http_sock[i], &socks)) {
+                        if(http_sock[i] >= 0)
+                            n++;
+                        if(polls[n].revents & (POLLIN | POLLPRI)) {
                             memset(&clnt_addr, 0, sizeof(clnt_addr));
                             clnt_length = sizeof(clnt_addr);
                             if((clnt = accept(http_sock[i], (struct sockaddr *)&clnt_addr,
@@ -734,7 +757,9 @@ main(int argc, char **argv)
                         }
                     }
                     for(i = 0; https[i]; i++) {
-                        if(https_sock[i] >= 0 && FD_ISSET(https_sock[i], &socks)) {
+                        if(https_sock[i] >= 0)
+                            n++;
+                        if(polls[n].revents & (POLLIN | POLLPRI)) {
                             memset(&clnt_addr, 0, sizeof(clnt_addr));
                             clnt_length = sizeof(clnt_addr);
                             if((clnt = accept(https_sock[i], (struct sockaddr *)&clnt_addr,

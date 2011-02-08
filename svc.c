@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
+static char *rcs_id = "$Id: svc.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.7  2004/03/24 06:59:59  roseg
+ * Fixed bug in X-SSL-CIPHER description
+ * Changed README to stx format for consistency
+ * Addedd X-SSL-certificate with full client certificate
+ * Improved the response times on HTTP/0.9 (content without Content-length)
+ * Improved response granularity on above - using unbuffered BIO now
+ * Fixed problem with IE/SSL (SSL_set_shutdown)
+ * Avoid error messages on premature EOF from client
+ * Fixed HeadRemove code so all headers are checked without exception
+ * Improved autoconf detection
+ *
  * Revision 1.6  2003/11/30 22:56:26  roseg
  * Callback for RSA ephemeral keys:
  *     - generated in a separate thread
@@ -641,10 +652,10 @@ is_be(char *location, struct sockaddr_in *to_host, char *path)
     memcpy(&addr.sin_addr.s_addr, he->h_addr_list[0], sizeof(addr.sin_addr.s_addr));
     if(port != NULL)
         addr.sin_port = (in_port_t)htons(atoi(port));
-    else if(strcmp(proto, "http") == 0)
-        addr.sin_port = (in_port_t)htons(80);
-    else /* if(strcmp(proto, "https") == 0) */
+    else if(strncmp(proto, "https", 5) == 0)
         addr.sin_port = (in_port_t)htons(443);
+    else
+        addr.sin_port = (in_port_t)htons(80);
 
     if(addrcmp(to_host, &addr) == 0)
         return 1;
@@ -791,12 +802,10 @@ thr_RSAgen(void *arg)
 
     pthread_mutex_init(&RSA_mut, NULL);
     pthread_mutex_lock(&RSA_mut);
-fprintf(stderr, "start RSA gen\n");
     for(n = 0; n < N_RSA_KEYS; n++) {
         RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
         RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
     }
-fprintf(stderr, "done RSA gen\n");
     pthread_mutex_unlock(&RSA_mut);
     for(;;) {
         sleep(T_RSA_KEYS);

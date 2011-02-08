@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.7  2004/03/24 06:59:59  roseg
+ * Fixed bug in X-SSL-CIPHER description
+ * Changed README to stx format for consistency
+ * Addedd X-SSL-certificate with full client certificate
+ * Improved the response times on HTTP/0.9 (content without Content-length)
+ * Improved response granularity on above - using unbuffered BIO now
+ * Fixed problem with IE/SSL (SSL_set_shutdown)
+ * Avoid error messages on premature EOF from client
+ * Fixed HeadRemove code so all headers are checked without exception
+ * Improved autoconf detection
+ *
  * Revision 1.6  2003/11/30 22:56:26  roseg
  * Callback for RSA ephemeral keys:
  *     - generated in a separate thread
@@ -184,11 +195,13 @@ copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes, int no_write)
 
     while(cont > 0L) {
         if((res = BIO_read(cl, buf, cont > MAXBUF? MAXBUF: cont)) < 0) {
-            logmsg(LOG_WARNING, "copy_bin error reading: %s", strerror(errno));
+            if(errno)
+                logmsg(LOG_WARNING, "copy_bin error reading: %s", strerror(errno));
             return -1;
         }
         if(res == 0) {
-            logmsg(LOG_WARNING, "copy_bin premature EOF: %s", strerror(errno));
+            if(errno)
+                logmsg(LOG_WARNING, "copy_bin premature EOF: %s", strerror(errno));
             return -2;
         }
         if(!no_write)
@@ -230,7 +243,8 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write, long max_size)
 
     for(tot_size = 0L;;) {
         if(BIO_gets(cl, buf, MAXBUF) <= 0) {
-            logmsg(LOG_WARNING, "unexpected chunked EOF: %s", strerror(errno));
+            if(errno)
+                logmsg(LOG_WARNING, "unexpected chunked EOF: %s", strerror(errno));
             return -1;
         }
         strip_eol(buf);
@@ -255,14 +269,16 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write, long max_size)
 
         if(cont > 0L) {
             if(copy_bin(cl, be, cont, res_bytes, no_write)) {
-                logmsg(LOG_WARNING, "error copy chunk cont: %s", strerror(errno));
+                if(errno)
+                    logmsg(LOG_WARNING, "error copy chunk cont: %s", strerror(errno));
                 return -4;
             }
         } else
             break;
         /* final CRLF */
         if(BIO_gets(cl, buf, MAXBUF) <= 0) {
-            logmsg(LOG_WARNING, "unexpected after chunk EOF: %s", strerror(errno));
+            if(errno)
+                logmsg(LOG_WARNING, "unexpected after chunk EOF: %s", strerror(errno));
             return -5;
         }
         strip_eol(buf);
@@ -277,7 +293,8 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write, long max_size)
     /* possibly trailing headers */
     for(;;) {
         if(BIO_gets(cl, buf, MAXBUF) <= 0) {
-            logmsg(LOG_WARNING, "unexpected post-chunk EOF: %s", strerror(errno));
+            if(errno)
+                logmsg(LOG_WARNING, "unexpected post-chunk EOF: %s", strerror(errno));
             return -7;
         }
         if(!no_write)
@@ -299,31 +316,30 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write, long max_size)
 static long
 bio_callback(BIO *bio, int cmd, const char *argp, int argi, long argl, long ret)
 {
-    fd_set          socks;
-    struct timeval  to;
-    int             s, v;
+    struct pollfd   p;
 
-    if(cmd == BIO_CB_READ)
-        for(;;) {
-            to.tv_sec = *((int *)BIO_get_callback_arg(bio));
-            to.tv_usec = 0;
-            BIO_get_fd(bio, &s);
-            FD_ZERO(&socks);
-            FD_SET(s, &socks);
-            if((v = select(s + 1, &socks, NULL, NULL, &to)) > 0)
-                break;
-            /* if select() returned 0 a time-out occured */
-            if(v == 0) {
-                /* logmsg(LOG_WARNING, "callback select timeout"); */
-                return -1;
-            }
-            /* if select() returned < 0 and it was not interrupted it's bad */
+    if(cmd != BIO_CB_READ)
+        return ret;
+
+    for(;;) {
+        memset(&p, 0, sizeof(p));
+        BIO_get_fd(bio, &p.fd);
+        p.events = POLLIN | POLLPRI;
+        switch(poll(&p, 1, *((int *)BIO_get_callback_arg(bio)) * 1000)) {
+        case 1:
+            /* there is readable data */
+            return ret;
+        case 0:
+            /* timeout */
+            return -1;
+        default:
+            /* error */
             if(errno != EINTR) {
-                logmsg(LOG_WARNING, "callback select: %s", strerror(errno));
+                logmsg(LOG_WARNING, "callback poll: %s", strerror(errno));
                 return -2;
             }
         }
-    return ret;
+    }
 }
 
 /*
@@ -332,18 +348,14 @@ bio_callback(BIO *bio, int cmd, const char *argp, int argi, long argl, long ret)
 static int
 is_readable(BIO *bio, int to_wait)
 {
-    fd_set          socks;
-    struct timeval  to;
-    int             s;
+    struct pollfd   p;
 
     if(BIO_pending(bio) > 0)
         return 1;
-    s = BIO_get_fd(bio, NULL);
-    to.tv_sec = to_wait;
-    to.tv_usec = 0;
-    FD_ZERO(&socks);
-    FD_SET(s, &socks);
-    return(select(s + 1, &socks, NULL, NULL, &to) > 0);
+    memset(&p, 0, sizeof(p));
+    BIO_get_fd(bio, &p.fd);
+    p.events = POLLIN | POLLPRI;
+    return (poll(&p, 1, to_wait * 1000) > 0);
 }
 
 static void
@@ -590,8 +602,8 @@ thr_http(void *arg)
             headers_ok[n] = 1;
         if((headers = get_headers(cl)) == NULL) {
             if(!cl_11) {
-                logmsg(LOG_WARNING, "%d error read from %s: %s", pthread_self(), inet_ntoa(from_host),
-                    strerror(errno));
+                if(errno)
+                    logmsg(LOG_WARNING, "error read from %s: %s", inet_ntoa(from_host), strerror(errno));
                 err_reply(cl, h500, e500);
             }
             clean_all();
@@ -629,7 +641,7 @@ thr_http(void *arg)
         }
 
         /* check other headers */
-        for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++)
+        for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
             /* no overflow - see check_header for details */
             switch(check_header(headers[n], buf)) {
             case HEADER_HOST:
@@ -661,16 +673,15 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "bad header from %s (%s)", inet_ntoa(from_host), headers[n]);
                 headers_ok[n] = 0;
                 break;
-            default:
-                /* maybe header to be removed */
-                if(head_off) {
-                    int i;
-
-                    for(i = 0; i < n_head_off; i++)
-                        headers_ok[n] = regexec(&head_off[i], headers[n], 0, NULL, 0);
-                }
-                break;
             }
+            if(headers_ok[n] && head_off) {
+                /* maybe header to be removed */
+                int i;
+
+                for(i = 0; i < n_head_off; i++)
+                    headers_ok[n] = regexec(&head_off[i], headers[n], 0, NULL, 0);
+            }
+        }
 
         /* possibly limited request size */
         if(max_req > 0L && cont > 0L && cont > max_req) {
@@ -823,10 +834,33 @@ thr_http(void *arg)
                     clean_all();
                     pthread_exit(NULL);
                 }
+                PEM_write_bio_X509(bb, x509);
+                BIO_gets(bb, buf, MAXBUF);
+                strip_eol(buf);
+                if(BIO_printf(be, "X-SSL-certificate: %s\r\n", buf) <= 0) {
+                    logmsg(LOG_WARNING, "error write X-SSL-certificate to %s:%hd: %s",
+                        inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
+                    err_reply(cl, h500, e500);
+                    BIO_free_all(bb);
+                    clean_all();
+                    pthread_exit(NULL);
+                }
+                while(BIO_gets(bb, buf, MAXBUF) > 0) {
+                    strip_eol(buf);
+                    if(BIO_printf(be, "\t%s\r\n", buf) <= 0) {
+                        logmsg(LOG_WARNING, "error write X-SSL-certificate to %s:%hd: %s",
+                            inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
+                        err_reply(cl, h500, e500);
+                        BIO_free_all(bb);
+                        clean_all();
+                        pthread_exit(NULL);
+                    }
+                }
                 BIO_free_all(bb);
             }
             if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
                 SSL_CIPHER_description(cipher, buf, MAXBUF);
+                strip_eol(buf);
                 if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
                         inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
@@ -896,11 +930,14 @@ thr_http(void *arg)
                         conn_closed = 1;
                     break;
                 case HEADER_TRANSFER_ENCODING:
-                    if(!strcasecmp("chunked", buf))
+                    if(!strcasecmp("chunked", buf)) {
                         chunked = 1;
+                        no_cont = 0;
+                    }
                     break;
                 case HEADER_CONTENT_LENGTH:
-                    cont = atol(buf);
+                    if((cont = atol(buf)) > 0L)
+                        no_cont = 0;
                     break;
                 case HEADER_LOCATION:
                     if(redir && v_host[0] && is_be(buf, &to_host, loc_path)) {
@@ -926,7 +963,8 @@ thr_http(void *arg)
             if(!skip)
                 for(n = 0; n < MAXHEADERS && headers[n]; n++) {
                     if(BIO_printf(cl, "%s\r\n", headers[n]) <= 0) {
-                        logmsg(LOG_WARNING, "error write to %s: %s", inet_ntoa(from_host), strerror(errno));
+                        if(errno)
+                            logmsg(LOG_WARNING, "error write to %s: %s", inet_ntoa(from_host), strerror(errno));
                         free_headers(headers);
                         clean_all();
                         pthread_exit(NULL);
@@ -950,31 +988,71 @@ thr_http(void *arg)
                 } else if(cont > 0L) {
                     /* had Content-length, so do raw reads/writes for the length */
                     if(copy_bin(be, cl, cont, &res_bytes, skip)) {
-                        logmsg(LOG_WARNING, "error copy server cont: %s", strerror(errno));
+                        if(errno)
+                            logmsg(LOG_WARNING, "error copy server cont: %s", strerror(errno));
                         clean_all();
                         pthread_exit(NULL);
                     }
                 } else if(!skip) {
-                    /*
-                     * old-style response - content until EOF
-                     * also implies the client may not use HTTP/1.1
-                     */
-                    cl_11 = be_11 = 0;
+                    if(is_readable(be, server_to > 0? server_to: 5)) {
+                        char    one;
+                        BIO     *be_unbuf;
+                        /*
+                         * old-style response - content until EOF
+                         * also implies the client may not use HTTP/1.1
+                         */
+                        cl_11 = be_11 = 0;
 
-                    while((res = BIO_read(be, buf, MAXBUF)) > 0) {
-                        if(BIO_write(cl, buf, res) != res) {
-                            logmsg(LOG_WARNING, "error copy response body: %s", strerror(errno));
+                        /*
+                         * first read whatever is already in the input buffer
+                         */
+                        while(BIO_pending(be)) {
+                            if(BIO_read(be, &one, 1) != 1) {
+                                logmsg(LOG_WARNING, "error read response pending: %s", strerror(errno));
+                                clean_all();
+                                pthread_exit(NULL);
+                            }
+                            if(BIO_write(cl, &one, 1) != 1) {
+                                if(errno)
+                                    logmsg(LOG_WARNING, "error write response pending: %s", strerror(errno));
+                                clean_all();
+                                pthread_exit(NULL);
+                            }
+                            res_bytes++;
+                        }
+                        BIO_flush(cl);
+
+                        /*
+                         * find the socket BIO in the chain
+                         */
+                        if((be_unbuf = BIO_find_type(be, BIO_TYPE_SOCKET)) == NULL) {
+                            logmsg(LOG_WARNING, "error get unbuffered: %s", strerror(errno));
                             clean_all();
                             pthread_exit(NULL);
-                        } else
-                            res_bytes += res;
+                        }
+
+                        /*
+                         * copy till EOF
+                         */
+                        while((res = BIO_read(be_unbuf, buf, MAXBUF)) > 0) {
+                            if(BIO_write(cl, buf, res) != res) {
+                                if(errno)
+                                    logmsg(LOG_WARNING, "error copy response body: %s", strerror(errno));
+                                clean_all();
+                                pthread_exit(NULL);
+                            } else {
+                                res_bytes += res;
+                                BIO_flush(cl);
+                            }
+                        }
                     }
                 }
             }
 
             if(!skip)
                 if(BIO_flush(cl) != 1) {
-                    logmsg(LOG_WARNING, "error flush to %s: %s", inet_ntoa(from_host), strerror(errno));
+                    if(errno)
+                        logmsg(LOG_WARNING, "error flush to %s: %s", inet_ntoa(from_host), strerror(errno));
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -1025,6 +1103,12 @@ thr_http(void *arg)
         if(!cl_11 || conn_closed || (ctx != NULL && no_https_11))
             break;
     }
+
+    /*
+     * This may help with some versions of IE with a broken channel shutdown
+     */
+    if(ctx != NULL)
+        SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();
     pthread_exit(NULL);

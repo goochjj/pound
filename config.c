@@ -26,10 +26,21 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.6 2003/11/30 22:56:26 roseg Rel $";
+static char *rcs_id = "$Id: config.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.7  2004/03/24 06:59:59  roseg
+ * Fixed bug in X-SSL-CIPHER description
+ * Changed README to stx format for consistency
+ * Addedd X-SSL-certificate with full client certificate
+ * Improved the response times on HTTP/0.9 (content without Content-length)
+ * Improved response granularity on above - using unbuffered BIO now
+ * Fixed problem with IE/SSL (SSL_set_shutdown)
+ * Avoid error messages on premature EOF from client
+ * Fixed HeadRemove code so all headers are checked without exception
+ * Improved autoconf detection
+ *
  * Revision 1.6  2003/11/30 22:56:26  roseg
  * Callback for RSA ephemeral keys:
  *     - generated in a separate thread
@@ -577,7 +588,7 @@ parse_file(char *fname)
             /* this matches Cookie: ... as well as Set-cookie: ... */
             snprintf(pat, MAXBUF - 1, "Cookie:.*[ \t]%s=([^;]*)", lin + matches[1].rm_so);
             if(regcomp(&groups[tot_groups]->sess_pat, pat, REG_ICASE | REG_EXTENDED)) {
-                logmsg(LOG_ERR, "Session URL bad pattern \"%s\" - aborted", pat);
+                logmsg(LOG_ERR, "Session Cookie bad pattern \"%s\" - aborted", pat);
                 exit(1);
             }
             if((groups[tot_groups]->sess_to = atoi(lin + matches[2].rm_so)) <= 0)
@@ -720,7 +731,7 @@ config_parse(int argc, char **argv)
     if(argc == 1) {
         /* without arguments - use default configuration file */
 #ifndef F_CONF
-#define F_CONF  "/etc/pound/pound.cfg"
+#define F_CONF  "/usr/local/etc/pound.cfg"
 #endif
         parse_file(F_CONF);
     } else if(argc == 3 && !strcmp(argv[1], "-f")) {

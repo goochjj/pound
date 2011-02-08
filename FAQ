@@ -85,6 +85,13 @@ FREQUENTLY ASKED QUESTIONS
     natively, such as Solaris, you need to make sure that enough threads
     and open file descriptors are allowed.
 
+2.7 Is NPTL supported?
+
+    Theoretically Pound will work with any POSIX-compliant threads package.
+    In practice some of the newer NPTL implementations still have some
+    bugs. At least on Linux running Pound with LD_ASSUME_KERNEL=2.4.19
+    seems to be helpful.
+
 
 3. Virtual Hosts
 ================

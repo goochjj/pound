@@ -23,7 +23,7 @@ Options available (see also below for configuration file options):
 \fB\-f\fR config_file
 Location of the configuration file (see below for a full description of the format).
 Default:
-.I /usr/local/etc/pound/pound.cfg
+.I /usr/local/etc/pound.cfg
 .PP
 In general, any number of back-end servers may be specified. Use the priority to
 affect the load distribution among unequal-performance servers.
@@ -361,6 +361,12 @@ Ending date of certificate validity.
 .TP
 \fBX-SSL-serial\fR
 Certificate serial number (decimal).
+.TP
+\fBX-SSL-cipher\fR
+The cipher currently in use.
+.TP
+\fBX-SSL-certificate\fR
+The full client certificate (PEM-format multi-line)
 .PP
 It is the application's responsability to actually use these
 headers - Pound just passes this information without checking
@@ -537,7 +543,7 @@ EndGroup
 .br
 UrlGroup ".*sessid=.*"
 .br
-HeadRequire Host ".*www.myserver.com"
+HeadRequire Host ".*www.myserver.com.*"
 .br
 BackEnd 192.168.0.11,80,1
 .br

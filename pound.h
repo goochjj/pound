@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.6 2003/11/30 22:56:26 roseg Rel $
+ * $Id: pound.h,v 1.7 2004/03/24 06:59:59 roseg Rel $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -159,6 +159,12 @@
 #error "Pound needs netdb.h"
 #endif
 
+#if HAVE_SYS_POLL_H
+#include    <sys/poll.h>
+#else
+#error "Pound needs sys/poll.h"
+#endif
+
 #if HAVE_OPENSSL_SSL_H
 #define OPENSSL_THREAD_DEFINES
 #include    <openssl/ssl.h>
@@ -247,8 +253,6 @@
 #include    <varargs.h>
 #endif
 
-extern int errno;
-
 /*
  * Global variables needed by everybody
  */
@@ -285,7 +289,7 @@ extern int  check_URL;          /* check URL for correct syntax */
 extern regex_t  *head_off;          /* headers to remove */
 extern int      n_head_off;         /* how many of them */
 
-#define MAXBUF      8192
+#define MAXBUF      2048
 #define MAXHEADERS  128
 #define MAXCHAIN    8
 #define GLOB_SESS   15
