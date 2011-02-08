@@ -26,10 +26,32 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: http.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
+static char *rcs_id = "$Id: http.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
 
 /*
  * $Log: http.c,v $
+ * Revision 1.8  2004/11/04 13:37:07  roseg
+ * Changes:
+ * - added support for non-blocking connect(2)
+ * - added support for 414 - Request URI too long
+ * - added RedirectRewrite directive - to prevent redirect changes
+ * - added support for NoHTTPS11 value 2 (for MSIE clients only)
+ * - added support for HTTPSHeaders 3 (no verify)
+ *
+ * Problems fixed:
+ * - fixed bug if multiple listening ports/addresses
+ * - fixed memory leak in SSL
+ * - flush stdout (if used) after each log message
+ * - assumes only 304, 305 and 306 codes to have no content
+ * - fixed problem with delays in 302 without content
+ * - fixed problem with time-outs in HTTPS
+ *
+ * Enhancements:
+ * - improved threads detection code in autoconf
+ * - added supervisor process disable configuration flag
+ * - tweak for the Location rewriting code (only look at current GROUP)
+ * - improved print-out for client certificate information
+ *
  * Revision 1.7  2004/03/24 06:59:59  roseg
  * Fixed bug in X-SSL-CIPHER description
  * Changed README to stx format for consistency
@@ -165,7 +187,8 @@ static char *rcs_id = "$Id: http.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
 /* HTTP error replies */
 static char *h500 = "500 Internal Server Error",
             *h501 = "501 Not Implemented",
-            *h503 = "503 Service Unavailable";
+            *h503 = "503 Service Unavailable",
+            *h414 = "414 Request URI too long";
 
 static char *err_head = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s";
 static char *err_cont = "<html><head><title>%s</title></head><body><h1>%s</h1><p>%s</p></body></html>";
@@ -194,21 +217,15 @@ copy_bin(BIO *cl, BIO *be, long cont, long *res_bytes, int no_write)
     int         res;
 
     while(cont > 0L) {
-        if((res = BIO_read(cl, buf, cont > MAXBUF? MAXBUF: cont)) < 0) {
-            if(errno)
-                logmsg(LOG_WARNING, "copy_bin error reading: %s", strerror(errno));
+        if((res = BIO_read(cl, buf, cont > MAXBUF? MAXBUF: cont)) < 0)
             return -1;
-        }
-        if(res == 0) {
-            if(errno)
-                logmsg(LOG_WARNING, "copy_bin premature EOF: %s", strerror(errno));
+        else if(res == 0)
             return -2;
-        }
         if(!no_write)
-            if(BIO_write(be, buf, res) != res) {
-                logmsg(LOG_WARNING, "copy_bin error writing: %s", strerror(errno));
+            if(BIO_write(be, buf, res) != res)
                 return -3;
-            }
+        if(BIO_flush(be) != 1)
+            return -4;
         cont -= res;
         if(res_bytes)
             *res_bytes += res;
@@ -297,17 +314,24 @@ copy_chunks(BIO *cl, BIO *be, long *res_bytes, int no_write, long max_size)
                 logmsg(LOG_WARNING, "unexpected post-chunk EOF: %s", strerror(errno));
             return -7;
         }
-        if(!no_write)
+        if(!no_write) {
             if(BIO_puts(be, buf) <= 0) {
                 logmsg(LOG_WARNING, "error post-chunk write: %s", strerror(errno));
                 return -8;
             }
+            if(BIO_flush(be) != 1) {
+                logmsg(LOG_WARNING, "copy_chunks flush error: %s", strerror(errno));
+                return -4;
+            }
+        }
         strip_eol(buf);
         if(!buf[0])
             break;
     }
     return 0;
 }
+
+static int  err_to = -1;
 
 /*
  * Time-out for client read/gets
@@ -317,21 +341,42 @@ static long
 bio_callback(BIO *bio, int cmd, const char *argp, int argi, long argl, long ret)
 {
     struct pollfd   p;
+    int             to;
 
-    if(cmd != BIO_CB_READ)
+    if(cmd != BIO_CB_READ && cmd != BIO_CB_WRITE)
         return ret;
+
+    /* a time-out already occured */
+    if((to = *((int *)BIO_get_callback_arg(bio)) * 1000) < 0) {
+        errno = ETIMEDOUT;
+        return -1;
+    }
 
     for(;;) {
         memset(&p, 0, sizeof(p));
         BIO_get_fd(bio, &p.fd);
-        p.events = POLLIN | POLLPRI;
-        switch(poll(&p, 1, *((int *)BIO_get_callback_arg(bio)) * 1000)) {
+        p.events = (cmd == BIO_CB_READ)? (POLLIN | POLLPRI): POLLOUT;
+        switch(poll(&p, 1, to)) {
         case 1:
-            /* there is readable data */
-            return ret;
-        case 0:
-            /* timeout */
+            if(cmd == BIO_CB_READ) {
+                if(p.revents == POLLIN || p.revents == POLLPRI)
+                    /* there is readable data */
+                    return ret;
+                else
+                    errno = EIO;
+            } else {
+                if(p.revents == POLLOUT)
+                    /* data can be written */
+                    return ret;
+                else
+                    errno = ECONNRESET;
+            }
             return -1;
+        case 0:
+            /* timeout - mark the BIO as unusable for the future */
+            BIO_set_callback_arg(bio, (char *)&err_to);
+            errno = ETIMEDOUT;
+            return 0;
         default:
             /* error */
             if(errno != EINTR) {
@@ -371,7 +416,7 @@ free_headers(char **headers)
 }
 
 static char **
-get_headers(BIO *in)
+get_headers(BIO *in, BIO *cl)
 {
     char    **headers, buf[MAXBUF];
     int     res, n;
@@ -382,23 +427,36 @@ get_headers(BIO *in)
         if(buf[0])
             break;
     }
-    if(res <= 0)
+
+    if(res <= 0) {
+        /* this is expected to occur only on client reads */
+        /* logmsg(LOG_WARNING, "headers: bad starting read"); */
         return NULL;
+    } else if(res >= (MAXBUF - 1)) {
+        /* check for request length limit */
+        logmsg(LOG_WARNING, "headers: request URI too long");
+        err_reply(cl, h414, e414);
+        return NULL;
+    }
 
     if((headers = (char **)calloc(MAXHEADERS, sizeof(char *))) == NULL) {
         logmsg(LOG_WARNING, "headers: out of memory");
+        err_reply(cl, h500, e500);
         return NULL;
     }
 
     for(n = 0; n < MAXHEADERS; n++) {
-        if((headers[n] = strdup(buf)) == NULL) {
+        if((headers[n] = (char *)malloc(MAXBUF)) == NULL) {
             free_headers(headers);
             logmsg(LOG_WARNING, "header: out of memory");
+            err_reply(cl, h500, e500);
             return NULL;
         }
+        strncpy(headers[n], buf, MAXBUF - 1);
         if((res = BIO_gets(in, buf, MAXBUF)) <= 0) {
             free_headers(headers);
             logmsg(LOG_WARNING, "can't read header");
+            err_reply(cl, h500, e500);
             return NULL;
         }
         strip_eol(buf);
@@ -408,6 +466,7 @@ get_headers(BIO *in)
 
     free_headers(headers);
     logmsg(LOG_WARNING, "too many headers");
+    err_reply(cl, h500, e500);
     return NULL;
 }
 
@@ -494,8 +553,11 @@ URL_syntax(char *line)
 
 /* Cleanup code. This should really be in the pthread_cleanup_push, except for bugs in some implementations */
 #define clean_all() {   \
-    if(be != NULL) { BIO_flush(be); BIO_free_all(be); be = NULL; } \
-    if(cl != NULL) { BIO_flush(cl); BIO_free_all(cl); cl = NULL; } \
+    if(ssl != NULL) { BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); } \
+    if(be != NULL) { BIO_flush(be); BIO_reset(be); BIO_free_all(be); be = NULL; } \
+    if(cl != NULL) { BIO_flush(cl); BIO_reset(cl); BIO_free_all(cl); cl = NULL; } \
+    if(x509 != NULL) { X509_free(x509); x509 = NULL; } \
+    if(ssl != NULL) { ERR_clear_error(); ERR_remove_state(0); } \
 }
 
 /*
@@ -506,12 +568,12 @@ thr_http(void *arg)
 {
     BIO                 *cl, *be, *bb;
     X509                *x509;
-    SSL_CTX             *ctx;
     SSL                 *ssl;
     thr_arg             *a;
     struct in_addr      from_host;
     struct sockaddr_in  *srv, to_host;
-    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, redir;
+    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, redir,
+                        force_10;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], *mh;
     long                cont, res_bytes;
@@ -524,14 +586,18 @@ thr_http(void *arg)
     from_host = a->from_host;
     to_host = a->to_host;
     sock = a->sock;
-    ctx = a->ctx;
+    ssl = a->ssl;
     free(a);
 
-    n = 0;
+    n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
     l.l_onoff = 1;
-    l.l_linger = 30;
+    l.l_linger = 10;
     setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
+
+    cl = NULL;
+    be = NULL;
+    x509 = NULL;
 
     if((cl = BIO_new_socket(sock, 1)) == NULL) {
         logmsg(LOG_WARNING, "BIO_new_socket failed");
@@ -544,38 +610,38 @@ thr_http(void *arg)
         BIO_set_callback(cl, bio_callback);
     }
 
-    if(ctx != NULL) {
-        if((bb = BIO_new_ssl(ctx, 0)) == NULL) {
-            logmsg(LOG_WARNING, "BIO_new_ssl(ctx, 0) failed");
+    if(ssl != NULL) {
+        SSL_set_bio(ssl, cl, cl);
+        if((bb = BIO_new(BIO_f_ssl())) == NULL) {
+            logmsg(LOG_WARNING, "BIO_new(Bio_f_ssl()) failed");
+            BIO_reset(cl);
             BIO_free_all(cl);
             pthread_exit(NULL);
         }
+        BIO_set_ssl(bb, ssl, BIO_CLOSE);
         BIO_set_ssl_mode(bb, 0);
-        cl = BIO_push(bb, cl);
+        cl = bb;
         if(BIO_do_handshake(cl) <= 0) {
             /* no need to log every client without a certificate...
             logmsg(LOG_WARNING, "BIO_do_handshake with %s failed: %s", inet_ntoa(from_host),
                 ERR_error_string(ERR_get_error(), NULL));
             x509 = NULL;
             */
+            BIO_reset(cl);
             BIO_free_all(cl);
             pthread_exit(NULL);
         } else {
-            BIO_get_ssl(bb, &ssl);
-            if(ssl == NULL) {
-                logmsg(LOG_WARNING, "BIO_get_ssl failed");
-                BIO_free_all(cl);
-                pthread_exit(NULL);
-            }
-            if((x509 = SSL_get_peer_certificate(ssl)) != NULL && SSL_get_verify_result(ssl) != X509_V_OK) {
+            if((x509 = SSL_get_peer_certificate(ssl)) != NULL && https_headers < 3 && SSL_get_verify_result(ssl) != X509_V_OK) {
                 logmsg(LOG_WARNING, "Bad certificate from %s", inet_ntoa(from_host));
+                BIO_reset(cl);
                 BIO_free_all(cl);
                 pthread_exit(NULL);
             }
         }
         /*
          * This is dealt with in the handshake
-        if(https_headers > 1 && x509 == NULL) {
+        if(https_headers == 2 && x509 == NULL) {
+            BIO_reset(cl);
             BIO_free_all(cl);
             pthread_exit(NULL);
         }
@@ -586,12 +652,13 @@ thr_http(void *arg)
 
     if((bb = BIO_new(BIO_f_buffer())) == NULL) {
         logmsg(LOG_WARNING, "BIO_new(buffer) failed");
+        BIO_reset(cl);
         BIO_free_all(cl);
         pthread_exit(NULL);
     }
+    BIO_set_close(cl, BIO_CLOSE);
+    BIO_set_buffer_size(cl, MAXBUF);
     cl = BIO_push(bb, cl);
-
-    be = NULL;
 
     for(cl_11 = be_11 = 0;;) {
         req_start = time(NULL);
@@ -600,11 +667,11 @@ thr_http(void *arg)
         conn_closed = 0;
         for(n = 0; n < MAXHEADERS; n++)
             headers_ok[n] = 1;
-        if((headers = get_headers(cl)) == NULL) {
+        if((headers = get_headers(cl, cl)) == NULL) {
             if(!cl_11) {
                 if(errno)
                     logmsg(LOG_WARNING, "error read from %s: %s", inet_ntoa(from_host), strerror(errno));
-                err_reply(cl, h500, e500);
+                /* err_reply(cl, h500, e500); */
             }
             clean_all();
             pthread_exit(NULL);
@@ -695,12 +762,14 @@ thr_http(void *arg)
         if(be != NULL) {
             if(is_readable(be, 0)) {
                 /* The only way it's readable is if it's at EOF, so close it! */
+                BIO_reset(be);
                 BIO_free_all(be);
                 be = NULL;
             }
         }
         /* check that the requested URL still fits the old back-end */
         if(be != NULL && grp != get_grp(url, &headers[1])) {
+            BIO_reset(be);
             BIO_free_all(be);
             be = NULL;
         }
@@ -722,17 +791,17 @@ thr_http(void *arg)
                 clean_all();
                 pthread_exit(NULL);
             }
-            if(connect(sock, (struct sockaddr *)srv, (socklen_t)sizeof(*srv)) < 0) {
+            if(connect_nb(sock, (struct sockaddr *)srv, (socklen_t)sizeof(*srv)) < 0) {
                 logmsg(LOG_WARNING, "backend %s:%hd connect: %s",
                     inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
                 close(sock);
                 kill_be(srv);
                 continue;
             }
-            n = 0;
+            n = 1;
             setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
             l.l_onoff = 1;
-            l.l_linger = 30;
+            l.l_linger = 10;
             setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&l, sizeof(l));
             if((be = BIO_new_socket(sock, 1)) == NULL) {
                 logmsg(LOG_WARNING, "BIO_new_socket server failed");
@@ -742,6 +811,7 @@ thr_http(void *arg)
                 clean_all();
                 pthread_exit(NULL);
             }
+            BIO_set_close(be, BIO_CLOSE);
             if(server_to > 0) {
                 BIO_set_callback_arg(be, (char *)&server_to);
                 BIO_set_callback(be, bio_callback);
@@ -752,6 +822,8 @@ thr_http(void *arg)
                 clean_all();
                 pthread_exit(NULL);
             }
+            BIO_set_buffer_size(bb, MAXBUF);
+            BIO_set_close(bb, BIO_CLOSE);
             be = BIO_push(bb, be);
         }
 
@@ -771,7 +843,7 @@ thr_http(void *arg)
         free_headers(headers);
 
         /* if SSL put additional headers for client certificate */
-        if(ctx != NULL) {
+        if(ssl != NULL) {
             SSL_CIPHER  *cipher;
 
             if(https_header != NULL)
@@ -783,7 +855,7 @@ thr_http(void *arg)
                     pthread_exit(NULL);
                 }
             if(https_headers > 0 && x509 != NULL && (bb = BIO_new(BIO_s_mem())) != NULL) {
-                X509_NAME_print(bb, X509_get_subject_name(x509), 16);
+                X509_NAME_print_ex(bb, X509_get_subject_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Subject: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-Subject to %s:%hd: %s",
@@ -794,7 +866,7 @@ thr_http(void *arg)
                     pthread_exit(NULL);
                 }
 
-                X509_NAME_print(bb, X509_get_issuer_name(x509), 16);
+                X509_NAME_print_ex(bb, X509_get_issuer_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
                 BIO_gets(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Issuer: %s\r\n", buf) <= 0) {
                     logmsg(LOG_WARNING, "error write X-SSL-Issuer to %s:%hd: %s",
@@ -865,7 +937,6 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "error write X-SSL-cipher to %s:%hd: %s",
                         inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
                     err_reply(cl, h500, e500);
-                    BIO_free_all(bb);
                     clean_all();
                     pthread_exit(NULL);
                 }
@@ -903,9 +974,27 @@ thr_http(void *arg)
             pthread_exit(NULL);
         }
 
+        /*
+         * check on no_https_11:
+         *  - if 0 ignore
+         *  - if 1 and SSL force HTTP/1.0
+         *  - if 2 and SSL and MSIE force HTTP/1.0
+         */
+        switch(no_https_11) {
+        case 1:
+            force_10 = (ssl != NULL);
+            break;
+        case 2:
+            force_10 = (ssl != NULL && strstr(u_agent, "MSIE") != NULL);
+            break;
+        default:
+            force_10 = 0;
+            break;
+        }
+
         /* get the response */
         for(skip = 1; skip;) {
-            if((headers = get_headers(be)) == NULL) {
+            if((headers = get_headers(be, cl)) == NULL) {
                 logmsg(LOG_WARNING, "response error read from %s:%hd: %s",
                     inet_ntoa(srv->sin_addr), ntohs(srv->sin_port), strerror(errno));
                 err_reply(cl, h500, e500);
@@ -923,7 +1012,7 @@ thr_http(void *arg)
             /* check for redirection */
             redir = !regexec(&RESP_REDIR, response, 0, NULL, 0);
 
-            for(chunked = 0, cont = 0L, n = 1; n < MAXHEADERS && headers[n]; n++) {
+            for(chunked = 0, cont = -1L, n = 1; n < MAXHEADERS && headers[n]; n++) {
                 switch(check_header(headers[n], buf)) {
                 case HEADER_CONNECTION:
                     if(!strcasecmp("close", buf))
@@ -936,16 +1025,14 @@ thr_http(void *arg)
                     }
                     break;
                 case HEADER_CONTENT_LENGTH:
-                    if((cont = atol(buf)) > 0L)
-                        no_cont = 0;
+                    cont = atol(buf);
                     break;
                 case HEADER_LOCATION:
-                    if(redir && v_host[0] && is_be(buf, &to_host, loc_path)) {
+                    if(rewrite_redir && redir && v_host[0] && is_be(buf, &to_host, loc_path, grp)) {
                         snprintf(buf, MAXBUF, "Location: %s://%s/%s",
-                            (ctx == NULL? "http": "https"), v_host, loc_path);
+                            (ssl == NULL? "http": "https"), v_host, loc_path);
                         free(headers[n]);
                         if((headers[n] = strdup(buf)) == NULL) {
-                            headers[n] = NULL;
                             logmsg(LOG_WARNING, "rewrite Location - out of memory: %s", strerror(errno));
                             free_headers(headers);
                             clean_all();
@@ -975,6 +1062,12 @@ thr_http(void *arg)
             /* final CRLF */
             if(!skip)
                 BIO_puts(cl, "\r\n");
+            if(BIO_flush(cl) != 1) {
+                if(errno)
+                    logmsg(LOG_WARNING, "error flush headers to %s: %s", inet_ntoa(from_host), strerror(errno));
+                clean_all();
+                pthread_exit(NULL);
+            }
 
             if(!no_cont) {
                 /* ignore this if request was HEAD or similar */
@@ -985,8 +1078,8 @@ thr_http(void *arg)
                         clean_all();
                         pthread_exit(NULL);
                     }
-                } else if(cont > 0L) {
-                    /* had Content-length, so do raw reads/writes for the length */
+                } else if(cont >= 0L) {
+                    /* may have had Content-length, so do raw reads/writes for the length */
                     if(copy_bin(be, cl, cont, &res_bytes, skip)) {
                         if(errno)
                             logmsg(LOG_WARNING, "error copy server cont: %s", strerror(errno));
@@ -994,7 +1087,7 @@ thr_http(void *arg)
                         pthread_exit(NULL);
                     }
                 } else if(!skip) {
-                    if(is_readable(be, server_to > 0? server_to: 5)) {
+                    if(is_readable(be, SERVER_TO)) {
                         char    one;
                         BIO     *be_unbuf;
                         /*
@@ -1047,15 +1140,13 @@ thr_http(void *arg)
                         }
                     }
                 }
-            }
-
-            if(!skip)
                 if(BIO_flush(cl) != 1) {
                     if(errno)
-                        logmsg(LOG_WARNING, "error flush to %s: %s", inet_ntoa(from_host), strerror(errno));
+                        logmsg(LOG_WARNING, "error final flush to %s: %s", inet_ntoa(from_host), strerror(errno));
                     clean_all();
                     pthread_exit(NULL);
                 }
+            }
         }
 
         /* log what happened */
@@ -1089,6 +1180,7 @@ thr_http(void *arg)
         }
 
         if(!be_11) {
+            BIO_reset(be);
             BIO_free_all(be);
             be = NULL;
         }
@@ -1100,14 +1192,14 @@ thr_http(void *arg)
          *      or
          *  - this is an SSL connection and we had a NoHTTPS11 directive
          */
-        if(!cl_11 || conn_closed || (ctx != NULL && no_https_11))
+        if(!cl_11 || conn_closed || force_10)
             break;
     }
 
     /*
      * This may help with some versions of IE with a broken channel shutdown
      */
-    if(ctx != NULL)
+    if(ssl != NULL)
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();

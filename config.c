@@ -26,10 +26,32 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: config.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
+static char *rcs_id = "$Id: config.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
 
 /*
  * $Log: config.c,v $
+ * Revision 1.8  2004/11/04 13:37:07  roseg
+ * Changes:
+ * - added support for non-blocking connect(2)
+ * - added support for 414 - Request URI too long
+ * - added RedirectRewrite directive - to prevent redirect changes
+ * - added support for NoHTTPS11 value 2 (for MSIE clients only)
+ * - added support for HTTPSHeaders 3 (no verify)
+ *
+ * Problems fixed:
+ * - fixed bug if multiple listening ports/addresses
+ * - fixed memory leak in SSL
+ * - flush stdout (if used) after each log message
+ * - assumes only 304, 305 and 306 codes to have no content
+ * - fixed problem with delays in 302 without content
+ * - fixed problem with time-outs in HTTPS
+ *
+ * Enhancements:
+ * - improved threads detection code in autoconf
+ * - added supervisor process disable configuration flag
+ * - tweak for the Location rewriting code (only look at current GROUP)
+ * - improved print-out for client certificate information
+ *
  * Revision 1.7  2004/03/24 06:59:59  roseg
  * Fixed bug in X-SSL-CIPHER description
  * Changed README to stx format for consistency
@@ -199,7 +221,8 @@ parse_file(char *fname)
                         SSL_CAlist, SSLEngine, SessionIP, SessionURL, SessionCOOKIE, SessionBASIC, NO11SSL,
                         User, Group, RootJail, ExtendedHTTP, WebDAV, LogLevel, Alive, Server,
                         Client, UrlGroup, HeadRequire, HeadDeny, BackEnd, BackEndHA, EndGroup,
-                        Err500, Err501, Err503, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG;
+                        Err500, Err501, Err503, Err414, CheckURL, CS_SEGMENT, CS_PARM, CS_QID, CS_QVAL, CS_FRAG,
+                        RewriteRedir;
     regex_t             *req, *deny;
     regmatch_t          matches[5];
     struct sockaddr_in  addr, alive_addr;
@@ -212,7 +235,7 @@ parse_file(char *fname)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]+([^,]+,[1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]+([^,]+,[1-9][0-9]*)[ \t]+([^ \t]+)[ \t]*([^ \t]*)[ \t]*$",
         REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([012])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HTTPSHeaders, "^[ \t]*HTTPSHeaders[ \t]+([0123])[ \t]+\"([^\"]*)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSL_CAlist, "^[ \t]*CAlist[ \t]+([^ \t]+)[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
 #if HAVE_OPENSSL_ENGINE_H
     || regcomp(&SSLEngine, "^[ \t]*SSLEngine[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -229,7 +252,7 @@ parse_file(char *fname)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ExtendedHTTP, "^[ \t]*ExtendedHTTP[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&WebDAV, "^[ \t]*WebDAV[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&NO11SSL, "^[ \t]*NoHTTPS11[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&NO11SSL, "^[ \t]*NoHTTPS11[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Alive, "^[ \t]*Alive[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -247,6 +270,7 @@ parse_file(char *fname)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Err414, "^[ \t]*Err414[ \t]+\"([^\"]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_SEGMENT, "^[ \t]*CSsegment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_PARM, "^[ \t]*CSparameter[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -254,6 +278,7 @@ parse_file(char *fname)
     || regcomp(&CS_QVAL, "^[ \t]*CSqval[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CS_FRAG, "^[ \t]*CSfragment[ \t]+([^ ]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RewriteRedir, "^[ \t]*RewriteRedirect[ \t]+([0-1])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -390,6 +415,9 @@ parse_file(char *fname)
         } else if(!regexec(&Err503, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             e503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&Err414, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            e414 = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&User, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if((user = strdup(lin + matches[1].rm_so)) == NULL) {
@@ -483,6 +511,8 @@ parse_file(char *fname)
             max_req = atol(lin + matches[1].rm_so);
         } else if(!regexec(&CheckURL, lin, 4, matches, 0)) {
             check_URL = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&RewriteRedir, lin, 4, matches, 0)) {
+            rewrite_redir = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&UrlGroup, lin, 4, matches, 0)) {
             if(in_group) {
                 logmsg(LOG_ERR, "UrlGroup in UrlGroup - aborted");
@@ -682,6 +712,7 @@ parse_file(char *fname)
     regfree(&Err500);
     regfree(&Err501);
     regfree(&Err503);
+    regfree(&Err414);
     regfree(&CheckURL);
     regfree(&CS_SEGMENT);
     regfree(&CS_PARM);
@@ -692,6 +723,7 @@ parse_file(char *fname)
     regfree(&HeadRemove);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
+    regfree(&RewriteRedir);
     return;
 }
 
@@ -708,10 +740,10 @@ config_parse(int argc, char **argv)
     https_headers = 0;
     https_header = NULL;
     ssl_CAlst = NULL;
-    ssl_vdepth = 0;
+    ssl_vdepth = 1;
     allow_xtd = 0;
     allow_dav = 0;
-    no_https_11 = 0;
+    no_https_11 = 2;
     alive_to = 30;
     max_req = 0L;
     http = NULL;
@@ -727,6 +759,7 @@ config_parse(int argc, char **argv)
     CS_segment = CS_parm = CS_qid = CS_qval = CS_frag = NULL;
     head_off = NULL;
     check_URL = 0;
+    rewrite_redir = 1;
 
     if(argc == 1) {
         /* without arguments - use default configuration file */
@@ -761,6 +794,8 @@ config_parse(int argc, char **argv)
         e501 = "This method may not be used.";
     if(e503 == NULL)
         e503 = "The service is not available. Please try again later.";
+    if(e414 == NULL)
+        e414 = "Request URI is too long";
 
 #ifdef  UNSAFE
     if(CS_segment == NULL)

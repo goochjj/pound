@@ -144,6 +144,12 @@
 /* Define if you can safely include both <sys/time.h> and <time.h>. */
 #undef TIME_WITH_SYS_TIME
 
+/* Define if you have the <dmalloc.h> header file. */
+#undef HAVE_DMALLOC_H
+
+/* Define if you have the inet_ntop function. */
+#undef HAVE_INET_NTOP
+
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
 

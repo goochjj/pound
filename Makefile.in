@@ -24,9 +24,7 @@
 # Tel: +41-1-920 4904
 # EMail: roseg@apsis.ch
 #
-# $Id: Makefile.in,v 1.7 2004/03/24 07:02:44 roseg Rel $
-
-CC=@CC@
+# $Id: Makefile.in,v 1.8 2004/11/04 13:37:08 roseg Exp $
 
 CFLAGS=-DF_CONF=\"$(F_CONF)\" @CFLAGS@ @CPPFLAGS@
 
@@ -43,13 +41,16 @@ OBJS=pound.o http.o config.o svc.o
 all:	pound pound.8
 
 pound:	$(OBJS)
-		$(CC) @LDFLAGS@ -o pound $(OBJS) $(LIBS)
+		@CC@ @LDFLAGS@ -o pound $(OBJS) $(LIBS)
 
 $(OBJS):	pound.h
 
 install:	all
-		@INSTALL@ -o bin -g bin -m 555 -s -D pound @sbindir@/pound
-		@INSTALL@ -o bin -g bin -m 644 -D pound.8 @mandir@/man8/pound.8
+		[ -d @sbindir@ ] || mkdir @sbindir@
+		@INSTALL@ -o bin -g bin -m 555 -s pound @sbindir@/pound
+		[ -d @mandir@ ] || mkdir @mandir@
+		[ -d @mandir@/man8 ] || mkdir @mandir@/man8
+		@INSTALL@ -o bin -g bin -m 644 pound.8 @mandir@/man8/pound.8
 
 clean:
 		rm -f pound $(OBJS)

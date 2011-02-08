@@ -291,6 +291,15 @@ FREQUENTLY ASKED QUESTIONS
     On some systems you need access to /dev/log in order to use the syslog(8)
     facility. Create the device as needed in the root jail you use.
 
+6.6 Why can't Pound log directly to a file?
+
+    This is a security requirement. As things stand, Pound does not write at
+    all to the disk. The existing tools - such as syslog - allow all the
+    flexibility one could wish for.
+
+    If you absolutely must you can try the patches from Shinji Tanaka (see
+    http://www.hatena-inc.co.jp/~stanaka/pound/ for details).
+
 
 7. WebDAV
 =========

@@ -83,7 +83,7 @@ passes requests unchanged to the back-end server(s). If the
 is not empty it represents the value of a header to be added to the request. The
 .I cert
 tells Pound what to do about client certificates: 0 - don't ask (default), 1 - ask,
-2 - ask and fail if no certificate was presented.
+2 - ask and fail if no certificate was presented, 3 - ask but do not verify.
 .TP
 \fBCAlist CAcert_file verify_depth
 Set the list of "trusted" CA's for this server. The CAcert_file is a file containing
@@ -106,7 +106,7 @@ will run as (must be defined in \fI/etc/group\fR).
 Specify the directory that
 .B Pound
 will chroot to at runtime. Please note that OpenSSL requires access to /dev/urandom,
-so make sure you create the a device by that name, accessible from the root jail
+so make sure you create a device by that name, accessible from the root jail
 directory.
 .TP
 \fBExtendedHTTP\fR value
@@ -135,8 +135,10 @@ logging, 2 for extended logging (show chosen backend server as well),
 (same as 3 but without the virtual host information).
 .TP
 \fBNoHTTPS11\fR value
-Behave like an HTTP/1.0 server for HTTPS clients (default: 0). If value is
-non-zero do not allow multiple requests on SSL connections. Required
+Behave like an HTTP/1.0 server for HTTPS clients. If this value is
+0 disable the check. If the value is 1 do not allow multiple
+requests on SSL connections. If the value is 2 (default) disable multiple
+requests on SSL connections only for MSIE clients. Required
 work-around for a bug in certain versions of IE.
 .TP
 \fBAlive\fR value
@@ -153,7 +155,7 @@ Specify for how long
 will wait for a server response. After this long has passed without
 the server sending any data
 .B Pound
-will consider the response finishedand abort the connection. A value
+will consider the response finished and abort the connection. A value
 of 0 (default) implies waiting forever. Set it higher if your server(s)
 occasionally time-out on a slow network or are over-loaded.
 .TP
@@ -164,11 +166,11 @@ will wait for a client request (default: 10 seconds). After this
 long has passed without the client sending any data
 .B Pound
 will close the connection. Set it higher if your clients
-time-out on a slow network or over-loaded server, lower is you
+time-out on a slow network or over-loaded server, lower if you
 start getting DOS attacks or run into problems with IE clients.
 .TP
 \fBSSLEngine\fR name
-Use an OpenSSL hardware accelleration card called "name". Available
+Use an OpenSSL hardware acceleration card called "name". Available
 only if OpenSSL-engine is installed on your system.
 .TP
 \fBErr500\fR "filename"
@@ -182,6 +184,16 @@ Default: "This method may not be used.".
 \fBErr503\fR "filename"
 A file with the text to be displayed if an Error 503 occurs.
 Default: "The service is not available. Please try again later.".
+.TP
+\fBErr414\fR "filename"
+A file with the text to be displayed if an Error 414 occurs.
+Default: "Request URI is too long.".
+.TP
+\fBRewriteRedirect\fR value
+If value is 1 (default) check the responses from the back-end servers.
+If a response is a redirect to a back-end managed by Pound the response
+is modified to be a redirect to Pound itself. A value of 0 disables
+this behaviour.
 .TP
 \fBCheckURL\fR value
 If value is 1 check the requested URL for correct syntax. If value is 0
@@ -243,7 +255,13 @@ May be used exactly once and only in an
 .I UrlGroup
 directive. \fITYPE\fR is one of:
 .IP
-\fBIP\fR - the session is kept based on client IP address. No \fIid\fR is allowed.
+\fBIP\fR - the session is kept based on client IP address. No \fIid\fR is allowed. The time
+may be negative, in which case
+.B Pound
+will use
+.I sticky
+sessions: instead of keeping a normal session the client IP address is always mapped (hashed)
+to the same back-end.
 .IP
 \fBBASIC\fR - the session is kept based on Basic Authentication data. No \fIid\fR is allowed.
 .IP
@@ -283,7 +301,7 @@ servers that do not respond (though not necessarily dead: an overloaded server
 that
 .B Pound
 cannot establish a connection to will be considered dead). However, every
-.I alive_check
+.I Alive
 seconds, an attempt is made to connect to the dead servers in case they have become
 active again. If this attempt succeeds, connections will be innitiated to them again.
 .PP
@@ -368,7 +386,7 @@ The cipher currently in use.
 \fBX-SSL-certificate\fR
 The full client certificate (PEM-format multi-line)
 .PP
-It is the application's responsability to actually use these
+It is the application's responsibility to actually use these
 headers - Pound just passes this information without checking
 it in any way (except for signature and encryption correctness).
 .SH SECURITY

@@ -26,10 +26,32 @@
  * EMail: roseg@apsis.ch
  */
 
-static char *rcs_id = "$Id: svc.c,v 1.7 2004/03/24 06:59:59 roseg Rel $";
+static char *rcs_id = "$Id: svc.c,v 1.8 2004/11/04 13:37:07 roseg Exp $";
 
 /*
  * $Log: svc.c,v $
+ * Revision 1.8  2004/11/04 13:37:07  roseg
+ * Changes:
+ * - added support for non-blocking connect(2)
+ * - added support for 414 - Request URI too long
+ * - added RedirectRewrite directive - to prevent redirect changes
+ * - added support for NoHTTPS11 value 2 (for MSIE clients only)
+ * - added support for HTTPSHeaders 3 (no verify)
+ *
+ * Problems fixed:
+ * - fixed bug if multiple listening ports/addresses
+ * - fixed memory leak in SSL
+ * - flush stdout (if used) after each log message
+ * - assumes only 304, 305 and 306 codes to have no content
+ * - fixed problem with delays in 302 without content
+ * - fixed problem with time-outs in HTTPS
+ *
+ * Enhancements:
+ * - improved threads detection code in autoconf
+ * - added supervisor process disable configuration flag
+ * - tweak for the Location rewriting code (only look at current GROUP)
+ * - improved print-out for client certificate information
+ *
  * Revision 1.7  2004/03/24 06:59:59  roseg
  * Fixed bug in X-SSL-CIPHER description
  * Changed README to stx format for consistency
@@ -163,9 +185,10 @@ logmsg(int priority, char *fmt, ...)
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
 #ifdef  NO_SYSLOG
-    if(priority == LOG_INFO)
+    if(priority == LOG_INFO) {
         printf("%s\n", buf);
-    else {
+        fflush(stdout);
+    } else {
         char    t_stamp[32];
         time_t  now;
 
@@ -191,9 +214,10 @@ va_dcl
     vsnprintf(buf, MAXBUF, fmt, ap);
     va_end(ap);
 #ifdef  NO_SYSLOG
-    if(priority == LOG_INFO)
+    if(priority == LOG_INFO) {
         printf("%s\n", buf);
-    else {
+        fflush(stdout);
+    } else {
         char    t_stamp[32];
         time_t  now;
 
@@ -609,24 +633,10 @@ kill_be(struct sockaddr_in *be)
 }
 
 /*
- * compare two host addresses - only address and port matter
- * this might be a bug in the Linux TCP stack!
- */
-static int
-addrcmp(struct sockaddr_in *a1, struct sockaddr_in *a2)
-{
-    int res;
-
-    if((res = memcmp(&a1->sin_addr, &a2->sin_addr, sizeof(a1->sin_addr))))
-        return res;
-    return memcmp(&a1->sin_port, &a2->sin_port, sizeof(a1->sin_port));
-}
-
-/*
  * Find if a host is in our list of back-ends
  */
 int
-is_be(char *location, struct sockaddr_in *to_host, char *path)
+is_be(char *location, struct sockaddr_in *to_host, char *path, GROUP *grp)
 {
     int     i, n;
     GROUP   *g;
@@ -657,13 +667,13 @@ is_be(char *location, struct sockaddr_in *to_host, char *path)
     else
         addr.sin_port = (in_port_t)htons(80);
 
-    if(addrcmp(to_host, &addr) == 0)
+    if(memcmp(&to_host->sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
+    && memcmp(&to_host->sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
         return 1;
-    for(n = 0; (g = groups[n]) != NULL; n++) {
-        for(i = 0; i < g->tot_pri; i++)
-            if(addrcmp(&(g->backend_addr[i].addr), &addr) == 0)
-                return 1;
-    }
+    for(i = 0; i < grp->tot_pri; i++)
+        if(memcmp(&grp->backend_addr[i].addr.sin_addr, &addr.sin_addr, sizeof(addr.sin_addr)) == 0
+        && memcmp(&grp->backend_addr[i].addr.sin_port, &addr.sin_port, sizeof(addr.sin_port)) == 0)
+            return 1;
     return 0;
 }
 
@@ -680,6 +690,74 @@ add_port(char *host, struct sockaddr_in *to_host)
         return NULL;
     sprintf(res, "Host: %s:%hd", host, ntohs(to_host->sin_port));
     return strdup(res);
+}
+
+/*
+ * Non-blocking connect(). Does the same as connect(2) but ensures
+ * it will time-out after a much shorter time period SERVER_TO
+ */
+int
+connect_nb(int sockfd, struct sockaddr *serv_addr, socklen_t addrlen)
+{
+    int             flags, res, error;
+    socklen_t       len;
+    struct pollfd   p;
+
+    if((flags = fcntl(sockfd, F_GETFL, 0)) < 0) {
+        logmsg(LOG_ERR, "fcntl GETFL failed: %s", strerror(errno));
+        return -1;
+    }
+    if(fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        logmsg(LOG_ERR, "fcntl SETFL failed: %s", strerror(errno));
+        return -1;
+    }
+
+    error = 0;
+    if((res = connect(sockfd, serv_addr, addrlen)) < 0)
+        if(errno != EINPROGRESS)
+            return (-1);
+
+    if(res == 0) {
+        /* connect completed immediately (usually localhost) */
+        if(fcntl(sockfd, F_SETFL, flags) < 0) {
+            logmsg(LOG_ERR, "fcntl reSETFL failed: %s", strerror(errno));
+            return -1;
+        }
+        return 0;
+    }
+
+    memset(&p, 0, sizeof(p));
+    p.fd = sockfd;
+    p.events = POLLOUT;
+    if((res = poll(&p, 1, SERVER_TO * 1000)) != 1) {
+        if(res == 0) {
+            /* timeout */
+            errno = ETIMEDOUT;
+        }
+        return -1;
+    }
+
+    /* socket is writeable == operation completed */
+    len = sizeof(error);
+    if(getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+        logmsg(LOG_ERR, "getsockopt failed: %s", strerror(errno));
+        return -1;
+    }
+
+    /* restore file status flags */
+    if(fcntl(sockfd, F_SETFL, flags) < 0) {
+        logmsg(LOG_ERR, "fcntl reSETFL failed: %s", strerror(errno));
+        return -1;
+    }
+
+    if(error) {
+        /* getsockopt() shows an error */
+        errno = error;
+        return -1;
+    }
+
+    /* really connected */
+    return 0;
 }
 
 /*
@@ -737,7 +815,7 @@ thr_resurect(void *arg)
                 if((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0)
                     continue;
                 addr = g->backend_addr[i].alive_addr;
-                if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0) {
+                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) != 0) {
                     kill_be(&g->backend_addr[i].addr);
                     logmsg(LOG_ERR,"BackEnd %s is dead", inet_ntoa(g->backend_addr[i].addr.sin_addr));
                 }
@@ -756,7 +834,7 @@ thr_resurect(void *arg)
                     addr = g->backend_addr[i].addr;
                 else
                     addr = g->backend_addr[i].alive_addr;
-                if(connect(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) == 0) {
+                if(connect_nb(sock, (struct sockaddr *)&addr, (socklen_t)sizeof(addr)) == 0) {
                     pthread_mutex_lock(&g->mut);
                     addr = g->backend_addr[i].addr;
                     for(j = i; j < g->tot_pri; j++)
@@ -792,6 +870,27 @@ RSA_tmp_callback(SSL *ssl, int is_export, int keylength)
 }
 
 /*
+ * Pre-generate ephemeral RSA keys
+ */
+init_RSAgen()
+{
+    int n;
+
+    for(n = 0; n < N_RSA_KEYS; n++) {
+        if((RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL)) == NULL) {
+            logmsg(LOG_ERR,"RSA_generate(%d, 512) failed", n);
+            return -1;
+        }
+        if((RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL)) == NULL) {
+            logmsg(LOG_ERR,"RSA_generate(%d, 1024) failed", n);
+            return -2;
+        }
+    }
+    pthread_mutex_init(&RSA_mut, NULL);
+    return 0;
+}
+
+/*
  * Periodically regenerate ephemeral RSA keys
  * runs every T_RSA_KEYS seconds
  */
@@ -800,13 +899,6 @@ thr_RSAgen(void *arg)
 {
     int n;
 
-    pthread_mutex_init(&RSA_mut, NULL);
-    pthread_mutex_lock(&RSA_mut);
-    for(n = 0; n < N_RSA_KEYS; n++) {
-        RSA512_keys[n] = RSA_generate_key(512, RSA_F4, NULL, NULL);
-        RSA1024_keys[n] = RSA_generate_key(1024, RSA_F4, NULL, NULL);
-    }
-    pthread_mutex_unlock(&RSA_mut);
     for(;;) {
         sleep(T_RSA_KEYS);
         pthread_mutex_lock(&RSA_mut);

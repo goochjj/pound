@@ -27,7 +27,7 @@
  */
 
 /*
- * $Id: pound.h,v 1.7 2004/03/24 06:59:59 roseg Rel $
+ * $Id: pound.h,v 1.8 2004/11/04 13:37:07 roseg Exp $
  * Revision 1.0  2002/10/31 15:21:25  roseg
  * fixed ordering of certificate file
  * removed thread auto clean-up (bug in Linux implementation of libpthread)
@@ -285,6 +285,7 @@ extern char **http,             /* HTTP port to listen on */
             *CS_qval,           /* character set of query value */
             *CS_frag;           /* character set of fragment */
 extern int  check_URL;          /* check URL for correct syntax */
+extern int  rewrite_redir;      /* rewrite redirection responses */
 
 extern regex_t  *head_off;          /* headers to remove */
 extern int      n_head_off;         /* how many of them */
@@ -293,8 +294,8 @@ extern int      n_head_off;         /* how many of them */
 #define MAXHEADERS  128
 #define MAXCHAIN    8
 #define GLOB_SESS   15
-#define N_RSA_KEYS  11
-#define T_RSA_KEYS  300
+
+#define SERVER_TO   (server_to > 0? server_to: 5)
 
 /* Backend definition */
 typedef struct {
@@ -341,7 +342,7 @@ typedef struct  {
     int                 sock;
     struct in_addr      from_host;
     struct sockaddr_in  to_host;
-    SSL_CTX             *ctx;
+    SSL                 *ssl;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
 extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
@@ -357,7 +358,8 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
 
 extern char *e500,  /* default error 500 page contents */
             *e501,  /* default error 501 page contents */
-            *e503;  /* default error 503 page contents */
+            *e503,  /* default error 503 page contents */
+            *e414;  /* default error 414 page contents */
 
 /* Header types */
 #define HEADER_ILLEGAL              -1
@@ -419,12 +421,18 @@ extern void kill_be(struct sockaddr_in *);
 /*
  * Find if a host is in our list of back-ends
  */
-extern int is_be(char *, struct sockaddr_in *, char *);
+extern int is_be(char *, struct sockaddr_in *, char *, GROUP *);
 
 /*
  * Add explicit port number (if required)
  */
 extern char *add_port(char *, struct sockaddr_in *);
+
+/*
+ * Non-blocking version of connect(2). Does the same as connect(2) but
+ * ensures it will time-out after a much shorter time period CONN_TO.
+ */
+extern int  connect_nb(int, struct sockaddr *, socklen_t);
 
 /*
  * Prune the expired sessions and dead hosts from the table;
@@ -444,12 +452,23 @@ extern void *thr_resurect(void *);
 extern void config_parse(int, char **);
 
 /*
+ * RSA ephemeral keys: how many and how often
+ */
+#define N_RSA_KEYS  11
+#define T_RSA_KEYS  300
+
+/*
  * return a pre-generated RSA key
  */
-extern RSA *RSA_tmp_callback(SSL *, int, int);
+extern RSA  *RSA_tmp_callback(SSL *, int, int);
+
+/*
+ * Pre-generate ephemeral RSA keys
+ */
+extern int  init_RSAgen(void);
 
 /*
  * Periodically regenerate ephemeral RSA keys
  * runs every T_RSA_KEYS seconds
  */
-void *thr_RSAgen(void *);
+extern void *thr_RSAgen(void *);

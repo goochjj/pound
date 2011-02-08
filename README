@@ -102,7 +102,7 @@ INSTALLATION
         file and unpack it. The archive is "signed",
         http://www.apsis.ch/pound/Pound-current.asc.
         My signature is available "here", http://www.apsis.ch/pound/roseg.asc.
-        Alternately see below for older versions.
+        Alternately see below for stable versions.
         Unpack. Do the usual thing::
 
             ./configure
@@ -402,7 +402,8 @@ REQUEST LOGGING
 
     In addition, *Pound* logs requests and replies to the system log. This is
     controlled by the LogLevel configuration variable (0 - no logging,
-    1 - normal log, 2 - full log, 3 - Apache combined log format).
+    1 - normal log, 2 - full log, 3 - Apache combined log format, 4 - Apache
+    combined log format without virtual host).
 
     By default the messages go to the LOG_DAEMON facility, but you can change
     this in the configuration. If you don't want to, you can just do a::
@@ -710,12 +711,19 @@ ACKNOWLEDGMENTS
     contributed the Solaris cc flags and makes a Solaris 7 pre-compiled
     version available on his Web-site (www.linuks.mine.nu)
 
+    "Shinji Tanaka", mailto:stanaka@hatena.ne.jp contributed a patch for
+    controlling logging to disk files. This is available "here",
+    http://www.hatena-inc.co.jp/~stanaka/pound/
+
     "Jim Washington", mailto:jwashin@vt.edu contributed the code for WebDAV
     and tested it.
 
     All the others who tested *Pound* and told me about their results.
 
-OLDER VERSIONS
+STABLE VERSIONS
+
+    -   "Pound-1.7.tgz", http://www.apsis.ch/pound/Pound-1.7.tgz
+        ("signature", http://www.apsis.ch/pound/Pound-1.7.asc)
 
     -   "Pound-1.6.tgz", http://www.apsis.ch/pound/Pound-1.6.tgz
         ("signature", http://www.apsis.ch/pound/Pound-1.6.asc)
@@ -737,30 +745,3 @@ OLDER VERSIONS
 
     -   "Pound-1.0.tgz", http://www.apsis.ch/pound/Pound-1.0.tgz
         ("signature", http://www.apsis.ch/pound/Pound-1.0.asc)
-
-    -   "Pound-0.9.tgz", http://www.apsis.ch/pound/Pound-0.9.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.9.asc)
-
-    -   "Pound-0.8.tgz", http://www.apsis.ch/pound/Pound-0.8.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.8.asc)
-
-    -   "Pound-0.7.tgz", http://www.apsis.ch/pound/Pound-0.7.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.7.asc)
-
-    -   "Pound-0.6.tgz", http://www.apsis.ch/pound/Pound-0.6.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.6.asc)
-
-    -   "Pound-0.5.tgz", http://www.apsis.ch/pound/Pound-0.5.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.5.asc)
-
-    -   "Pound-0.4.tgz", http://www.apsis.ch/pound/Pound-0.4.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.4.asc)
-
-    -   "Pound-0.3.tgz", http://www.apsis.ch/pound/Pound-0.3.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.3.asc)
-
-    -   "Pound-0.2.tgz", http://www.apsis.ch/pound/Pound-0.2.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.2.asc)
-
-    -   "Pound-0.1.tgz", http://www.apsis.ch/pound/Pound-0.1.tgz
-        ("signature", http://www.apsis.ch/pound/Pound-0.1.asc)
