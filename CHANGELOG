@@ -1,0 +1,217 @@
+------------------------------------------------------------------------
+r27 | roseg | 2006-08-05 11:35:52 +0200 (Sat, 05 Aug 2006) | 24 lines
+
+Release 2.1
+
+Enhancements:
+  - support for pcre library (if available) for much better performance
+  - support for hoard library (if available) for much better performance
+  - rewrite Location and Content-location headers for all responses
+  - improved detection of when is a rewrite necessary
+  - renamed Change30x to RewriteLocation. Default: on
+
+Bug fixes:
+  - fixed small problem in the upd_session() code
+  - declared init_RSAgen() as void everywhere
+  - moved to SESS_xxx tokens to avoid Solaris name conflict
+  - added #ifdef's for LOG_FTP and LOG_AUTHPRIV
+  - fixed problem in URL checking
+  - fixed problem in session tracking-code and session updating
+  - fixed LogLevel 3 to show that the v_host is unknown
+  - fixed headers checking in match_service
+  - fixed problem in ClientCert directive handling
+  - fixed potential memory leak in AUTH decoding
+  - allow OPTIONS WebDAV request to have content
+  - replaced inet_ntoa with inet_ntop where available
+  - removed all static buffers
+
+------------------------------------------------------------------------
+r25 | roseg | 2006-02-01 10:00:42 +0100 (Wed, 01 Feb 2006) | 14 lines
+
+Release 2.0
+
+Enhancements:
+    - new configuration file syntax, offering significant improvements.
+    - the ability to define listener-specific back-ends. In most cases
+      this should eliminate the need for multiple Pound instances.
+    - a new type of back-end: the redirector allows you to respond with
+      a redirect without involving any back-end server.
+    - most "secondary" properties (such as error messages, client
+      time-out, etc.) are now private to listeners.
+    - HAport has an optional address, different from the main back-end
+    - added a -V flag for version
+    - session keeping on a specific Header
+
+------------------------------------------------------------------------
+r21 | roseg | 2006-02-01 14:27:19 +0100 (Wed, 01 Feb 2006) | 15 lines
+
+Release 1.10
+
+Enhancements:
+    added NoDaemon configuration directive (replaces compile-time switch)
+    added LogFacility configuration directive (replaces compile-time switch)
+    added user name logging
+
+Bug fixes:
+    fixed problem with the poll() code
+    fixed problem with empty list in gethostbyname()
+    added call to setsid() if daemon
+    conflicting headers are removed (Content-length - Transfer-encoding)
+
+Last release in the 1.x series.
+
+------------------------------------------------------------------------
+r19 | roseg | 2005-06-01 15:27:19 +0200 (Wed, 01 Jun 2005) | 18 lines
+
+Release 1.9
+
+Enhancements:
+- Added the VerifyList configuration flag (CA root certs + CRL)
+- CRL checking code
+- RewriteRedirect 2 - ignores port value for host matching
+- Added -c flag (check-only mode)
+- Added -v flag (verbose mode)
+- Added -p flag for pid file name
+
+Bug fixes:
+- fixed a potential buffer overflow problem (in checking the Host header)
+- added call to SSL_library_init
+- added a check for MSIE before forcing SSL shutdown
+- X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
+- added code for shorter linger on badly closed connections (IE work-around)
+- fixed the locking for session checking (mutex_lock/unlock)
+
+------------------------------------------------------------------------
+r17 | roseg | 2004-11-04 14:27:19 +0100 (Thu, 04 Nov 2004) | 23 lines
+
+Release 1.8
+
+Changes:
+- added support for non-blocking connect(2)
+- added support for 414 - Request URI too long
+- added RedirectRewrite directive - to prevent redirect changes
+- added support for NoHTTPS11 value 2 (for MSIE clients only)
+- added support for HTTPSHeaders 3 (no verify)
+
+Problems fixed:
+- fixed bug if multiple listening ports/addresses
+- fixed memory leak in SSL
+- flush stdout (if used) after each log message
+- assumes only 304, 305 and 306 codes to have no content
+- fixed problem with delays in 302 without content
+- fixed problem with time-outs in HTTPS
+
+Enhancements:
+- improved threads detection code in autoconf
+- added supervisor process disable configuration flag
+- tweak for the Location rewriting code (only look at current GROUP)
+- improved print-out for client certificate information
+
+------------------------------------------------------------------------
+r15 | roseg | 2004-03-24 14:27:19 +0100 (Wed, 24 Mar 2004) | 12 lines
+
+Release 1.7
+
+Fixed bug in X-SSL-CIPHER description
+Changed README to stx format for consistency
+Addedd X-SSL-certificate with full client certificate
+Improved the response times on HTTP/0.9 (content without Content-length)
+Improved response granularity on above - using unbuffered BIO now
+Fixed problem with IE/SSL (SSL_set_shutdown)
+Avoid error messages on premature EOF from client
+Fixed HeadRemove code so all headers are checked without exception
+Improved autoconf detection
+
+------------------------------------------------------------------------
+r13 | roseg | 2003-11-30 14:27:19 +0100 (Sun, 30 Nov 2003) | 15 lines
+
+Release 1.6
+
+Callback for RSA ephemeral keys:
+    - generated in a separate thread
+    - used if required (IE 5.0?)
+New X-SSL-cipher header encryption level/method
+Added CheckURL parameter in config file
+    - perform syntax check only if value 1 (default 0)
+Allow for empty query/param strings in URL syntax
+Additional SSL engine loading code
+Added parameter for CA certificates
+    - CA list is sent to client
+Verify client certificates up to given depth
+Fixed vulnerability in syslog handling
+
+------------------------------------------------------------------------
+r11 | roseg | 2003-10-14 15:27:19 +0200 (Tue, 14 Oct 2003) | 19 lines
+
+Release 1.5
+
+Session by Basic Authentication:
+    Session BASIC parameter added
+Syntax checking of request.
+User-defined request character set(s):
+    Parameters CSsegment, CSparameter, CSqid, CSqval
+Request size limit:
+    Parameter MaxRequest
+Single log function rather than #ifdefs.
+Added LogLevel 4 (same as 3 but without the virtual host info).
+Added HeadRemove directive (allows to delete a header from requests).
+Location rewriting on redirect:
+    if  the request contains a Header directive
+        and the response is codes 301, 302, 303, 307
+        and the Location in the response is to a known host
+    then the Location header in the response will be rewritten to point
+        to the Pound protocol/port itself
+
+------------------------------------------------------------------------
+r9 | roseg | 2003-04-24 15:27:19 +0200 (Thu, 24 Apr 2003) | 12 lines
+
+Release 1.4
+
+Added 'Server' configuration directive
+Fixed problem with HTTPSHeaders 0 "..." - the desired header is written even if HTTPSHeaders is 0
+Added the ability of loading a certificate chain.
+Added compatability with OpenSSL 0.9.7
+Added user-definable error pages.
+Added compile-time flags to run in foreground and to log to stderr.
+Opens separate pid files per-process.
+Improved autoconf.
+Some SSL speed optimisations.
+
+------------------------------------------------------------------------
+r7 | roseg | 2003-02-19 14:27:19 +0100 (Wed, 19 Feb 2003) | 10 lines
+
+Release 1.3
+
+Added support for OpenSSL Engine (crypto hardware)
+Added support for Subversion WebDAV
+Added support for mandatory client certificates
+Added X-SSL-serial header for SSL connections
+Fixed problem with BIO_pending in is_readable
+Fixed problem with multi-threading in OpenSSL
+Improved autoconf
+
+------------------------------------------------------------------------
+r5 | roseg | 2003-01-20 14:27:19 +0100 (Mon, 20 Jan 2003) | 5 lines
+
+Release 1.2
+
+Better handling of "100 Continue" responses
+Fixed problem with allowed character set for requests
+
+------------------------------------------------------------------------
+r3 | roseg | 2003-01-09 14:27:19 +0100 (Thu, 09 Jan 2003) | 9 lines
+
+Better auto-conf detection
+LogLevel 3 for Apache-like log (Combined Log Format)
+Don't ask client for certificate if no SSL headers required
+Added handling for 'Connection: closed' header
+Added monitor process to restart worker process if crashed
+Added possibility to listen on all interfaces
+Fixed HeadDeny code
+Fixed problem with threads on *BSD
+
+------------------------------------------------------------------------
+r1 | roseg | 2002-10-31 14:27:19 +0100 (Thu, 31 Oct 2002) | 1 line
+
+Initial import
+------------------------------------------------------------------------

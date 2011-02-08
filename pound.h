@@ -1,11 +1,12 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002 Apsis GmbH
+ * Copyright (C) 2002-2006 Apsis GmbH
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
+ * Additionaly compiling, linking, and/or using OpenSSL is expressly allowed.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,41 +23,8 @@
  * P.O.Box
  * 8707 Uetikon am See
  * Switzerland
- * Tel: +41-1-920 4904
+ * Tel: +41-44-920 4904
  * EMail: roseg@apsis.ch
- */
-
-/*
- * $Id: pound.h,v 2.0 2006/02/01 11:45:32 roseg Rel roseg $
- * $Log: pound.h,v $
- * Revision 2.0  2006/02/01 11:45:32  roseg
- * Enhancements:
- *   - new configuration file syntax, offering significant improvements.
- *   - the ability to define listener-specific back-ends. In most cases this
- *     should eliminate the need for multiple Pound instances.
- *   - a new type of back-end: the redirector allows you to respond with a
- *     redirect without involving any back-end server.
- *   - most "secondary" properties (such as error messages, client time-out,
- *     etc.) are now private to listeners.
- *   - HAport has an optional address, different from the main back-end
- *   - added a -V flag for version
- *   - session keeping on a specific Header
- *
- * Revision 1.10  2006/02/01 11:19:54  roseg
- * Enhancements:
- *   added NoDaemon configuration directive (replaces compile-time switch)
- *   added LogFacility configuration directive (replaces compile-time switch)
- *   added user name logging
- *
- * Bug fixes:
- *   fixed problem with the poll() code
- *   fixed problem with empty list in gethostbyname()
- *   added call to setsid() if daemon
- *   conflicting headers are removed (Content-length - Transfer-encoding)
- *
- * Last release in the 1.x series.
- *
- *
  */
 
 #include    "config.h"
@@ -121,6 +89,12 @@
 #include    <sys/socket.h>
 #else
 #error "Pound needs sys/socket.h"
+#endif
+
+#if HAVE_SYS_UN_H
+#include    <sys/un.h>
+#else
+#error "Pound needs sys/un.h"
 #endif
 
 #if HAVE_NETINET_IN_H
@@ -199,7 +173,9 @@
 #error "Pound needs signal.h"
 #endif
 
-#if HAVE_REGEX_H
+#if HAVE_PCREPOSIX_H
+#include    <pcreposix.h>
+#elif HAVE_REGEX_H
 #include    <regex.h>
 #else
 #error "Pound needs regex.h"
@@ -266,7 +242,7 @@ extern regex_t  HTTP,       /* normal HTTP requests: GET, POST, HEAD */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN,   /* responses for which we ignore content */
-                RESP_REDIR, /* responses for which we rewrite Location */
+                /* RESP_REDIR, /* responses for which we rewrite Location */
                 LOCATION,   /* the host we are redirected to */
                 AUTHORIZATION;  /* the Authorisation header */
 
@@ -294,10 +270,14 @@ typedef enum    { SESS_NONE, SESS_IP, SESS_COOKIE, SESS_PARM, SESS_HEADER, SESS_
 /* back-end definition */
 typedef struct _backend {
     BE_TYPE             be_type;
-    struct sockaddr_in  addr;       /* address */
+    int                 domain;     /* PF_UNIX or PF_INET, in the future also PF_INET6 */
+    union {
+        struct sockaddr_in  in;     /* IPv4 address */
+        struct sockaddr_un  un;     /* UNIX "address" */
+    }                   addr;
     int                 priority;   /* priority */
     int                 to;
-    struct sockaddr_in  HA;         /* HAport */
+    struct sockaddr_in  HA;         /* HA address & port */
     char                *url;       /* for redirectors */
     int                 alive;
     struct _backend     *next;
@@ -373,9 +353,11 @@ typedef struct  {
 #define HEADER_CONTENT_LENGTH       2
 #define HEADER_CONNECTION           3
 #define HEADER_LOCATION             4
-#define HEADER_HOST                 5
-#define HEADER_REFERER              6
-#define HEADER_USER_AGENT           7
+#define HEADER_CONTLOCATION         5
+#define HEADER_HOST                 6
+#define HEADER_REFERER              7
+#define HEADER_USER_AGENT           8
+#define HEADER_URI                  9
 
 #ifdef  NEED_INADDRT
 /* for oldish Unices - normally this is in /usr/include/netinet/in.h */
@@ -395,7 +377,17 @@ extern void *thr_http(void *);
 /*
  * Log an error to the syslog or to stderr
  */
-extern void logmsg(int priority, char *fmt, ...);
+extern void logmsg(int, char *, ...);
+
+/*
+ * Translate inet address into a string
+ */
+extern void addr2str(char *, int, struct in_addr *);
+
+/*
+ * Return a string representation for a back-end address
+ */
+extern void str_be(char *, int, BACKEND *);
 
 /*
  * Find the right service for a request

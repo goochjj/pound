@@ -1,11 +1,12 @@
 /*
  * Pound - the reverse-proxy load-balancer
- * Copyright (C) 2002 Apsis GmbH
+ * Copyright (C) 2002-2006 Apsis GmbH
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
+ * Additionaly compiling, linking, and/or using OpenSSL is expressly allowed.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,208 +23,8 @@
  * P.O.Box
  * 8707 Uetikon am See
  * Switzerland
- * Tel: +41-1-920 4904
+ * Tel: +41-44-920 4904
  * EMail: roseg@apsis.ch
- */
-
-static char *rcs_id = "$Id: config.c,v 2.0 2006/02/01 11:45:28 roseg Rel roseg $";
-
-/*
- * $Log: config.c,v $
- * Revision 2.0  2006/02/01 11:45:28  roseg
- * Enhancements:
- *   - new configuration file syntax, offering significant improvements.
- *   - the ability to define listener-specific back-ends. In most cases this
- *     should eliminate the need for multiple Pound instances.
- *   - a new type of back-end: the redirector allows you to respond with a
- *     redirect without involving any back-end server.
- *   - most "secondary" properties (such as error messages, client time-out,
- *     etc.) are now private to listeners.
- *   - HAport has an optional address, different from the main back-end
- *   - added a -V flag for version
- *   - session keeping on a specific Header
- *
- * Revision 1.10  2006/02/01 11:19:51  roseg
- * Enhancements:
- *   added NoDaemon configuration directive (replaces compile-time switch)
- *   added LogFacility configuration directive (replaces compile-time switch)
- *   added user name logging
- *
- * Bug fixes:
- *   fixed problem with the poll() code
- *   fixed problem with empty list in gethostbyname()
- *   added call to setsid() if daemon
- *   conflicting headers are removed (Content-length - Transfer-encoding)
- *
- * Last release in the 1.x series.
- *
- * Revision 1.9  2005/06/01 15:01:53  roseg
- * Enhancements:
- *   Added the VerifyList configuration flag (CA root certs + CRL)
- *   CRL checking code
- *   RewriteRedirect 2 - ignores port value for host matching
- *   Added -c flag (check-only mode)
- *   Added -v flag (verbose mode)
- *   Added -p flag for pid file name
- *
- * Bug fixes:
- *   fixed a potential buffer overflow problem (in checking the Host header)
- *   added call to SSL_library_init
- *   added a check for MSIE before forcing SSL shutdown
- *   X-SSL-Cipher header is added only if HTTPSHeaders is non-zero
- *   added code for shorter linger on badly closed connections (IE work-around)
- *   fixed the locking for session checking (mutex_lock/unlock)
- *
- * Revision 1.8  2004/11/04 13:37:07  roseg
- * Changes:
- * - added support for non-blocking connect(2)
- * - added support for 414 - Request URI too long
- * - added RedirectRewrite directive - to prevent redirect changes
- * - added support for NoHTTPS11 value 2 (for MSIE clients only)
- * - added support for HTTPSHeaders 3 (no verify)
- *
- * Problems fixed:
- * - fixed bug if multiple listening ports/addresses
- * - fixed memory leak in SSL
- * - flush stdout (if used) after each log message
- * - assumes only 304, 305 and 306 codes to have no content
- * - fixed problem with delays in 302 without content
- * - fixed problem with time-outs in HTTPS
- *
- * Enhancements:
- * - improved threads detection code in autoconf
- * - added supervisor process disable configuration flag
- * - tweak for the Location rewriting code (only look at current GROUP)
- * - improved print-out for client certificate information
- *
- * Revision 1.7  2004/03/24 06:59:59  roseg
- * Fixed bug in X-SSL-CIPHER description
- * Changed README to stx format for consistency
- * Addedd X-SSL-certificate with full client certificate
- * Improved the response times on HTTP/0.9 (content without Content-length)
- * Improved response granularity on above - using unbuffered BIO now
- * Fixed problem with IE/SSL (SSL_set_shutdown)
- * Avoid error messages on premature EOF from client
- * Fixed HeadRemove code so all headers are checked without exception
- * Improved autoconf detection
- *
- * Revision 1.6  2003/11/30 22:56:26  roseg
- * Callback for RSA ephemeral keys:
- *     - generated in a separate thread
- *     - used if required (IE 5.0?)
- * New X-SSL-cipher header encryption level/method
- * Added CheckURL parameter in config file
- *     - perform syntax check only if value 1 (default 0)
- * Allow for empty query/param strings in URL syntax
- * Additional SSL engine loading code
- * Added parameter for CA certificates
- *     - CA list is sent to client
- * Verify client certificates up to given depth
- * Fixed vulnerability in syslog handling
- *
- * Revision 1.5  2003/10/14 08:32:03  roseg
- * Session by Basic Authentication:
- *     Session BASIC parameter added
- * Syntax checking of request.
- * User-defined request character set(s):
- *     Parameters CSsegment, CSparameter, CSqid, CSqval
- * Request size limit:
- *     Parameter MaxRequest
- * Single log function rather than #ifdefs.
- * Added LogLevel 4 (same as 3 but without the virtual host info).
- * Added HeadRemove directive (allows to delete a header from requests).
- * Location rewriting on redirect:
- *     if  the request contains a Header directive
- *         and the response is codes 301, 302, 303, 307
- *         and the Location in the response is to a known host
- *     then the Location header in the response will be rewritten to point
- *         to the Pound protocol/port itself
- *
- * Revision 1.4  2003/04/24 13:40:11  roseg
- * Added 'Server' configuration directive
- * Fixed problem with HTTPSHeaders 0 "..." - the desired header is written even if HTTPSHeaders is 0
- * Added the ability of loading a certificate chain.
- * Added compatability with OpenSSL 0.9.7
- * Added user-definable error pages.
- * Added compile-time flags to run in foreground and to log to stderr.
- * Opens separate pid files per-process.
- * Improved autoconf.
- * Some SSL speed optimisations.
- *
- * Revision 1.3  2003/02/19 13:51:59  roseg
- * Added support for OpenSSL Engine (crypto hardware)
- * Added support for Subversion WebDAV
- * Added support for mandatory client certificates
- * Added X-SSL-serial header for SSL connections
- * Fixed problem with BIO_pending in is_readable
- * Fixed problem with multi-threading in OpenSSL
- * Improved autoconf
- *
- * Revision 1.2  2003/01/20 15:15:05  roseg
- * Better handling of "100 Continue" responses
- * Fixed problem with allowed character set for requests
- *
- * Revision 1.1  2003/01/09 01:28:39  roseg
- * Better auto-conf detection
- * LogLevel 3 for Apache-like log (Combined Log Format)
- * Don't ask client for certificate if no SSL headers required
- * Added handling for 'Connection: closed' header
- * Added monitor process to restart worker process if crashed
- * Added possibility to listen on all interfaces
- * Fixed HeadDeny code
- * Fixed problem with threads on *BSD
- *
- * Revision 1.0  2002/10/31 15:21:24  roseg
- * fixed ordering of certificate file
- * removed thread auto clean-up (bug in Linux implementation of libpthread)
- * added support for additional WebDAV commands (Microsoft)
- * restructured request match patterns
- * added support for HA ports for back-end hosts
- * added support for optional HTTPS extra header
- *
- * Revision 0.11  2002/09/18 15:07:24  roseg
- * session tracking via IP, URL param, cookie
- * open sockets with REUSEADDR; check first noone else uses them
- * fixed bug in responses without content but Content-length (1xx, 204, 304)
- * added early pruning of sessions to "dead" back-end hosts
- *
- * Revision 0.10  2002/09/05 15:31:31  roseg
- * Added required/disallowed headers matching in groups
- * Configurable cyphers/strength for SSL
- * Fixed bug in multiple requests per connection (GROUP matching)
- * Fixed missing '~' in URL matching
- * Retry request on discovering dead back-end
- * Fixed bug in reading certificate/private-key file
- * Added configure script
- * Configurable logging facility
- *
- * Revision 0.9  2002/08/19 08:19:53  roseg
- * Added support for listening on multiple addresses/ports
- * Added support/configuration for WebDAV (LOCK/UNLOCK)
- * Added support for old-style HTTP/1.0 responses (content to EOF)
- * Fixed threads stack size problem on *BSD (#ifdef NEED_STACK)
- * Fixed problem in URL extraction
- *
- * Revision 0.8  2002/08/01 13:29:15  roseg
- * fixed bug in server timeout/close detection
- * fixed problem with SSL multi-threading
- * header collection
- * extended request patterns as per RFC
- * fixed problem with HEAD response (ignore content length)
- *
- * Revision 0.7  2002/07/23 03:11:27  roseg
- * Moved entirely to BIO (rather then the old comm_)
- * Added HTTPS-specific headers
- * Fixed a few minor problems in the pattern matching
- *
- * Revision 0.6  2002/07/16 21:14:01  roseg
- * added URL groups and matching
- * extended URL reuest matching
- * moved to "modern" regex
- *
- * Revision 0.5  2002/07/04 12:23:18  roseg
- * code split
- *
  */
 
 #ifndef MISS_FACILITYNAMES
@@ -274,7 +75,7 @@ static CODE facilitynames[] = {
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, WebDAV, Client, CheckURL;
-static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, Change30x;
+static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation;
 static regex_t  Service, URL, HeadRequire, HeadDeny, BackEnd, Priority, HAport, HAportAddr, Redirect, TimeOut;
 static regex_t  Session, Type, TTL, ID;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, NoHTTPS11;
@@ -298,6 +99,7 @@ parse_be(FILE *f_conf)
     }
     memset(res, 0, sizeof(BACKEND));
     res->be_type = BACK_END;
+    res->domain = PF_UNSPEC;
     res->to = 15;
     res->alive = 1;
     memset(&res->addr, 0, sizeof(res->addr));
@@ -313,25 +115,42 @@ parse_be(FILE *f_conf)
             /* comment or empty line */
             continue;
         } else if(!regexec(&Address, lin, 4, matches, 0)) {
-            res->addr.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
             if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
-                logmsg(LOG_ERR, "Unknown back-end host \"%s\"", lin + matches[1].rm_so);
-                exit(1);
+                /* if we can't resolve it assume this is a UNIX domain socket */
+                res->domain = PF_UNIX;
+                res->addr.un.sun_family = AF_UNIX;
+                strncpy(res->addr.un.sun_path, lin + matches[1].rm_so, sizeof(res->addr.un.sun_path) - 1);
+            } else {
+                /* this is a regular IP socket */
+                res->domain = PF_INET;
+                res->addr.in.sin_family = AF_INET;
+                memcpy(&res->addr.in.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.in.sin_addr.s_addr));
             }
-            memcpy(&res->addr.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->addr.sin_addr.s_addr));
             has_addr = 1;
         } else if(!regexec(&Port, lin, 4, matches, 0)) {
-            res->addr.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
+            if(res->domain != PF_INET) {
+                logmsg(LOG_ERR, "Port is supported only for INET back-ends\n");
+                exit(1);
+            }
+            res->addr.in.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
             has_port = 1;
         } else if(!regexec(&Priority, lin, 4, matches, 0)) {
             res->priority = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&HAport, lin, 4, matches, 0)) {
-            memcpy(&res->HA, &res->addr, sizeof(res->HA));
+            if(res->domain != PF_INET) {
+                logmsg(LOG_ERR, "HAport is supported only for INET back-ends\n");
+                exit(1);
+            }
+            memcpy(&res->HA, &res->addr.in, sizeof(res->HA));
             res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[1].rm_so));
         } else if(!regexec(&HAportAddr, lin, 4, matches, 0)) {
+            if(res->domain != PF_INET) {
+                logmsg(LOG_ERR, "HAport is supported only for INET back-ends\n");
+                exit(1);
+            }
             res->HA.sin_family = AF_INET;
             lin[matches[1].rm_eo] = '\0';
             if((host = gethostbyname(lin + matches[1].rm_so)) == NULL || host->h_addr_list[0] == NULL) {
@@ -341,8 +160,12 @@ parse_be(FILE *f_conf)
             memcpy(&res->HA.sin_addr.s_addr, host->h_addr_list[0], sizeof(res->HA.sin_addr.s_addr));
             res->HA.sin_port = (in_port_t)htons(atoi(lin + matches[2].rm_so));
         } else if(!regexec(&End, lin, 4, matches, 0)) {
-            if(!has_addr || !has_port) {
-                logmsg(LOG_ERR, "BackEnd missing Address or Port - aborted");
+            if(!has_addr) {
+                logmsg(LOG_ERR, "BackEnd missing Address - aborted");
+                exit(1);
+            }
+            if(res->domain == PF_INET && !has_port) {
+                logmsg(LOG_ERR, "BackEnd missing Port - aborted");
                 exit(1);
             }
             return res;
@@ -643,6 +466,7 @@ parse_HTTP(FILE *f_conf)
     }
     memset(res, 0, sizeof(LISTENER));
     res->to = 10;
+    res->change30x = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
@@ -719,7 +543,7 @@ parse_HTTP(FILE *f_conf)
                 logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
                 exit(1);
             }
-        } else if(!regexec(&Change30x, lin, 4, matches, 0)) {
+        } else if(!regexec(&RewriteLocation, lin, 4, matches, 0)) {
             res->change30x = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
@@ -778,6 +602,7 @@ parse_HTTPS(FILE *f_conf)
     }
 
     res->to = 10;
+    res->change30x = 1;
     res->err414 = "Request URI is too long";
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
@@ -854,7 +679,7 @@ parse_HTTPS(FILE *f_conf)
                 logmsg(LOG_ERR, "HeadRemove bad pattern \"%s\" - aborted", lin + matches[1].rm_so);
                 exit(1);
             }
-        } else if(!regexec(&Change30x, lin, 4, matches, 0)) {
+        } else if(!regexec(&RewriteLocation, lin, 4, matches, 0)) {
             res->change30x = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Cert, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
@@ -875,7 +700,7 @@ parse_HTTPS(FILE *f_conf)
             }
             has_cert = 1;
         } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
-            switch(atoi(lin + matches[1].rm_so)) {
+            switch(res->clnt_check = atoi(lin + matches[1].rm_so)) {
             case 0:
                 /* don't ask */
                 SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
@@ -1103,7 +928,7 @@ config_parse(int argc, char **argv)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Change30x, "^[ \t]*Change30x[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&RewriteLocation, "^[ \t]*RewriteLocation[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1118,7 +943,7 @@ config_parse(int argc, char **argv)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+[1-9][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1221,7 +1046,7 @@ config_parse(int argc, char **argv)
     regfree(&Err503);
     regfree(&MaxRequest);
     regfree(&HeadRemove);
-    regfree(&Change30x);
+    regfree(&RewriteLocation);
     regfree(&Service);
     regfree(&URL);
     regfree(&HeadRequire);

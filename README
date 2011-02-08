@@ -88,14 +88,17 @@ INSTALLATION
 
     1.  Pound was tested on Linux, Solaris and OpenBSD, but
         it should work unchanged on just about any modern
-        Unix-like system. You will require OpenSSL and
-        libpthread.
+        Unix-like system. You will require at least OpenSSL and
+        libpthread. The PCRE package is strongly recommended.
 
         Warning: as Pound is a multi-threaded program it requires
         a version of OpenSSL with thread support. This is normally
         the case on Linux and Solaris (for example) but not on *BSD.
         If your system has the wrong library please download, compile
         and install OpenSSL (from http://www.openssl.org).
+
+        If the PCRE package is available Pound will link against it.
+        This will provide a significant performance boost.
 
     2.  Download the current version of Pound-current file and unpack
         it. The archive is signed.
@@ -139,10 +142,12 @@ INSTALLATION
 COPYRIGHT
 
     Pound is copyrighted by Apsis GmbH and is distributed under
-    the terms of the GNU Public License. Basically, this means
-    that you can use it free of charge, copy it, distribute it
-    (provided the copyright is maintained and the full package
-    is distributed), modify it, or line a bird-cage with it.
+    the terms of the GNU Public License with the additional
+    exemption that compiling, linking, and/or using OpenSSL is
+    allowed. Basically, this means that you can use it free of
+    charge, copy it, distribute it (provided the copyright is
+    maintained and the full package is distributed), modify it,
+    or line a bird-cage with it.
 
     We would be happy to hear from you if you use it and
     suggestions and improvements are gladly accepted.
@@ -160,7 +165,7 @@ CONTACT
 
     Switzerland
 
-    +41-1-920 4904
+    +41-44-920 4904
 
 
 MAILING LIST
@@ -172,6 +177,11 @@ MAILING LIST
 
     All messages are available and indexed (searcheable) in the
     archive http://www.apsis.ch/pound/pound_list.
+
+    The mailing list is the primary support forum for Pound - please
+    post there any questions you may have. The developpers' address is
+    given here for information purposes only.
+
 
 
 ZOPE

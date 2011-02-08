@@ -60,6 +60,9 @@
 /* Define if you have the <regex.h> header file. */
 #undef HAVE_REGEX_H
 
+/* Define if you have the <pcreposix.h> header file. */
+#undef HAVE_PCREPOSIX_H
+
 /* Define if you have the `poll' function. */
 #undef HAVE_POLL
 
@@ -92,6 +95,9 @@
 
 /* Define if you have the <sys/socket.h> header file. */
 #undef HAVE_SYS_SOCKET_H
+
+/* Define if you have the <sys/un.h> header file. */
+#undef HAVE_SYS_UN_H
 
 /* Define if you have the <sys/stat.h> header file. */
 #undef HAVE_SYS_STAT_H
@@ -155,6 +161,9 @@
 
 /* Define if you have the inet_ntop function. */
 #undef HAVE_INET_NTOP
+
+/* Define if you have the `localtime_r' function. */
+#undef HAVE_LOCALTIME_R
 
 /* Define if you have the `X509_STORE_set_flags' function. */
 #undef HAVE_X509_STORE_SET_FLAGS
