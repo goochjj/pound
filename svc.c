@@ -27,12 +27,17 @@
 
 #include    "pound.h"
 
+#ifndef LHASH_OF
+#define LHASH_OF(x) LHASH
+#define CHECKED_LHASH_OF(type, h) h
+#endif
+
 /*
  * Add a new key/content pair to a hash table
  * the table should be already locked
  */
 static void
-t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_len)
+t_add(LHASH_OF(TABNODE) *const tab, const char *key, const void *content, const size_t cont_len)
 {
     TABNODE *t, *old;
 
@@ -53,7 +58,11 @@ t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_
     }
     memcpy(t->content, content, cont_len);
     t->last_acc = time(NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((old = LHM_lh_insert(TABNODE, tab, t)) != NULL) {
+#else
     if((old = (TABNODE *)lh_insert(tab, t)) != NULL) {
+#endif
         free(old->key);
         free(old->content);
         free(old);
@@ -68,7 +77,7 @@ t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_
  * side-effect: update the time of last access
  */
 static void *
-t_find(LHASH *const tab, char *const key)
+t_find(LHASH_OF(TABNODE) *const tab, char *const key)
 {
     TABNODE t, *res;
 
@@ -84,12 +93,16 @@ t_find(LHASH *const tab, char *const key)
  * Delete a key
  */
 static void
-t_remove(LHASH *const tab, char *const key)
+t_remove(LHASH_OF(TABNODE) *const tab, char *const key)
 {
     TABNODE t, *res;
 
     t.key = key;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((res = LHM_lh_delete(TABNODE, tab, &t)) != NULL) {
+#else
     if((res = (TABNODE *)lh_delete(tab, &t)) != NULL) {
+#endif
         free(res->key);
         free(res->content);
         free(res);
@@ -98,69 +111,87 @@ t_remove(LHASH *const tab, char *const key)
 }
 
 typedef struct  {
-    LHASH   *tab;
-    time_t  lim;
-    void    *content;
-    int     cont_len;
+    LHASH_OF(TABNODE)   *tab;
+    time_t              lim;
+    void                *content;
+    int                 cont_len;
 }   ALL_ARG;
 
 static void
-t_old(TABNODE *t, void *arg)
+t_old_doall_arg(TABNODE *t, ALL_ARG *a)
 {
-    ALL_ARG *a;
     TABNODE *res;
 
-    a = (ALL_ARG *)arg;
     if(t->last_acc < a->lim)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+        if((res = LHM_lh_delete(TABNODE, a->tab, t)) != NULL) {
+#else
         if((res = lh_delete(a->tab, t)) != NULL) {
+#endif
             free(res->key);
             free(res->content);
             free(res);
         }
     return;
 }
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE, ALL_ARG)
+#else
+#define t_old t_old_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, ALL_ARG *)
+#endif
 
 /*
  * Expire all old nodes
  */
 static void
-t_expire(LHASH *const tab, const time_t lim)
+t_expire(LHASH_OF(TABNODE) *const tab, const time_t lim)
 {
     ALL_ARG a;
     int down_load;
 
     a.tab = tab;
     a.lim = lim;
-    down_load = tab->down_load;
-    tab->down_load = 0;
+    down_load = CHECKED_LHASH_OF(TABNODE, tab)->down_load;
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, tab, LHASH_DOALL_ARG_FN(t_old), ALL_ARG, &a);
+#else
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_old), &a);
-    tab->down_load = down_load;
+#endif
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = down_load;
     return;
 }
 
 static void
-t_cont(TABNODE *t, void *arg)
+t_cont_doall_arg(TABNODE *t, ALL_ARG *arg)
 {
-    ALL_ARG *a;
     TABNODE *res;
 
-    a = (ALL_ARG *)arg;
-    if(memcmp(t->content, a->content, a->cont_len) == 0)
-        if((res = lh_delete(a->tab, t)) != NULL) {
+    if(memcmp(t->content, arg->content, arg->cont_len) == 0)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+        if((res = LHM_lh_delete(TABNODE, arg->tab, t)) != NULL) {
+#else
+        if((res = lh_delete(arg->tab, t)) != NULL) {
+#endif
             free(res->key);
             free(res->content);
             free(res);
         }
     return;
 }
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE, ALL_ARG)
+#else
+#define t_cont t_cont_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, ALL_ARG *)
+#endif
 
 /*
  * Remove all nodes with the given content
  */
 static void
-t_clean(LHASH *const tab, void *const content, const size_t cont_len)
+t_clean(LHASH_OF(TABNODE) *const tab, void *const content, const size_t cont_len)
 {
     ALL_ARG a;
     int down_load;
@@ -168,10 +199,14 @@ t_clean(LHASH *const tab, void *const content, const size_t cont_len)
     a.tab = tab;
     a.content = content;
     a.cont_len = cont_len;
-    down_load = tab->down_load;
-    tab->down_load = 0;
+    down_load = CHECKED_LHASH_OF(TABNODE, tab)->down_load;
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, tab, LHASH_DOALL_ARG_FN(t_cont), ALL_ARG, &a);
+#else
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_cont), &a);
-    tab->down_load = down_load;
+#endif
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = down_load;
     return;
 }
 
@@ -518,7 +553,7 @@ hash_backend(BACKEND *be, int abs_pri, char *key)
 
     hv = 2166136261;
     while(*key)
-        hv = (hv ^ *key++) * 16777619;
+        hv = ((hv ^ *key++) * 16777619) & 0xFFFFFFFF;
     pri = hv % abs_pri;
     for(tb = be; tb; tb = tb->next)
         if((pri -= tb->priority) < 0)
@@ -754,13 +789,13 @@ get_host(char *const name, struct addrinfo *res)
  * (2) if the redirect was done to the back-end rather than the listener
  */
 int
-need_rewrite(const int rewr_loc, char *const location, char *const path, const LISTENER *lstn, const BACKEND *be)
+need_rewrite(const int rewr_loc, char *const location, char *const path, const char *v_host, const LISTENER *lstn, const BACKEND *be)
 {
     struct addrinfo         addr;
     struct sockaddr_in      in_addr, be_addr;
     struct sockaddr_in6     in6_addr, be6_addr;
     regmatch_t              matches[4];
-    char                    *proto, *host, *port;
+    char                    *proto, *host, *port, *cp, buf[MAXBUF];
     int                     ret_val;
 
     /* check if rewriting is required at all */
@@ -798,37 +833,31 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
         free(addr.ai_addr);
         return 0;
     }
+    memset(buf, '\0', MAXBUF);
+    strncpy(buf, v_host, MAXBUF - 1);
+    if((cp = strchr(buf, ':')) != NULL)
+        *cp = '\0';
     if(addr.ai_family == AF_INET) {
-        memcpy(&in_addr, addr.ai_addr, sizeof(in_addr));
-        memcpy(&be_addr, be->addr.ai_addr, sizeof(be_addr));
-        if(port)
-            in_addr.sin_port = (in_port_t)htons(atoi(port));
-        else if(!strcasecmp(proto, "https"))
-            in_addr.sin_port = (in_port_t)htons(443);
-        else
-            in_addr.sin_port = (in_port_t)htons(80);
         /*
-         * check if the Location points to the back-end
+         * check if the Location points to the Listener but with the wrong port or protocol
          */
-        if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
-        && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0) {
+        memcpy(&be_addr, lstn->addr.ai_addr, sizeof(be_addr));
+        if((memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
+          || strcasecmp(host, buf) == 0)
+        && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
+          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
-    } else {
-        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
-        memcpy(&be6_addr, be->addr.ai_addr, sizeof(be6_addr));
-        if(port)
-            in6_addr.sin6_port = (in_port_t)htons(atoi(port));
-        else if(!strcasecmp(proto, "https"))
-            in6_addr.sin6_port = (in_port_t)htons(443);
-        else
-            in6_addr.sin6_port = (in_port_t)htons(80);
+    } else /* AF_INET6 */ {
         /*
-         * check if the Location points to the back-end
+         * check if the Location points to the Listener but with the wrong port or protocol
          */
-        if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
-        && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0) {
+        memcpy(&be6_addr, lstn->addr.ai_addr, sizeof(be6_addr));
+        if((memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
+          || strcasecmp(host, buf) == 0)
+        && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
+          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
@@ -1495,41 +1524,47 @@ typedef struct  {
 }   DUMP_ARG;
 
 static void
-t_dump(TABNODE *t, void *arg)
+t_dump_doall_arg(TABNODE *t, DUMP_ARG *arg)
 {
-    DUMP_ARG    *a;
     BACKEND     *be, *bep;
     int         n_be, sz;
 
-    a = (DUMP_ARG *)arg;
     memcpy(&bep, t->content, sizeof(bep));
-    for(n_be = 0, be = a->backends; be; be = be->next, n_be++)
+    for(n_be = 0, be = arg->backends; be; be = be->next, n_be++)
         if(be == bep)
             break;
     if(!be)
         /* should NEVER happen */
         n_be = 0;
-    (void)write(a->control_sock, t, sizeof(TABNODE));
-    (void)write(a->control_sock, &n_be, sizeof(n_be));
+    (void)write(arg->control_sock, t, sizeof(TABNODE));
+    (void)write(arg->control_sock, &n_be, sizeof(n_be));
     sz = strlen(t->key);
-    (void)write(a->control_sock, &sz, sizeof(sz));
-    (void)write(a->control_sock, t->key, sz);
+    (void)write(arg->control_sock, &sz, sizeof(sz));
+    (void)write(arg->control_sock, t->key, sz);
     return;
 }
-
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE, DUMP_ARG)
+#else
+#define t_dump t_dump_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE *, DUMP_ARG *)
+#endif
 
 /*
  * write sessions to the control socket
  */
 static void
-dump_sess(const int control_sock, LHASH *const sess, BACKEND *const backends)
+dump_sess(const int control_sock, LHASH_OF(TABNODE) *const sess, BACKEND *const backends)
 {
     DUMP_ARG a;
 
     a.control_sock = control_sock;
     a.backends = backends;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, sess, LHASH_DOALL_ARG_FN(t_dump), DUMP_ARG, &a);
+#else
     lh_doall_arg(sess, LHASH_DOALL_ARG_FN(t_dump), &a);
+#endif
     return;
 }
 

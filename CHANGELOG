@@ -1,4 +1,21 @@
 ------------------------------------------------------------------------
+r70 | roseg | 2010-12-27 17:54:18 +0100 (Mon, 27 Dec 2010) | 14 lines
+
+Release 2.6c
+
+Enhancements:
+    - added support for OpenSSL 1.0
+    - added some more detailed error logging
+
+Bug fixes:
+    - fix for RewriteLocation
+    - fix for HTTPS back-ends
+    - fix for RPC support
+    - fix for possible request smuggling by using multiple headers
+
+Many thanks to Frank Schmirler and Ruben Kerkhof for the contributed patches
+
+------------------------------------------------------------------------
 r69 | roseg | 2010-09-25 16:49:49 +0200 (Sat, 25 Sep 2010) | 7 lines
 
 Release 2.6b
