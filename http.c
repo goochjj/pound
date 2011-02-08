@@ -92,11 +92,46 @@ copy_bin(BIO *const cl, BIO *const be, long cont, long *res_bytes, const int no_
         if(!no_write)
             if(BIO_write(be, buf, res) != res)
                 return -3;
-        if(BIO_flush(be) != 1)
-            return -4;
         cont -= res;
         if(res_bytes)
             *res_bytes += res;
+    }
+    if(!no_write)
+        if(BIO_flush(be) != 1)
+            return -4;
+    return 0;
+}
+
+/*
+ * Get a "line" from a BIO, strip the trailing newline, skip the input stream if buffer too small
+ * The result buffer is NULL terminated
+ * Return 0 on success
+ */
+static
+get_line(BIO *const in, char *const buf, const int bufsize)
+{
+    char    *cp, tmp;
+
+    memset(buf, 0, bufsize);
+    switch(BIO_gets(in, buf, bufsize - 1)) {
+    case -2:
+        /* BIO_gets not implemented */
+        return -1;
+    case 0:
+    case -1:
+        return 1;
+    default:
+        for(cp = buf; *cp; cp++)
+            if(*cp == '\n' || *cp == '\r') {
+                *cp = '\0';
+                return 0;
+            }
+        /* skip rest of "line" */
+        tmp = '\0';
+        while(tmp != '\n')
+            if(BIO_read(in, &tmp, 1) != 1)
+                return 1;
+        break;
     }
     return 0;
 }
@@ -104,16 +139,16 @@ copy_bin(BIO *const cl, BIO *const be, long cont, long *res_bytes, const int no_
 /*
  * Strip trailing CRLF
  */
-static void
+static
 strip_eol(char *lin)
 {
     while(*lin)
         if(*lin == '\n' || (*lin == '\r' && *(lin + 1) == '\n')) {
             *lin = '\0';
-            break;
+            return 1;
         } else
             lin++;
-    return;
+    return 0;
 }
 
 /*
@@ -127,12 +162,11 @@ copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, c
     regmatch_t  matches[2];
 
     for(tot_size = 0L;;) {
-        if(BIO_gets(cl, buf, MAXBUF) <= 0) {
+        if(get_line(cl, buf, MAXBUF)) {
             if(errno)
                 logmsg(LOG_NOTICE, "unexpected chunked EOF: %s", strerror(errno));
             return -1;
         }
-        strip_eol(buf);
         if(!regexec(&CHUNK_HEAD, buf, 2, matches, 0))
             cont = strtol(buf, NULL, 16);
         else {
@@ -161,12 +195,11 @@ copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, c
         } else
             break;
         /* final CRLF */
-        if(BIO_gets(cl, buf, MAXBUF) <= 0) {
+        if(get_line(cl, buf, MAXBUF)) {
             if(errno)
                 logmsg(LOG_NOTICE, "unexpected after chunk EOF: %s", strerror(errno));
             return -5;
         }
-        strip_eol(buf);
         if(buf[0])
             logmsg(LOG_NOTICE, "unexpected after chunk \"%s\"", buf);
         if(!no_write)
@@ -177,25 +210,24 @@ copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, c
     }
     /* possibly trailing headers */
     for(;;) {
-        if(BIO_gets(cl, buf, MAXBUF) <= 0) {
+        if(get_line(cl, buf, MAXBUF)) {
             if(errno)
                 logmsg(LOG_NOTICE, "unexpected post-chunk EOF: %s", strerror(errno));
             return -7;
         }
-        if(!no_write) {
-            if(BIO_puts(be, buf) <= 0) {
+        if(!no_write)
+            if(BIO_printf(be, "%s\r\n", buf) <= 0) {
                 logmsg(LOG_NOTICE, "error post-chunk write: %s", strerror(errno));
                 return -8;
             }
-            if(BIO_flush(be) != 1) {
-                logmsg(LOG_NOTICE, "copy_chunks flush error: %s", strerror(errno));
-                return -4;
-            }
-        }
-        strip_eol(buf);
         if(!buf[0])
             break;
     }
+    if(!no_write)
+        if(BIO_flush(be) != 1) {
+            logmsg(LOG_NOTICE, "copy_chunks flush error: %s", strerror(errno));
+            return -4;
+        }
     return 0;
 }
 
@@ -287,11 +319,12 @@ static char **
 get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
 {
     char    **headers, buf[MAXBUF];
-    int     res, n;
+    int     res, n, has_eol;
 
     /* HTTP/1.1 allows leading CRLF */
-    while((res = BIO_gets(in, buf, MAXBUF)) > 0) {
-        strip_eol(buf);
+    memset(buf, 0, MAXBUF);
+    while((res = BIO_gets(in, buf, MAXBUF - 1)) > 0) {
+        has_eol = strip_eol(buf);
         if(buf[0])
             break;
     }
@@ -300,39 +333,47 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
         /* this is expected to occur only on client reads */
         /* logmsg(LOG_NOTICE, "headers: bad starting read"); */
         return NULL;
-    } else if(res >= (MAXBUF - 1)) {
+    } else if(!has_eol) {
         /* check for request length limit */
-        logmsg(LOG_WARNING, "headers: request URI too long");
+        logmsg(LOG_WARNING, "e414 headers: request URI too long");
         err_reply(cl, h414, lstn->err414);
         return NULL;
     }
     if((headers = (char **)calloc(MAXHEADERS, sizeof(char *))) == NULL) {
-        logmsg(LOG_WARNING, "headers: out of memory");
+        logmsg(LOG_WARNING, "e500 headers: out of memory");
         err_reply(cl, h500, lstn->err500);
         return NULL;
     }
+    if((headers[0] = (char *)malloc(MAXBUF)) == NULL) {
+        free_headers(headers);
+        logmsg(LOG_WARNING, "e500 header: out of memory");
+        err_reply(cl, h500, lstn->err500);
+        return NULL;
+    }
+    memset(headers[0], 0, MAXBUF);
+    strncpy(headers[0], buf, MAXBUF - 1);
 
-    for(n = 0; n < MAXHEADERS; n++) {
-        if((headers[n] = (char *)malloc(MAXBUF)) == NULL) {
+    for(n = 1; n < MAXHEADERS; n++) {
+        if(get_line(in, buf, MAXBUF)) {
             free_headers(headers);
-            logmsg(LOG_WARNING, "header: out of memory");
+            logmsg(LOG_WARNING, "e500 can't read header");
             err_reply(cl, h500, lstn->err500);
             return NULL;
         }
-        strncpy(headers[n], buf, MAXBUF - 1);
-        if((res = BIO_gets(in, buf, MAXBUF)) <= 0) {
-            free_headers(headers);
-            logmsg(LOG_WARNING, "can't read header");
-            err_reply(cl, h500, lstn->err500);
-            return NULL;
-        }
-        strip_eol(buf);
         if(!buf[0])
             return headers;
+        if((headers[n] = (char *)malloc(MAXBUF)) == NULL) {
+            free_headers(headers);
+            logmsg(LOG_WARNING, "e500 header: out of memory");
+            err_reply(cl, h500, lstn->err500);
+            return NULL;
+        }
+        memset(headers[n], 0, MAXBUF);
+        strncpy(headers[n], buf, MAXBUF - 1);
     }
 
     free_headers(headers);
-    logmsg(LOG_NOTICE, "too many headers");
+    logmsg(LOG_NOTICE, "e500 too many headers");
     err_reply(cl, h500, lstn->err500);
     return NULL;
 }
@@ -386,15 +427,6 @@ log_bytes(char *res, const long cnt)
 }
 
 /* Cleanup code. This should really be in the pthread_cleanup_push, except for bugs in some implementations */
-/*
-#define clean_all() {   \
-    if(ssl != NULL) { BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); BIO_ssl_shutdown(cl); } \
-    if(be != NULL) { BIO_flush(be); BIO_reset(be); BIO_free_all(be); be = NULL; } \
-    if(cl != NULL) { BIO_flush(cl); BIO_reset(cl); BIO_free_all(cl); cl = NULL; } \
-    if(x509 != NULL) { X509_free(x509); x509 = NULL; } \
-    if(ssl != NULL) { ERR_clear_error(); ERR_remove_state(0); } \
-}
-*/
 
 #define clean_all() {   \
     if(ssl != NULL) { BIO_ssl_shutdown(cl); } \
@@ -820,7 +852,7 @@ thr_http(void *arg)
                 }
             if(lstn->clnt_check > 0 && x509 != NULL && (bb = BIO_new(BIO_s_mem())) != NULL) {
                 X509_NAME_print_ex(bb, X509_get_subject_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
-                BIO_gets(bb, buf, MAXBUF);
+                get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Subject: %s\r\n", buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     logmsg(LOG_WARNING, "error write X-SSL-Subject to %s: %s", buf, strerror(errno));
@@ -831,7 +863,7 @@ thr_http(void *arg)
                 }
 
                 X509_NAME_print_ex(bb, X509_get_issuer_name(x509), 8, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
-                BIO_gets(bb, buf, MAXBUF);
+                get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-Issuer: %s\r\n", buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     logmsg(LOG_WARNING, "error write X-SSL-Issuer to %s: %s", buf, strerror(errno));
@@ -842,7 +874,7 @@ thr_http(void *arg)
                 }
 
                 ASN1_TIME_print(bb, X509_get_notBefore(x509));
-                BIO_gets(bb, buf, MAXBUF);
+                get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-notBefore: %s\r\n", buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     logmsg(LOG_WARNING, "error write X-SSL-notBefore to %s: %s", buf, strerror(errno));
@@ -853,7 +885,7 @@ thr_http(void *arg)
                 }
 
                 ASN1_TIME_print(bb, X509_get_notAfter(x509));
-                BIO_gets(bb, buf, MAXBUF);
+                get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-notAfter: %s\r\n", buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     logmsg(LOG_WARNING, "error write X-SSL-notAfter to %s: %s", buf, strerror(errno));
@@ -871,8 +903,7 @@ thr_http(void *arg)
                     pthread_exit(NULL);
                 }
                 PEM_write_bio_X509(bb, x509);
-                BIO_gets(bb, buf, MAXBUF);
-                strip_eol(buf);
+                get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-certificate: %s\r\n", buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     logmsg(LOG_WARNING, "error write X-SSL-certificate to %s: %s", buf, strerror(errno));
@@ -881,8 +912,7 @@ thr_http(void *arg)
                     clean_all();
                     pthread_exit(NULL);
                 }
-                while(BIO_gets(bb, buf, MAXBUF) > 0) {
-                    strip_eol(buf);
+                while(get_line(bb, buf, MAXBUF) == 0) {
                     if(BIO_printf(be, "\t%s\r\n", buf) <= 0) {
                         str_be(buf, MAXBUF - 1, cur_backend);
                         logmsg(LOG_WARNING, "error write X-SSL-certificate to %s: %s", buf, strerror(errno));
@@ -893,7 +923,7 @@ thr_http(void *arg)
                     }
                 }
                 if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
-                    SSL_CIPHER_description(cipher, buf, MAXBUF);
+                    SSL_CIPHER_description(cipher, buf, MAXBUF - 1);
                     strip_eol(buf);
                     if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
                         str_be(buf, MAXBUF - 1, cur_backend);
@@ -1171,8 +1201,6 @@ thr_http(void *arg)
         upd_be(svc, cur_backend, end_req - start_req);
 
         /* log what happened */
-        strip_eol(request);
-        strip_eol(response);
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);
         log_bytes(s_res_bytes, res_bytes);
         addr2str(caddr, MAXBUF - 1, &from_host);

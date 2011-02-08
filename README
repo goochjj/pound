@@ -94,7 +94,7 @@ INSTALLATION
     - RPMs for RedHat are available at http://www.invoca.ch/pub/packages/pound/
 
     - A nice FreeBSD live-CD distribution is available at http://www.targeted.org as
-    http://www.targeted.org/files/fbsd411_pound21.iso.gz, including a Pound binary.
+    http://www.targeted.org/files/fbsd62_pound23.iso.gz, including a Pound binary.
 
     Failing that you should install from sources:
 
@@ -125,15 +125,16 @@ INSTALLATION
 
         --with-ssl=ssl_dir -- OpenSSL home directory (default: system defined).
 
-        --disable-log -- send all messages to stderr (default: enabled)
-
         --disable-super -- disable supervisor process (default: enabled)
-
-        --enable-msdav -- enable or disable support for the Microsoft
-        WebDAV extensions (default: disabled).
 
         --with-t_rsa=nnn   -- timeout of the RSA ephemeral keys regeneration
         (default: 300 seconds).
+
+        --with-owner=owner -- name of installed binaries owner (default is
+        system-dependent).
+
+        --with-group=group -- name of installed binaries group (default is
+        system-dependent).
 
     4.  Check that the resulting Makefile is correct and possibly
         adjust flags as needed on your system. Compile:
@@ -709,12 +710,9 @@ WebDAV
 
     Rather then change Pound to accept these characters (which could create
     some serious issues with security on other systems) we have made this
-    behavior dependent on a compile-time switch. This is not accessible
-    through the config file - you'll have to add -DMSDAV to the CFLAGS in
-    the Makefile (or run configure --enable-msdav). You are free to do so,
-    but be aware of what the implications are!
+    behavior dependent on a configuration switch: xHTTP (see the man page
+    for details).
 
-    In addition to this flag you must specify 'WebDAV 1' in the config file.
     If you also use the SSL wrapper feature in front of a Microsoft server
     you should probably also add 'AddHeader "Front-End-Https: on"'.
 

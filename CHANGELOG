@@ -1,4 +1,12 @@
 ------------------------------------------------------------------------
+r50 | roseg | 2007-05-18 10:34:51 +0200 (Fri, 18 May 2007) | 5 lines
+
+Release 2.3.2
+
+Fixed problem long lines (thanks to Rune Saetre)
+Fixed pcreposix autoconf for systems that also require pcre
+
+------------------------------------------------------------------------
 r48 | roseg | 2007-04-30 15:01:04 +0200 (Mon, 30 Apr 2007) | 5 lines
 
 Release 2.3.1
