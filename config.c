@@ -140,8 +140,12 @@ parse_be(FILE *const f_conf, const int is_emergency)
                 res->addr.ai_socktype = SOCK_STREAM;
                 res->addr.ai_family = AF_UNIX;
                 res->addr.ai_protocol = 0;
-                if((res->addr.ai_addr = (struct sockaddr_un *)malloc(sizeof(struct sockaddr_un))) == NULL) {
+                if((res->addr.ai_addr = (struct sockaddr *)malloc(sizeof(struct sockaddr_un))) == NULL) {
                     logmsg(LOG_ERR, "line %d: out of memory", n_lin);
+                    exit(1);
+                }
+                if((strlen(lin + matches[1].rm_so) + 1) > UNIX_PATH_MAX) {
+                    logmsg(LOG_ERR, "line %d: UNIX path name too long (greater than %d)", n_lin, UNIX_PATH_MAX - 1);
                     exit(1);
                 }
                 res->addr.ai_addrlen = strlen(lin + matches[1].rm_so) + 1;

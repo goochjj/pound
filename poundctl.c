@@ -55,36 +55,36 @@ usage(const char *arg0)
 static char *
 prt_addr(const struct addrinfo *addr)
 {
-    static char res[64];
-    char        buf[64];
+    static char res[UNIX_PATH_MAX];
+    char        buf[UNIX_PATH_MAX];
     int         port;
     void        *src;
 
-    memset(buf, 0, 64);
+    memset(buf, 0, UNIX_PATH_MAX);
 #ifdef  HAVE_INET_NTOP
     switch(addr->ai_family) {
     case AF_INET:
         src = (void *)&((struct sockaddr_in *)addr->ai_addr)->sin_addr.s_addr;
         port = ntohs(((struct sockaddr_in *)addr->ai_addr)->sin_port);
-        if(inet_ntop(AF_INET, src, buf, 63) == NULL)
-            strncpy(buf, "(UNKNOWN)", 63);
+        if(inet_ntop(AF_INET, src, buf, UNIX_PATH_MAX - 1) == NULL)
+            strncpy(buf, "(UNKNOWN)", UNIX_PATH_MAX - 1);
         break;
     case AF_INET6:
         src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr;
         port = ntohs(((struct sockaddr_in6 *)addr->ai_addr)->sin6_port);
-        if(inet_ntop(AF_INET6, src, buf, 63) == NULL)
-            strncpy(buf, "(UNKNOWN)", 63);
+        if(inet_ntop(AF_INET6, src, buf, UNIX_PATH_MAX - 1) == NULL)
+            strncpy(buf, "(UNKNOWN)", UNIX_PATH_MAX - 1);
         break;
     case AF_UNIX:
-        strncpy(buf, (char *)addr->ai_addr, 63);
+        strncpy(buf, (char *)addr->ai_addr, UNIX_PATH_MAX - 1);
         port = 0;
         break;
     default:
-        strncpy(buf, "(UNKNOWN)", 63);
+        strncpy(buf, "(UNKNOWN)", UNIX_PATH_MAX - 1);
         port = 0;
         break;
     }
-    snprintf(res, 63, "%s:%d", buf, port);
+    snprintf(res, UNIX_PATH_MAX - 1, "%s:%d", buf, port);
 #else
 #error "Pound needs inet_ntop()"
 #endif

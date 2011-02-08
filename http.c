@@ -487,8 +487,8 @@ thr_http(void *arg)
     int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, force_10, sock_proto;
     LISTENER            *lstn;
     SERVICE             *svc;
-    BACKEND             *backend, *cur_backend;
-    struct addrinfo     from_host;
+    BACKEND             *backend, *cur_backend, *old_backend;
+    struct addrinfo     from_host, z_addr;
     struct sockaddr_storage from_host_addr;
     BIO                 *cl, *be, *bb, *b64;
     X509                *x509;
@@ -787,8 +787,18 @@ thr_http(void *arg)
                 logmsg(LOG_WARNING, "(%lx) backend %s connect: %s", pthread_self(), buf, strerror(errno));
                 shutdown(sock, 2);
                 close(sock);
-                kill_be(svc, backend, BE_KILL);
-                if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL) {
+                /*
+                 * kill the back-end only if no HAport is defined for it
+                 * otherwise allow the HAport mechanism to do its job
+                 */
+                memset(&z_addr, 0, sizeof(z_addr));
+                if(memcmp(&(backend->ha_addr), &(z_addr), sizeof(z_addr)) == 0)
+                    kill_be(svc, backend, BE_KILL);
+                /*
+                 * ...but make sure we don't get into a loop with the same back-end
+                 */
+                old_backend = backend;
+                if((backend = get_backend(svc, &from_host, url, &headers[1])) == NULL || backend == old_backend) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
                     logmsg(LOG_NOTICE, "(%lx) e503 no back-end \"%s\" from %s", pthread_self(), request, caddr);
                     err_reply(cl, h503, lstn->err503);
@@ -888,6 +898,7 @@ thr_http(void *arg)
                     logmsg(LOG_WARNING, "(%lx) e500 error write HTTPSHeader to %s: %s (%.3f sec)",
                         pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
                     err_reply(cl, h500, lstn->err500);
+                    free_headers(headers);
                     clean_all();
                     pthread_exit(NULL);
                 }

@@ -558,6 +558,7 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
 {
     BACKEND *b;
     int     ret_val;
+    char    buf[MAXBUF];
 
     if(ret_val = pthread_mutex_lock(&svc->mut))
         logmsg(LOG_WARNING, "kill_be() lock: %s", strerror(ret_val));
@@ -567,12 +568,18 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
             switch(disable_mode) {
             case BE_DISABLE:
                 b->disabled = 1;
+                str_be(buf, MAXBUF - 1, b);
+                logmsg(LOG_NOTICE, "(%lx) BackEnd %s disabled", pthread_self(), buf);
                 break;
             case BE_KILL:
                 b->alive = 0;
+                str_be(buf, MAXBUF - 1, b);
+                logmsg(LOG_NOTICE, "(%lx) BackEnd %s dead (killed)", pthread_self(), buf);
                 t_clean(svc->sessions, &be, sizeof(be));
                 break;
             case BE_ENABLE:
+                str_be(buf, MAXBUF - 1, b);
+                logmsg(LOG_NOTICE, "(%lx) BackEnd %s enabled", pthread_self(), buf);
                 b->disabled = 0;
                 break;
             default:
@@ -749,8 +756,8 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
          * check if the Location points to the Listener but with the wrong port or protocol
          */
         if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
-        && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port) != 0
-            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https")))) {
+        && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
+            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
@@ -761,8 +768,8 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const L
          * check if the Location points to the Listener but with the wrong port or protocol
          */
         if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
-        && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port) != 0
-            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https")))) {
+        && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
+            || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
@@ -1399,6 +1406,7 @@ t_dump(TABNODE *t, void *arg)
     write(a->control_sock, t->key, sz);
     return;
 }
+
 IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE *, void *)
 
 /*

@@ -1,4 +1,20 @@
 ------------------------------------------------------------------------
+r61 | roseg | 2009-06-29 17:53:55 +0200 (Mon, 29 Jun 2009) | 13 lines
+
+Release 2.4.5
+
+Stable release 2.4.5
+
+Enhancements:
+    - log back-end killed/disabled/enabled (thanks to Joe Gooch and Jon Garvin)
+    - kill a BE on connection failure only if it has no HAport defined (thanks to Albert); the request may still fail!
+
+Bug fixes:
+    - fixed parantheses problems in need_rewrite (thanks to SBR)
+    - added call to free_headers in http.c (thanks to SBR)
+    - fixed maximal path length in UNIX domain sockets (thanks to Ricardo Gameiro)
+
+------------------------------------------------------------------------
 r60 | roseg | 2009-01-14 17:39:52 +0100 (Wed, 14 Jan 2009) | 18 lines
 
 Release 2.4.4

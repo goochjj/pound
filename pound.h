@@ -97,6 +97,11 @@
 #error "Pound needs sys/un.h"
 #endif
 
+#ifndef UNIX_PATH_MAX
+/* on Linux this is defined in linux/un.h rather than sys/un.h - go figure */
+#define UNIX_PATH_MAX   108
+#endif
+
 #if HAVE_NETINET_IN_H
 #include    <netinet/in.h>
 #else
