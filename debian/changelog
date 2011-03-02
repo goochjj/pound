@@ -1,3 +1,9 @@
+sapphire-pound25 (2.5-123) unstable; urgency=high
+
+  * Update package version number to source control
+
+ -- Joseph Gooch <mrwizard@k12system.com>  Wed, 02 Mar 2011 13:02:28 -0500
+
 sapphire-pound25 (2.5-3) unstable; urgency=high
 
   * Fix session looping issues
