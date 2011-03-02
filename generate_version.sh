@@ -7,10 +7,10 @@
 
 #: Nothing
 pwd
-git describe --tags --long | sed -e 's,^\(upstream/\|\)\(.*\)$,char *POUND_VERSION = "\2";,' > version.c
+git describe --tags --long --match upstream/v* | sed -e 's,^\(upstream/\|\)\(.*\)$,char *POUND_VERSION = "\2";,' > version.c
 git checkout debian/changelog
 (
-  DV=`git describe --tags --long |sed -e 's,^\(upstream/\|\)v\([0-9]*\.[0-9]*\)\.[0-9]*-\([0-9]*\).*,\2-\3,'`
+  DV=`git describe --tags --long --match upstream/v* |sed -e 's,^\(upstream/\|\)v\([0-9]*\.[\.0-9]*\)-\([0-9]*\).*,\2-\3,'`
   echo "sapphire-pound25 ($DV) unstable; urgency=high"
   echo ""
   echo "  * Update package version number to source control"
