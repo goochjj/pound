@@ -8,6 +8,7 @@ Homepage: http://www.apsis.ch/pound/
 
 Package: sapphire-pound25
 Architecture: any
+Section: net
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: reverse proxy, load balancer and HTTPS front-end for Web servers
  Pound was developed to enable distributing the load among several Web-servers
