@@ -77,7 +77,7 @@ static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteL
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
-static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads;
+static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads, CNName;
 
 static regmatch_t   matches[5];
 
@@ -952,11 +952,13 @@ parse_HTTPS(void)
             memset(server_name, '\0', MAXBUF);
             X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
             X509_free(x509);
-            if((cp = strrchr(server_name, '=')) == NULL)
-                conf_err("ListenHTTPS: could not get certificate CN");
-            else
-                if((pc->server_name = strdup(++cp)) == NULL)
+            if(!regexec(&CNName, server_name, 4, matches, 0)) {
+                server_name[matches[1].rm_eo] = '\0';
+                if((pc->server_name = strdup(server_name + matches[1].rm_so)) == NULL)
                     conf_err("ListenHTTPS: could not set certificate subject");
+            } else
+                conf_err("ListenHTTPS: could not get certificate CN");
+fprintf(stderr, "CN=<%s>\n", pc->server_name);
 #else
             /* no SNI support */
             if(has_other)
@@ -1300,6 +1302,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+[01][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1457,6 +1460,7 @@ config_parse(const int argc, char **const argv)
     regfree(&HTTPS);
     regfree(&HTTPSCert);
     regfree(&Disabled);
+    regfree(&CNName);
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;

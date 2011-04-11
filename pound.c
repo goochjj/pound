@@ -133,6 +133,7 @@ put_thr_arg(thr_arg *arg)
         return -1;
     }
     memcpy(res, arg, sizeof(thr_arg));
+    res->next = NULL;
     (void)pthread_mutex_lock(&arg_mut);
     if(last == NULL)
         first = last = res;

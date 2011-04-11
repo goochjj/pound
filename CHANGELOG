@@ -1,4 +1,16 @@
 ------------------------------------------------------------------------
+r71 | roseg | 2011-04-11 15:59:05 +0200 (Mon, 11 Apr 2011) | 9 lines
+
+Release 2.6d
+
+Enhancements:
+    - added parsing for certificate CN
+
+Bug fixes:
+    - fixed problem in task enqueing
+    - fixed small problem in Makefile
+
+------------------------------------------------------------------------
 r70 | roseg | 2010-12-27 17:54:18 +0100 (Mon, 27 Dec 2010) | 14 lines
 
 Release 2.6c

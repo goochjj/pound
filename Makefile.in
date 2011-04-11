@@ -60,7 +60,7 @@ dh512.h:
 dh1024.h:
 		openssl dhparam -5 -C -noout 1024 > dh1024.h
 
-$(OBJS):	pound.h config.h
+$(OBJS) poundctl.o:	pound.h config.h
 
 svc.o:		svc.c dh512.h dh1024.h
 		${CC} ${CFLAGS} -c -o svc.o svc.c
