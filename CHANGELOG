@@ -1,4 +1,15 @@
 ------------------------------------------------------------------------
+r72 | roseg | 2011-04-25 11:10:45 +0200 (Mon, 25 Apr 2011) | 8 lines
+
+Release 2.6e
+
+Enhancements:
+
+Bug fixes:
+    - fixed problem in SNI certificate storage
+    - changed long to long long for support of requests larger than 2GB
+
+------------------------------------------------------------------------
 r71 | roseg | 2011-04-11 15:59:05 +0200 (Mon, 11 Apr 2011) | 9 lines
 
 Release 2.6d

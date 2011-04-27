@@ -719,7 +719,7 @@ parse_HTTP(void)
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
-            res->max_req = atol(lin + matches[1].rm_so);
+            res->max_req = ATOL(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
             if(res->head_off) {
                 for(m = res->head_off; m->next; m = m->next)
@@ -890,7 +890,7 @@ parse_HTTPS(void)
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
-            res->max_req = atol(lin + matches[1].rm_so);
+            res->max_req = ATOL(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
             if(res->head_off) {
                 for(m = res->head_off; m->next; m = m->next)
@@ -923,7 +923,7 @@ parse_HTTPS(void)
             if(has_other)
                 conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
             if(res->ctx) {
-                for(pc = res->ctx; res->next; res = res->next)
+                for(pc = res->ctx; pc->next; pc = pc->next)
                     ;
                 if((pc->next = malloc(sizeof(POUND_CTX))) == NULL)
                     conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
@@ -958,7 +958,6 @@ parse_HTTPS(void)
                     conf_err("ListenHTTPS: could not set certificate subject");
             } else
                 conf_err("ListenHTTPS: could not get certificate CN");
-fprintf(stderr, "CN=<%s>\n", pc->server_name);
 #else
             /* no SNI support */
             if(has_other)

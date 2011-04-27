@@ -81,12 +81,12 @@ redirect_reply(BIO *const c, const char *url, const int code)
  * Read and write some binary data
  */
 static int
-copy_bin(BIO *const cl, BIO *const be, long cont, long *res_bytes, const int no_write)
+copy_bin(BIO *const cl, BIO *const be, LONG cont, LONG *res_bytes, const int no_write)
 {
     char        buf[MAXBUF];
     int         res;
 
-    while(cont > 0L) {
+    while(cont > L0) {
         if((res = BIO_read(cl, buf, cont > MAXBUF? MAXBUF: cont)) < 0)
             return -1;
         else if(res == 0)
@@ -164,12 +164,12 @@ strip_eol(char *lin)
  * Copy chunked
  */
 static int
-copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, const long max_size)
+copy_chunks(BIO *const cl, BIO *const be, LONG *res_bytes, const int no_write, const LONG max_size)
 {
     char        buf[MAXBUF];
-    long        cont, tot_size;
+    LONG        cont, tot_size;
     regmatch_t  matches[2];
-    int         has_eol, res;
+    int         res;
 
     for(tot_size = 0L;;) {
         if((res = get_line(cl, buf, MAXBUF)) < 0) {
@@ -179,7 +179,7 @@ copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, c
             /* EOF */
             return 0;
         if(!regexec(&CHUNK_HEAD, buf, 2, matches, 0))
-            cont = strtol(buf, NULL, 16);
+            cont = STRTOL(buf, NULL, 16);
         else {
             /* not chunk header */
             logmsg(LOG_NOTICE, "(%lx) bad chunk header <%s>: %s", pthread_self(), buf, strerror(errno));
@@ -192,12 +192,12 @@ copy_chunks(BIO *const cl, BIO *const be, long *res_bytes, const int no_write, c
             }
 
         tot_size += cont;
-        if(max_size > 0L && tot_size > max_size) {
+        if(max_size > L0 && tot_size > max_size) {
             logmsg(LOG_WARNING, "(%lx) chunk content too large", pthread_self);
                 return -4;
         }
 
-        if(cont > 0L) {
+        if(cont > L0) {
             if(copy_bin(cl, be, cont, res_bytes, no_write)) {
                 if(errno)
                     logmsg(LOG_NOTICE, "(%lx) error copy chunk cont: %s", pthread_self(), strerror(errno));
@@ -453,15 +453,19 @@ cur_time(void)
 #endif
 }
 
-#define LOG_BYTES_SIZE  16
+#define LOG_BYTES_SIZE  32
 /*
  * Apache log-file-style number format
  */
 static void
-log_bytes(char *res, const long cnt)
+log_bytes(char *res, const LONG cnt)
 {
-    if(cnt > 0L)
+    if(cnt > L0)
+#ifdef  HAVE_LONG_LONG_INT
+        snprintf(res, LOG_BYTES_SIZE - 1, "%lld", cnt);
+#else
         snprintf(res, LOG_BYTES_SIZE - 1, "%ld", cnt);
+#endif
     else
         strcpy(res, "-");
     return;
@@ -495,7 +499,7 @@ do_http(thr_arg *arg)
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
                         caddr[MAXBUF], req_time[LOG_TIME_SIZE], s_res_bytes[LOG_BYTES_SIZE], *mh;
     SSL                 *ssl, *be_ssl;
-    long                cont, res_bytes;
+    LONG                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
     double              start_req, end_req;
@@ -589,7 +593,7 @@ do_http(thr_arg *arg)
     cl = BIO_push(bb, cl);
 
     for(cl_11 = be_11 = 0;;) {
-        res_bytes = 0L;
+        res_bytes = L0;
         is_rpc = -1;
         v_host[0] = referer[0] = u_agent[0] = u_name[0] = '\0';
         conn_closed = 0;
@@ -647,7 +651,7 @@ do_http(thr_arg *arg)
         }
 
         /* check other headers */
-        for(chunked = 0, cont = -1L, n = 1; n < MAXHEADERS && headers[n]; n++) {
+        for(chunked = 0, cont = L_1, n = 1; n < MAXHEADERS && headers[n]; n++) {
             /* no overflow - see check_header for details */
             switch(check_header(headers[n], buf)) {
             case HEADER_HOST:
@@ -664,7 +668,7 @@ do_http(thr_arg *arg)
                     conn_closed = 1;
                 break;
             case HEADER_TRANSFER_ENCODING:
-                if(cont >= 0L)
+                if(cont >= L0)
                     headers_ok[n] = 0;
                 else if(!strcasecmp("chunked", buf))
                     if(chunked)
@@ -676,7 +680,7 @@ do_http(thr_arg *arg)
                 if(chunked || cont >= 0L)
                     headers_ok[n] = 0;
                 else
-                    if((cont = atol(buf)) < 0L)
+                    if((cont = ATOL(buf)) < 0L)
                         headers_ok[n] = 0;
                 break;
             case HEADER_ILLEGAL:
@@ -727,7 +731,7 @@ do_http(thr_arg *arg)
         }
 
         /* possibly limited request size */
-        if(lstn->max_req > 0L && cont > 0L && cont > lstn->max_req && is_rpc != 1) {
+        if(lstn->max_req > L0 && cont > L0 && cont > lstn->max_req && is_rpc != 1) {
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             logmsg(LOG_NOTICE, "(%lx) e501 request too large (%ld) from %s", pthread_self(), cont, caddr);
             err_reply(cl, h501, lstn->err501);
@@ -1111,7 +1115,7 @@ do_http(thr_arg *arg)
                 clean_all();
                 return;
             }
-        } else if(cont > 0L && is_rpc != 1) {
+        } else if(cont > L0 && is_rpc != 1) {
             /* had Content-length, so do raw reads/writes for the length */
             if(copy_bin(cl, be, cont, NULL, cur_backend->be_type)) {
                 str_be(buf, MAXBUF - 1, cur_backend);
@@ -1333,7 +1337,7 @@ do_http(thr_arg *arg)
                     }
                     break;
                 case HEADER_CONTENT_LENGTH:
-                    cont = atol(buf);
+                    cont = ATOL(buf);
                     /* treat RPC_OUT_DATA like reply without content-length */
                     if(is_rpc == 0 && cont == 0x40000000L)
                         cont = -1L;
@@ -1403,12 +1407,12 @@ do_http(thr_arg *arg)
                 /* ignore this if request was HEAD or similar */
                 if(be_11 && chunked) {
                     /* had Transfer-encoding: chunked so read/write all the chunks (HTTP/1.1 only) */
-                    if(copy_chunks(be, cl, &res_bytes, skip, 0L)) {
+                    if(copy_chunks(be, cl, &res_bytes, skip, L0)) {
                         /* copy_chunks() has its own error messages */
                         clean_all();
                         return;
                     }
-                } else if(cont >= 0L) {
+                } else if(cont >= L0) {
                     /* may have had Content-length, so do raw reads/writes for the length */
                     if(copy_bin(be, cl, cont, &res_bytes, skip)) {
                         if(errno)
