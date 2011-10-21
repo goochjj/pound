@@ -1433,13 +1433,12 @@ do_RSAgen(void)
 #include    "dh512.h"
 #include    "dh1024.h"
 
+static DH   *DH512_params, *DH1024_params;
+
 DH *
 DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength)
 {
-    if(keylength == 512)
-        return get_dh512();
-    else
-        return get_dh1024();
+    return keylength == 512? DH512_params: DH1024_params;
 }
 
 static time_t   last_RSA, last_rescale, last_alive, last_expire;
@@ -1470,6 +1469,9 @@ init_timer(void)
     }
     /* pthread_mutex_init() always returns 0 */
     pthread_mutex_init(&RSA_mut, NULL);
+
+    DH512_params = get_dh512();
+    DH1024_params = get_dh1024();
 
     return;
 }

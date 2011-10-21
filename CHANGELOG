@@ -1,4 +1,14 @@
 ------------------------------------------------------------------------
+r73 | roseg | 2011-06-24 17:59:41 +0200 (Fri, 24 Jun 2011) | 7 lines
+
+Release 2.6f
+
+Enhancements:
+
+Bug fixes:
+    - fixed memory leak in DH (patch by Edvin Torok via Patrizio Tassone)
+
+------------------------------------------------------------------------
 r72 | roseg | 2011-04-25 11:10:45 +0200 (Mon, 25 Apr 2011) | 8 lines
 
 Release 2.6e
