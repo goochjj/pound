@@ -458,6 +458,9 @@ typedef struct  {
     struct addrinfo from_host;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
+/* Track SSL handshare/renegotiation so we can reject client-renegotiations. */
+typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STATE;
+
 /* Header types */
 #define HEADER_ILLEGAL              -1
 #define HEADER_OTHER                0
@@ -618,6 +621,11 @@ extern DH   *DH_tmp_callback(SSL *, int, int);
  * SNI SSL support
  */
 extern int  SNI_servername_callback(SSL *s, int *al, LISTENER *lstn);
+
+/*
+ * Renegotiation callback
+ */
+extern void SSLINFO_callback(const SSL *s, int where, int rc);
 
 /*
  * expiration stuff

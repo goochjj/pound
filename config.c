@@ -373,9 +373,12 @@ parse_be(const int is_emergency)
         } else if(!regexec(&HTTPS, lin, 4, matches, 0)) {
             if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
+	    SSL_CTX_set_app_data(res->ctx, res);
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
@@ -383,6 +386,7 @@ parse_be(const int is_emergency)
         } else if(!regexec(&HTTPSCert, lin, 4, matches, 0)) {
             if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
+	    SSL_CTX_set_app_data(res->ctx, res);
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1)
                 conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
@@ -393,6 +397,8 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
@@ -1112,6 +1118,7 @@ parse_HTTPS(void)
             res->sni = snim;
             if((snim->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
+	    SSL_CTX_set_app_data(snim->ctx, res);
             lin[matches[2].rm_eo] = '\0';
             if(regcomp(&snim->pat, lin + matches[2].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                 conf_err("bad pattern");
@@ -1125,10 +1132,13 @@ parse_HTTPS(void)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
             SSL_CTX_set_mode(snim->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(snim->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(snim->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(snim->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(snim->ctx, DH_tmp_callback);
+            SSL_CTX_set_info_callback(snim->ctx, SSLINFO_callback);
 #else
             conf_err("your version of OpenSSL does not support SNI");
 #endif
@@ -1251,12 +1261,16 @@ parse_HTTPS(void)
 
             if(!has_addr || !has_port || !has_cert)
                 conf_err("ListenHTTPS missing Address, Port or Certificate - aborted");
+	    SSL_CTX_set_app_data(res->ctx, res);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+            SSL_CTX_set_info_callback(res->ctx, SSLINFO_callback);
 #ifndef OPENSSL_NO_TLSEXT
             if(res->sni)
                 if (!SSL_CTX_set_tlsext_servername_callback(res->ctx, SNI_servername_callback) ||

@@ -1782,6 +1782,36 @@ SNI_servername_callback(SSL *ssl, int *al, LISTENER *lstn)
 }
 #endif
 
+void
+SSLINFO_callback(const SSL *ssl, int where, int rc)
+{
+    RENEG_STATE *reneg_state;
+
+    /* Get our thr_arg where we're tracking this connection info */
+    if ((reneg_state = (RENEG_STATE *)SSL_get_app_data(ssl)) == NULL) return;
+
+    /* If we're rejecting renegotiations, move to ABORT if Client Hello is being read. */
+    if ((where & SSL_CB_ACCEPT_LOOP) && *reneg_state == RENEG_REJECT) {
+        int state = SSL_get_state(ssl);
+
+        if (state == SSL3_ST_SR_CLNT_HELLO_A || state == SSL23_ST_SR_CLNT_HELLO_A) {
+	    *reneg_state = RENEG_ABORT;
+	    logmsg(LOG_WARNING,"rejecting client initiated renegotiation");
+        }
+    }
+    else if (where & SSL_CB_HANDSHAKE_DONE && *reneg_state == RENEG_INIT) {
+	// Reject any followup renegotiations
+	*reneg_state = RENEG_REJECT;
+    }
+
+    //if (where & SSL_CB_HANDSHAKE_START) logmsg(LOG_DEBUG, "handshake start");
+    //else if (where & SSL_CB_HANDSHAKE_DONE) logmsg(LOG_DEBUG, "handshake done");
+    //else if (where & SSL_CB_LOOP) logmsg(LOG_DEBUG, "loop");
+    //else if (where & SSL_CB_READ) logmsg(LOG_DEBUG, "read");
+    //else if (where & SSL_CB_WRITE) logmsg(LOG_DEBUG, "write");
+    //else if (where & SSL_CB_ALERT) logmsg(LOG_DEBUG, "alert");
+}
+
 
 static time_t   last_RSA, last_rescale, last_alive, last_expire;
 
