@@ -421,6 +421,7 @@ typedef struct _listener {
     int                 rewr_dest;  /* rewrite destination header */
     int                 disabled;   /* true if the listener is disabled */
     int                 log_level;  /* log level for this listener */
+    int			allow_client_reneg; /* Allow Client SSL Renegotiation */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
@@ -457,6 +458,9 @@ typedef struct  {
     LISTENER        *lstn;
     struct addrinfo from_host;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
+
+/* Track SSL handshare/renegotiation so we can reject client-renegotiations. */
+typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STATE;
 
 /* Header types */
 #define HEADER_ILLEGAL              -1
@@ -618,6 +622,11 @@ extern DH   *DH_tmp_callback(SSL *, int, int);
  * SNI SSL support
  */
 extern int  SNI_servername_callback(SSL *s, int *al, LISTENER *lstn);
+
+/*
+ * Renegotiation callback
+ */
+extern void SSLINFO_callback(const SSL *s, int where, int rc);
 
 /*
  * expiration stuff
