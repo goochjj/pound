@@ -544,6 +544,19 @@ string in the same format as in OpenSSL
 and
 .I SSL_CTX_set_cipher_list(3).
 .TP
+\fBSSLHonorCipherOrder\fR 0|1
+If this value is 1, the server will broadcast a preference to use \fBCiphers\fR in the
+order supplied in the \fBCiphers\fR directive.  If the value is 0, the server will treat
+the Ciphers list as the list of Ciphers it will accept, but no preference will be
+indicated.  Default value is 0.
+.TP
+\fBSSLAllowClientRenegotiation\fR 0|1|2
+If this value is 0, client initiated renegotiation will be disabled.  This will mitigate
+DoS exploits based on client renegotiation, regardless of the patch status of clients and
+servers related to "Secure renegotiation".  If the value is 1, secure renegotiation is
+supported.  If the value is 2, insecure renegotiation is supported, with unpatched
+clients.  /fBThis can lead to a DoS and a Man in the Middle attack!/fR  Default value is 0.
+.TP
 \fBCAlist\fR "CAcert_file"
 Set the list of "trusted" CA's for this server. The CAcert_file is a file containing
 a sequence of CA certificates (PEM format). The names of the defined CA certificates
