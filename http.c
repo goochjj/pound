@@ -548,6 +548,8 @@ thr_http(void *arg)
     sess = NULL;
     memset(&sess_copy, 0x00, sizeof(sess_copy));
 
+    if(lstn->allow_client_reneg) reneg_state = RENEG_ALLOW;
+
     end_of_session_forced = 0;
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));

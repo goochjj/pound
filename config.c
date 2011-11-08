@@ -76,7 +76,7 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, HostCert, Log
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, DeathTTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 static regex_t  Enabled;
@@ -979,9 +979,13 @@ parse_HTTPS(void)
     SNIMATCHER  *snim;
     int         has_addr, has_port, has_cert, had_ctxspec;
     int         ign_case;
+    long	ssl_op_enable, ssl_op_disable;
     struct hostent      *host;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
+
+    ssl_op_enable = SSL_OP_ALL;
+    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
         conf_err("ListenHTTPS config: out of memory - aborted");
@@ -1000,6 +1004,7 @@ parse_HTTPS(void)
     res->errnossl = "Please use HTTPS.";
     res->nossl_url = NULL;
     res->nossl_redir = 0;
+    res->allow_client_reneg = 0;
     res->log_level = log_level;
     had_ctxspec = 0;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
@@ -1130,15 +1135,6 @@ parse_HTTPS(void)
                 conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
             if(SSL_CTX_check_private_key(snim->ctx) != 1)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
-            SSL_CTX_set_mode(snim->ctx, SSL_MODE_AUTO_RETRY);
-            SSL_CTX_set_options(snim->ctx, SSL_OP_ALL);
-            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
-            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
-            sprintf(lin, "%d-Pound-%ld", getpid(), random());
-            SSL_CTX_set_session_id_context(snim->ctx, (unsigned char *)lin, strlen(lin));
-            SSL_CTX_set_tmp_rsa_callback(snim->ctx, RSA_tmp_callback);
-            SSL_CTX_set_tmp_dh_callback(snim->ctx, DH_tmp_callback);
-            SSL_CTX_set_info_callback(snim->ctx, SSLINFO_callback);
 #else
             conf_err("your version of OpenSSL does not support SNI");
 #endif
@@ -1183,6 +1179,23 @@ parse_HTTPS(void)
             lin[matches[1].rm_eo] = '\0';
             if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("AddHeader config: out of memory - aborted");
+        } else if(!regexec(&SSLAllowClientRenegotiation, lin, 4, matches, 0)) {
+            res->allow_client_reneg = atoi(lin + matches[1].rm_so);
+	    if (res->allow_client_reneg == 2) {
+		ssl_op_enable |= SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+		ssl_op_disable &= ~SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+	    } else {
+		ssl_op_disable |= SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+		ssl_op_enable &= ~SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+	    }
+        } else if(!regexec(&SSLHonorCipherOrder, lin, 4, matches, 0)) {
+            if (atoi(lin + matches[1].rm_so)) {
+		ssl_op_enable |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+		ssl_op_disable &= ~SSL_OP_CIPHER_SERVER_PREFERENCE;
+	    } else {
+		ssl_op_disable |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+		ssl_op_enable &= ~SSL_OP_CIPHER_SERVER_PREFERENCE;
+	    }
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
             had_ctxspec++;
             lin[matches[1].rm_eo] = '\0';
@@ -1263,19 +1276,29 @@ parse_HTTPS(void)
                 conf_err("ListenHTTPS missing Address, Port or Certificate - aborted");
 	    SSL_CTX_set_app_data(res->ctx, res);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
-            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
-            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
-            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
+            SSL_CTX_set_options(res->ctx, ssl_op_enable);
+            SSL_CTX_clear_options(res->ctx, ssl_op_disable);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
             SSL_CTX_set_info_callback(res->ctx, SSLINFO_callback);
 #ifndef OPENSSL_NO_TLSEXT
-            if(res->sni)
+            if(res->sni) {
                 if (!SSL_CTX_set_tlsext_servername_callback(res->ctx, SNI_servername_callback) ||
                     !SSL_CTX_set_tlsext_servername_arg(res->ctx, res))
                     conf_err("Unable to initialize SSL library for SNI feature");
+		for(snim = res->sni; snim = snim->next; snim) {
+	            SSL_CTX_set_mode(snim->ctx, SSL_MODE_AUTO_RETRY);
+        	    SSL_CTX_set_options(snim->ctx, ssl_op_enable);
+        	    SSL_CTX_clear_options(snim->ctx, ssl_op_disable);
+        	    sprintf(lin, "%d-Pound-%ld", getpid(), random());
+	            SSL_CTX_set_session_id_context(snim->ctx, (unsigned char *)lin, strlen(lin));
+        	    SSL_CTX_set_tmp_rsa_callback(snim->ctx, RSA_tmp_callback);
+	            SSL_CTX_set_tmp_dh_callback(snim->ctx, DH_tmp_callback);
+        	    SSL_CTX_set_info_callback(snim->ctx, SSLINFO_callback);
+		}
+	    }
 #endif
             return res;
         } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
@@ -1519,6 +1542,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&DynScale, "^[ \t]*DynScale[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1698,6 +1723,8 @@ config_parse(const int argc, char **const argv)
     regfree(&DynScale);
     regfree(&ClientCert);
     regfree(&AddHeader);
+    regfree(&SSLAllowClientRenegotiation);
+    regfree(&SSLHonorCipherOrder);
     regfree(&Ciphers);
     regfree(&CAlist);
     regfree(&VerifyList);

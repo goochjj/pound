@@ -421,6 +421,7 @@ typedef struct _listener {
     int                 rewr_dest;  /* rewrite destination header */
     int                 disabled;   /* true if the listener is disabled */
     int                 log_level;  /* log level for this listener */
+    int			allow_client_reneg; /* Allow Client SSL Renegotiation */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
