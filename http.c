@@ -47,13 +47,24 @@ err_reply(BIO *const c, const char *head, const char *txt)
     return;
 }
 
+
+static char *redir_pre = "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"";
+static char *redir_post = "\">here</a></p></body></html>";
+
+static char hexchar(char a) {
+  a = a & 0xF;
+  if (a > 9) return (a+'a'-10);
+  return a+'0';
+}
+
 /*
  * Reply with a redirect
  */
 static void
 redirect_reply(BIO *const c, const char *url, const int code)
 {
-    char    rep[MAXBUF], cont[MAXBUF], *code_msg;
+    char    rep[MAXBUF], urlbuf[MAXBUF], ch, *code_msg;
+    int     i,j;
 
     switch(code) {
     case 301:
@@ -66,14 +77,30 @@ redirect_reply(BIO *const c, const char *url, const int code)
         code_msg = "Found";
         break;
     }
-    snprintf(cont, sizeof(cont),
-        "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"%s\">%s</a></p></body></html>",
-        url, url);
+    for(i=0,j=0; url[i] && j<MAXBUF-1; i++) {
+	ch = url[i];
+	if (
+	    (ch>= 'A' && ch <='Z') ||
+	    (ch>= 'a' && ch <='z') ||
+	    (ch>= '0' && ch <='9') ||
+            ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':') {
+
+	    urlbuf[j++] = ch;
+	    continue;
+	}
+	if (j>MAXBUF-4) break;
+	urlbuf[j++] = '%';
+	urlbuf[j++] = hexchar(ch>>4);
+	urlbuf[j++] = hexchar(ch);
+    }
+    urlbuf[j++] = 0;
     snprintf(rep, sizeof(rep),
-        "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
-        code, code_msg, url, strlen(cont));
+        "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %u\r\n\r\n",
+        code, code_msg, urlbuf, (unsigned int)(strlen(redir_pre)+strlen(redir_post)+strlen(urlbuf)));
     BIO_write(c, rep, strlen(rep));
-    BIO_write(c, cont, strlen(cont));
+    BIO_write(c, redir_pre, strlen(redir_pre));
+    BIO_write(c, urlbuf, strlen(urlbuf));
+    BIO_write(c, redir_post, strlen(redir_post));
     BIO_flush(c);
     return;
 }
