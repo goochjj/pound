@@ -1,4 +1,17 @@
 ------------------------------------------------------------------------
+r74 | roseg | 2011-12-28 14:57:45 +0100 (Wed, 28 Dec 2011) | 10 lines
+
+Release 2.6
+
+Enhancements:
+    - allow multiple AddHeader directives
+
+Bug fixes:
+    - fixed memory leak in config/AddHeader
+    - removed call to AC_FUNC_MALLOC for AIX compatability
+    - workaround for AIX getaddrinfo() bug
+
+------------------------------------------------------------------------
 r73 | roseg | 2011-06-24 17:59:41 +0200 (Fri, 24 Jun 2011) | 7 lines
 
 Release 2.6f

@@ -761,9 +761,13 @@ get_host(char *const name, struct addrinfo *res)
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_CANONNAME;
     if((ret_val = getaddrinfo(name, NULL, &hints, &chain)) == 0) {
+#ifdef _AIX
+        ap = chain;
+#else
         for(ap = chain; ap != NULL; ap = ap->ai_next)
             if(ap->ai_socktype == SOCK_STREAM)
                 break;
+#endif
         if(ap == NULL) {
             freeaddrinfo(chain);
             return EAI_NONAME;

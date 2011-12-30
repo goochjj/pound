@@ -738,8 +738,16 @@ parse_HTTP(void)
                 conf_err("HeadRemove bad pattern - aborted");
         } else if(!regexec(&AddHeader, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
-                conf_err("AddHeader config: out of memory - aborted");
+            if(res->add_head == NULL) {
+                if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
+                    conf_err("AddHeader config: out of memory - aborted");
+            } else {
+                if((res->add_head = realloc(res->add_head, strlen(res->add_head) + strlen(lin + matches[1].rm_so) + 3))
+                == NULL)
+                    conf_err("AddHeader config: out of memory - aborted");
+                strcat(res->add_head, "\r\n");
+                strcat(res->add_head, lin + matches[1].rm_so);
+            }
         } else if(!regexec(&RewriteLocation, lin, 4, matches, 0)) {
             res->rewr_loc = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&RewriteDestination, lin, 4, matches, 0)) {
@@ -1012,8 +1020,15 @@ parse_HTTPS(void)
             }
         } else if(!regexec(&AddHeader, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
-                conf_err("AddHeader config: out of memory - aborted");
+            if(res->add_head == NULL) {
+                if((res->add_head = strdup(lin + matches[1].rm_so)) == NULL)
+                    conf_err("AddHeader config: out of memory - aborted");
+            } else {
+                if((res->add_head = realloc(res->add_head, strlen(res->add_head) + strlen(lin + matches[1].rm_so) + 3)) == NULL)
+                    conf_err("AddHeader config: out of memory - aborted");
+                strcat(res->add_head, "\r\n");
+                strcat(res->add_head, lin + matches[1].rm_so);
+            }
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
             has_other = 1;
             if(res->ctx == NULL)
