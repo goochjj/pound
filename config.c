@@ -800,17 +800,19 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
 
-    /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
+    logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", server_name);
 
     SSL_set_SSL_CTX(ssl, NULL);
-    for(pc = ctx; pc; pc = pc->next)
+    for(pc = ctx; pc; pc = pc->next) {
+        logmsg(LOG_DEBUG, "Checking %s against client %s", pc->server_name, server_name);
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
-            /* logmsg(LOG_DEBUG, "Found cert for %s", servername); */
+            logmsg(LOG_DEBUG, "Found cert for %s", server_name);
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
+    }
 
-    /* logmsg(LOG_DEBUG, "No match for %s, default used", server_name); */
+    logmsg(LOG_DEBUG, "No match for %s, default used", server_name);
     SSL_set_SSL_CTX(ssl, ctx->ctx);
     return SSL_TLSEXT_ERR_OK;
 }
