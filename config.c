@@ -1115,9 +1115,11 @@ parse_HTTPS(void)
             if(!has_addr || !has_port || res->ctx == NULL)
                 conf_err("ListenHTTPS missing Address, Port or Certificate - aborted");
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
-            if(!SSL_CTX_set_tlsext_servername_callback(res->ctx->ctx, SNI_server_name)
-            || !SSL_CTX_set_tlsext_servername_arg(res->ctx->ctx, res->ctx))
-                conf_err("ListenHTTPS: can't set SNI callback");
+            // Only set callback if we have more than one cert
+            if(res->ctx->next)
+                if(!SSL_CTX_set_tlsext_servername_callback(res->ctx->ctx, SNI_server_name)
+                || !SSL_CTX_set_tlsext_servername_arg(res->ctx->ctx, res->ctx))
+                    conf_err("ListenHTTPS: can't set SNI callback");
 #endif
             for(pc = res->ctx; pc; pc = pc->next) {
                 SSL_CTX_set_app_data(pc->ctx, res);
