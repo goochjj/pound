@@ -38,8 +38,8 @@
 /* This is lifted verbatim from the Linux sys/syslog.h */
 
 typedef struct _code {
-    char    *c_name;
-    int     c_val;
+        char	*c_name;
+        int	c_val;
 } CODE;
 
 static CODE facilitynames[] = {
