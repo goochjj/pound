@@ -264,7 +264,11 @@ extern char *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
-            *ctrl_name;         /* control socket name */
+            *ctrl_name,         /* control socket name */
+            *ctrl_user,         /* control socket username */
+            *ctrl_group;        /* control socket group name */
+
+extern long ctrl_mode;          /* octal mode of the control socket */
 
 extern int  numthreads,         /* number of worker threads */
             anonymise,          /* anonymise client address */
