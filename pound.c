@@ -32,7 +32,11 @@ char        *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
-            *ctrl_name;         /* control socket name */
+            *ctrl_name,         /* control socket name */
+            *ctrl_user,         /* control socket username */
+            *ctrl_group;        /* control socket group name */
+
+long        ctrl_mode;          /* octal mode of the control socket */
 
 int         alive_to,           /* check interval for resurrection */
             anonymise,          /* anonymise client address */
@@ -254,6 +258,8 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
+    ctrl_user=ctrl_group=NULL;
+    ctrl_mode = -1;
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
@@ -332,6 +338,35 @@ main(const int argc, char **argv)
         if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
             logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
             exit(1);
+        }
+        if (ctrl_user) {
+            struct passwd   *pw;
+
+            if((pw = getpwnam(ctrl_user)) == NULL) {
+                logmsg(LOG_ERR, "no such user %s - aborted", ctrl_user);
+                exit(1);
+            }
+            if (chown(ctrl_name, pw->pw_uid, -1)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (ctrl_group) {
+            struct group    *gr;
+            if((gr = getgrnam(ctrl_group)) == NULL) {
+                logmsg(LOG_ERR, "no such group %s - aborted", ctrl_group);
+                exit(1);
+            }
+            if (chown(ctrl_name, -1, gr->gr_gid)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (ctrl_mode>0) {
+            if (chmod(ctrl_name, ctrl_mode)) {
+                logmsg(LOG_ERR, "chmod error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
         }
         listen(control_sock, 512);
     }
