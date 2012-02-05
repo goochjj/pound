@@ -318,6 +318,15 @@ the
 .I poundctl(8)
 program.
 .TP
+\fBControlUser\fR "user"
+The username to chown the Control socket to.
+.TP
+\fBControlGroup\fR "group"
+The groupname to chgrp the Control socket to.
+.TP
+\fBControlMode\fR 0660
+The mode the Control socket should use, in octal.
+.TP
 \fBInclude\fR "/path/to/file"
 Include the file as though it were part of the configuration file.
 .TP
