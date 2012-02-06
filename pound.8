@@ -583,6 +583,15 @@ but this can be overridden by specifying
 \fBURLNoCase\fR "pattern to match"
 Same as \fBURL\fR but always case insensitive. (regardless of \fBIgnoreCase\fR)
 .TP
+\fBAuthType Basic\fR
+Parse HTTP Basic Authentication to retrieve the user name
+.TP
+\fBAuthType Coldfusion "AppName"\fR
+Parse Coldfusion <cflogin> authentication for the given application name, to retrieve the user name
+.TP
+\fBAuthType AuthToken "CookieName"\fR
+Parse Custom Sapphire AuthToken authentication for the given cookie name, to retrieve the user name
+.TP
 \fBIgnoreCase\fR 0|1
 Override the global
 .B IgnoreCase

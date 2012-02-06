@@ -263,8 +263,7 @@ extern regex_t  HEADER,     /* Allowed header */
                 CHUNK_HEAD, /* chunk header line */
                 RESP_SKIP,  /* responses for which we skip response */
                 RESP_IGN,   /* responses for which we ignore content */
-                LOCATION,   /* the host we are redirected to */
-                AUTHORIZATION;  /* the Authorisation header */
+                LOCATION;   /* the host we are redirected to */
 
 #ifndef  SOL_TCP
 /* for systems without the definition */
@@ -333,12 +332,17 @@ typedef struct _tn {
 /* maximal session key size */
 #define KEY_SIZE    127
 
+/* authorization types */
+typedef enum    { UserBasic, UserCFAUTH, UserCFAUTHToken, UserFORM } USER_TYPE;
+
 /* service definition */
 typedef struct _service {
     char                name[KEY_SIZE + 1]; /* symbolic name */
     MATCHER             *url,       /* request matcher */
                         *req_head,  /* required headers */
                         *deny_head; /* forbidden headers */
+    USER_TYPE           user_type;  /* Type of authorization done */
+    regex_t             auth_pat;   /* Authorization header matching */
     BACKEND             *backends;
     BACKEND             *emergency;
     int                 abs_pri;    /* abs total priority for all back-ends */

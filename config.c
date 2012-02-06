@@ -81,6 +81,8 @@ static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 static regex_t  Enabled;
 
+static regex_t  AuthTypeBasic, AuthTypeColdfusion, AuthTypeCFAuthToken;
+
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
 static regmatch_t   matches[5];
@@ -519,6 +521,7 @@ static SERVICE *
 parse_service(const char *svc_name, int global)
 {
     char        lin[MAXBUF];
+    char        pat[MAXBUF];
     SERVICE     *res;
     BACKEND     *be;
     MATCHER     *m;
@@ -533,6 +536,7 @@ parse_service(const char *svc_name, int global)
     res->requests = 0;
     res->hits = 0;
     res->misses = 0;
+    res->user_type = UserBasic;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -637,6 +641,30 @@ parse_service(const char *svc_name, int global)
                 res->backends = parse_be(0);
         } else if(!regexec(&Emergency, lin, 4, matches, 0)) {
             res->emergency = parse_be(1);
+        } else if(!regexec(&AuthTypeBasic, lin, 4, matches, 0)) {
+            if (res->user_type!=UserBasic)
+                conf_err("Multiple authtypes defined");
+
+            // This is the default and the regexp is compiled in the End case
+            res->user_type = UserBasic;
+        } else if(!regexec(&AuthTypeColdfusion, lin, 4, matches, 0)) {
+            if (res->user_type!=UserBasic)
+                conf_err("Multiple authtypes defined");
+
+            lin[matches[1].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "Cookie[^:]*:.*[; \t]CFAUTHORIZATION_%s=\"?([^\";]*)\"?", lin + matches[1].rm_so);
+            if(regcomp(&res->auth_pat, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("AuthType Coldfusion pattern failed - aborted");
+            res->user_type = UserCFAUTH;
+        } else if(!regexec(&AuthTypeCFAuthToken, lin, 4, matches, 0)) {
+            if (res->user_type!=UserBasic)
+                conf_err("Multiple authtypes defined");
+
+            lin[matches[2].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "Cookie[^:]*:.*[ \t]%s=\"?([^\";]*)\"?", lin + matches[2].rm_so);
+            if (regcomp(&res->auth_pat, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("setting AuthType Token");
+            res->user_type = UserCFAUTHToken;
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
         } else if(!regexec(&Enabled, lin, 4, matches, 0)) {
@@ -647,6 +675,9 @@ parse_service(const char *svc_name, int global)
                 if (be->alive && !be->disabled)
                     res->tot_pri += be->priority;
             }
+            if (res->user_type == UserBasic)
+                if(regcomp(&res->auth_pat, "Authorization:[ \t]*Basic[ \t]*([^ \t]*)", REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                    conf_err("Auth BASIC pattern failed - aborted");
             return res;
         } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
             res->dynscale = atoi(lin + matches[1].rm_so);
@@ -1299,6 +1330,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL(|NoCase)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeBasic, "^[ \t]*AuthType[ \t]+Basic[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeColdfusion, "^[ \t]*AuthType[ \t]+Coldfusion[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&AuthTypeCFAuthToken, "^[ \t]*AuthType[ \t]+(AuthToken|Token|CFAuthToken)[ \t]+\"([A-Za-z0-9_]+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1466,6 +1500,9 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&AuthTypeBasic);
+    regfree(&AuthTypeColdfusion);
+    regfree(&AuthTypeCFAuthToken);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
