@@ -328,7 +328,7 @@ typedef struct _backend {
     int                 conn_to;    /* connection time-out */
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
-    int                 redir_req;  /* the redirect should include the request path */
+    int                 redir_req;  /* 0 - redirect is absolute, 1 - the redirect should include the request path, or 2 if it should use perl dynamic replacement */
     char                *bekey;     /* Backend Key for Cookie */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
