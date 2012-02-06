@@ -79,6 +79,7 @@ static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
+static regex_t  Enabled;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
@@ -300,6 +301,10 @@ parse_be(const int is_emergency)
             if(is_emergency)
                 conf_err("Priority is not supported for Emergency back-ends");
             res->priority = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&Enabled, lin, 4, matches, 0)) {
+            if(is_emergency)
+                conf_err("Enabled is not supported for Emergency back-ends");
+            res->disabled = 1-atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&ConnTO, lin, 4, matches, 0)) {
@@ -630,10 +635,14 @@ parse_service(const char *svc_name)
             res->emergency = parse_be(1);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
+        } else if(!regexec(&Enabled, lin, 4, matches, 0)) {
+            res->disabled = 1-atoi(lin + matches[1].rm_so);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
-            for(be = res->backends; be; be = be->next)
-                res->tot_pri += be->priority;
-            res->abs_pri = res->tot_pri;
+            for(be = res->backends; be; be = be->next) {
+                res->abs_pri += be->priority;
+                if (be->alive && !be->disabled)
+                    res->tot_pri += be->priority;
+            }
             return res;
         } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
             res->dynscale = atoi(lin + matches[1].rm_so);
@@ -1273,6 +1282,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Emergency, "^[ \t]*Emergency[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Enabled, "^[ \t]*Enabled[ \t]+([0-1])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Priority, "^[ \t]*Priority[ \t]+([0-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1434,6 +1444,7 @@ config_parse(const int argc, char **const argv)
     regfree(&HeadDeny);
     regfree(&BackEnd);
     regfree(&Emergency);
+    regfree(&Enabled);
     regfree(&Priority);
     regfree(&TimeOut);
     regfree(&HAport);
