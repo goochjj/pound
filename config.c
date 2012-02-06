@@ -76,7 +76,7 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers, Disabled, Threads, CNName, DHParams, ECDHCurve;
 
 static regmatch_t   matches[5];
@@ -1091,6 +1091,8 @@ parse_HTTPS(void)
                 strcat(res->add_head, "\r\n");
                 strcat(res->add_head, lin + matches[1].rm_so);
             }
+        } else if(!regexec(&DisableSSLv2, lin, 4, matches, 0)) {
+            ssl_op_enable |= SSL_OP_NO_SSLv2;
         } else if(!regexec(&SSLAllowClientRenegotiation, lin, 4, matches, 0)) {
             res->allow_cl_reneg = atoi(lin + matches[1].rm_so);
             if (res->allow_cl_reneg == 2) {
@@ -1424,6 +1426,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableSSLv2, "^[ \t]*DisableSSLv2[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCiphers, "^[ \t]*HTTPSCiphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1592,6 +1595,7 @@ config_parse(const int argc, char **const argv)
     regfree(&ClientCert);
     regfree(&AddHeader);
     regfree(&SSLAllowClientRenegotiation);
+    regfree(&DisableSSLv2);
     regfree(&SSLHonorCipherOrder);
     regfree(&Ciphers);
     regfree(&HTTPSCiphers);
