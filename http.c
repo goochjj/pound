@@ -535,6 +535,8 @@ do_http(thr_arg *arg)
     LONG                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
+    struct tm           expires;
+    time_t              exptime;
     double              start_req, end_req;
     RENEG_STATE         reneg_state;
     BIO_ARG             ba1, ba2;
@@ -1466,6 +1468,39 @@ do_http(thr_arg *arg)
                     }
                 }
             free_headers(headers);
+            if(!skip && cur_backend->be_type == 0 && svc->becookie && cur_backend->bekey) {
+                char *cp = buf;
+                char *ep = buf + sizeof(buf) - 1;
+                buf[0] = '\0';
+                snprintf(cp, (ep-cp-1), "Set-Cookie: %s=%s", svc->becookie, cur_backend->bekey);
+                cp += strlen(cp);
+                if(svc->becage!=0) {
+                    strncat(cp, "; expires=", ep-cp-1);
+                    cp += strlen(cp);
+                    exptime = time(NULL);
+                    /* Explicit age?  Or match session timer? (-1) */
+                    if (svc->becage>0)
+                        exptime += svc->becage;
+                    else
+                        exptime += svc->sess_ttl;
+                    strftime(cp, ep-cp-1, "%a, %e-%b-%Y %H:%M:%S GMT", gmtime(&exptime));
+                    cp += strlen(cp);
+                }
+                if(svc->becpath) {
+                    strncat(cp, "; path=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becpath, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                if(svc->becdomain) {
+                    strncat(cp, "; domain=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becdomain, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                /*logmsg(LOG_DEBUG, "%s", buf);*/
+                BIO_printf(cl, "%s\r\n", buf);
+            }
 
             /* final CRLF */
             if(!skip)

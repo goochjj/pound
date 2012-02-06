@@ -89,6 +89,8 @@ static regex_t  IncludeDir;
 
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 
+static regex_t  BackendKey, BackendCookie;
+
 static regmatch_t   matches[5];
 
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
@@ -299,6 +301,7 @@ static BACKEND *
 parse_be(const int is_emergency)
 {
     char        lin[MAXBUF];
+    char        *cp;
     BACKEND     *res;
     int         has_addr, has_port;
     struct hostent      *host;
@@ -317,6 +320,7 @@ parse_be(const int is_emergency)
     res->priority = 5;
     memset(&res->ha_addr, 0, sizeof(res->ha_addr));
     res->url = NULL;
+    res->bekey = NULL;
     res->next = NULL;
     has_addr = has_port = 0;
     pthread_mutex_init(&res->mut, NULL);
@@ -356,6 +360,10 @@ parse_be(const int is_emergency)
                 conf_err("Port is supported only for INET/INET6 back-ends");
             }
             has_port = 1;
+        } else if(!regexec(&BackendKey, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if ((res->bekey = strdup(lin + matches[1].rm_so))==NULL)
+                conf_err("out of memory");
         } else if(!regexec(&Priority, lin, 4, matches, 0)) {
             if(is_emergency)
                 conf_err("Priority is not supported for Emergency back-ends");
@@ -490,6 +498,18 @@ parse_be(const int is_emergency)
                 conf_err("BackEnd missing Address - aborted");
             if((res->addr.ai_family == AF_INET || res->addr.ai_family == AF_INET6) && !has_port)
                 conf_err("BackEnd missing Port - aborted");
+            if(!res->bekey) {
+                if (res->addr.ai_family == AF_INET)
+                    snprintf(lin, MAXBUF-1, "4-%08x-%x",htonl(((struct sockaddr_in *)(res->addr.ai_addr))->sin_addr.s_addr), htons(((struct sockaddr_in *)(res->addr.ai_addr))->sin_port));
+                else if (res->addr.ai_family == AF_INET6) {
+                    cp = (char*) &(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_addr);
+                    snprintf(lin, MAXBUF-1, "6-%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x-%x",cp[0],cp[1],cp[2],cp[3],cp[4],cp[5],cp[6],cp[7],cp[8],cp[9],cp[10],cp[11],cp[12],cp[13],cp[14],cp[15],htons(((struct sockaddr_in6 *)(res->addr.ai_addr))->sin6_port));
+                } else
+                    conf_err("cannot autogenerate backendkey, please specify one");
+
+                if ((res->bekey = strdup(lin))==NULL)
+                    conf_err("out of memory autogenerating backendkey");
+            }
             return res;
         } else {
             conf_err("unknown directive");
@@ -630,6 +650,7 @@ static SERVICE *
 parse_service(const char *svc_name)
 {
     char        lin[MAXBUF];
+    char        pat[MAXBUF];
     SERVICE     *res;
     BACKEND     *be;
     MATCHER     *m;
@@ -762,6 +783,27 @@ parse_service(const char *svc_name)
                 res->backends = parse_be(0);
         } else if(!regexec(&Emergency, lin, 4, matches, 0)) {
             res->emergency = parse_be(1);
+        } else if(!regexec(&BackendCookie, lin, 5, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            lin[matches[2].rm_eo] = '\0';
+            lin[matches[3].rm_eo] = '\0';
+            lin[matches[4].rm_eo] = '\0';
+            snprintf(pat, MAXBUF - 1, "Cookie[^:]*:.*[; \t]%s=\"?([^\";]*)\"?", lin + matches[1].rm_so);
+            if(matches[1].rm_so==matches[1].rm_eo)
+                conf_err("Backend cookie must have a name");
+            if((res->becookie=strdup(lin+matches[1].rm_so))==NULL)
+                conf_err("out of memory");
+            if(regcomp(&res->becookie_re, pat, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
+                conf_err("Backend Cookie pattern failed - aborted");
+            if(matches[2].rm_so!=matches[2].rm_eo && (res->becdomain=strdup(lin+matches[2].rm_so))==NULL)
+                conf_err("out of memory");
+            if(matches[3].rm_so!=matches[3].rm_eo && (res->becpath=strdup(lin+matches[3].rm_so))==NULL)
+                conf_err("out of memory");
+            res->becage = atoi(lin+matches[4].rm_so);
+            if ((lin[matches[4].rm_so]&~0x20)=='S')
+                res->becage = -1;
+            else
+                res->becage = atoi(lin+matches[4].rm_so);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
         } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
@@ -1613,6 +1655,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&ListenHTTP, "^[ \t]*ListenHTTP[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ListenHTTPS, "^[ \t]*ListenHTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&End, "^[ \t]*End[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendKey, "^[ \t]*Key[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1632,6 +1675,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+|Session)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackEnd, "^[ \t]*BackEnd[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1792,6 +1836,7 @@ config_parse(const int argc, char **const argv)
     regfree(&ListenHTTP);
     regfree(&ListenHTTPS);
     regfree(&End);
+    regfree(&BackendKey);
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
@@ -1811,6 +1856,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&BackendCookie);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
     regfree(&BackEnd);
