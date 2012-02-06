@@ -102,12 +102,19 @@ be_prt(const int sock)
 {
     BACKEND be;
     struct  sockaddr_storage    a, h;
-    int     n_be;
+    char    bekey[MAXBUF+1];
+    int     n_be,sz;
 
     n_be = 0;
     while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
         if(be.disabled < 0)
             break;
+
+        read(sock, &sz, sizeof(sz));
+        if(sz) read(sock, bekey, sz);
+        bekey[sz]='\0';
+        be.bekey=bekey;
+
         read(sock, &a, be.addr.ai_addrlen);
         be.addr.ai_addr = (struct sockaddr *)&a;
         if(be.ha_addr.ai_addrlen > 0) {
@@ -115,8 +122,8 @@ be_prt(const int sock)
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
         if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
-                n_be++,
+            printf("<backend index=\"%d\" key=\"%s\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
+                n_be++, be.bekey,
                 prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "yes": "DEAD",
                 be.disabled? "DISABLED": "active");
         else

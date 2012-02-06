@@ -329,6 +329,7 @@ typedef struct _backend {
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
     int                 redir_req;  /* the redirect should include the request path */
+    char                *bekey;     /* Backend Key for Cookie */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
     int                 n_requests; /* number of requests seen */
@@ -375,6 +376,11 @@ typedef struct _service {
 #else
     LHASH               *sessions;  /* currently active sessions */
 #endif
+    regex_t             becookie_re;/* Regexs to find backend cookies */
+    char                *becookie,  /* Backend Cookie Name */
+                        *becdomain, /* Backend Cookie domain */
+                        *becpath;   /* Backend cookie path */
+    int                 becage;     /* Backend cookie age */
     int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
