@@ -355,6 +355,11 @@ Include the file as though it were part of the configuration file.
 \fBAnonymise\fR
 Replace the last byte of the client address with 0 for logging purposes.
 Default: log the client address in full.
+\fBIncludeDir\fR "/path/"
+Looks for files with .conf or .cfg extensions in "path", and includes all files, in sorted
+order, inline in the configuration as if it were part of the configuration file.
+This directive can be used in any block... but the result must be syntactically correct.
+.TP
 .SH "HTTP Listener"
 An HTTP listener defines an address and port that
 .B Pound

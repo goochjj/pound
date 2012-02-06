@@ -85,6 +85,8 @@ static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
 static regex_t  ControlGroup, ControlUser, ControlMode;
 static regex_t  ThreadModel;
 
+static regex_t  IncludeDir;
+
 static regmatch_t   matches[5];
 
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
@@ -110,7 +112,7 @@ static int  be_connto = 15;
 static int  dynscale = 0;
 static int  ignore_case = 0;
 
-#define MAX_FIN 8
+#define MAX_FIN 100
 
 static FILE *f_in[MAX_FIN];
 static char *f_name[MAX_FIN];
@@ -138,6 +140,63 @@ conf_err(const char *msg)
 {
     logmsg(LOG_ERR, "%s line %d: %s", f_name[cur_fin], n_lin[cur_fin], msg);
     exit(1);
+}
+
+static void include_dir(const char *conf_path) {
+    DIR * dp;
+    struct dirent *de;
+
+    char buf[512];
+    char *files[200], *cp;
+    int filecnt = 0;
+    int idx,use;
+
+    logmsg(LOG_DEBUG, "Including Dir %s", conf_path);
+
+    if((dp = opendir(conf_path)) == NULL) {
+        conf_err("can't open IncludeDir directory");
+        exit(1);
+    }
+
+    while((de = readdir(dp))!=NULL) {
+        if (de->d_name[0] == '.') continue;
+        if ( (strlen(de->d_name) >= 5 && !strncmp(de->d_name + strlen(de->d_name) - 4, ".cfg", 4)) ||
+             (strlen(de->d_name) >= 6 && !strncmp(de->d_name + strlen(de->d_name) - 5, ".conf", 5))
+           ){
+            snprintf(buf, sizeof(buf), "%s%s%s", conf_path, (conf_path[strlen(conf_path)-1]=='/')?"":"/", de->d_name);
+            buf[sizeof(buf)-1] = 0;
+            if (filecnt == sizeof(files)/sizeof(*files)) {
+                conf_err("Max config files per directory reached");
+            }
+            if ((files[filecnt++] = strdup(buf)) == NULL) {
+                conf_err("IncludeDir out of memory");
+            }
+            continue;
+        }
+    }
+    /* We order the list, and include in reverse order, because include_file adds to the top of the list */
+    while(filecnt) {
+        use = 0;
+        for(idx = 1; idx<filecnt; idx++)
+            if (strcmp(files[use], files[idx])<0)
+                use=idx;
+
+        logmsg(LOG_DEBUG, " I==> %s", files[use]);
+
+        // Copied from Include logic
+        if(cur_fin == (MAX_FIN - 1))
+            conf_err("Include nesting too deep");
+        cur_fin++;
+        f_name[cur_fin] = files[use];
+        if((f_in[cur_fin] = fopen(files[use], "rt")) == NULL) {
+            logmsg(LOG_ERR, "%s line %d: Can't open included file %s", f_name[cur_fin], n_lin[cur_fin], files[use]);
+            exit(1);
+        }
+        n_lin[cur_fin] = 0;
+        files[use] = files[--filecnt];
+    }
+
+    closedir(dp);
 }
 
 static char *
@@ -174,6 +233,11 @@ conf_fgets(char *buf, const int max)
             if((f_in[cur_fin] = fopen(&buf[matches[1].rm_so], "rt")) == NULL)
                 conf_err("can't open included file");
             n_lin[cur_fin] = 0;
+            continue;
+        }
+        if(!regexec(&IncludeDir, buf, 4, matches, 0)) {
+            buf[matches[1].rm_eo] = '\0';
+            include_dir(buf + matches[1].rm_so);
             continue;
         }
         return buf;
@@ -1565,6 +1629,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Include, "^[ \t]*Include[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&IncludeDir, "^[ \t]*IncludeDir[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ConnTO, "^[ \t]*ConnTO[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&IgnoreCase, "^[ \t]*IgnoreCase[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1741,6 +1806,7 @@ config_parse(const int argc, char **const argv)
     regfree(&CRLlist);
     regfree(&NoHTTPS11);
     regfree(&Include);
+    regfree(&IncludeDir);
     regfree(&ConnTO);
     regfree(&IgnoreCase);
     regfree(&HTTPS);
