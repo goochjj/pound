@@ -391,6 +391,8 @@ typedef struct _pound_ctx {
     SSL_CTX             *ctx;
     char                *server_name;
     struct _pound_ctx   *next;
+    unsigned int        subjectAltNameCount;
+    unsigned char       **subjectAltNames;
 } POUND_CTX;
 
 /* Listener definition */

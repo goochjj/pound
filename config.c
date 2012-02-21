@@ -31,6 +31,8 @@
 
 #include    "pound.h"
 
+#include    <openssl/x509v3.h>
+
 #ifdef MISS_FACILITYNAMES
 
 /* This is lifted verbatim from the Linux sys/syslog.h */
@@ -232,6 +234,53 @@ conf_fgets(char *buf, const int max)
         }
         return buf;
     }
+}
+
+unsigned char **
+get_subjectaltnames(X509 *x509, unsigned int *count)
+{
+    *count = 0;
+    unsigned int local_count = 0;
+    unsigned char **result = NULL;
+
+    STACK_OF(GENERAL_NAME) *san_stack = (STACK_OF(GENERAL_NAME)*)X509_get_ext_d2i(x509, NID_subject_alt_name, NULL, NULL);     
+
+    unsigned char *temp[sk_GENERAL_NAME_num(san_stack)];
+
+    GENERAL_NAME *name = NULL;
+    while(sk_GENERAL_NAME_num(san_stack) > 0)
+    {
+        name = sk_GENERAL_NAME_pop(san_stack);
+
+        switch(name->type)
+        {
+            case GEN_DNS:
+                temp[local_count] = strndup(ASN1_STRING_data(name->d.dNSName), ASN1_STRING_length(name->d.dNSName)+1);
+                if(temp[local_count] == NULL) { conf_err("out of memory"); }
+                local_count++;
+                break;
+            default:
+              logmsg(LOG_INFO, "unsupported subjectAltName type encountered: %i", name->type);
+        }
+
+        GENERAL_NAME_free(name);
+    }
+
+    result = (unsigned char**)malloc(sizeof(unsigned char*)*local_count);
+    if(result == NULL) { conf_err("out of memory"); }
+    int i;
+    for(i = 0;i < local_count; i++)
+    {
+        result[i] = strndup(temp[i], strlen(temp[i])+1);
+        if(result[i] == NULL) { conf_err("out of memory"); }
+
+        free(temp[i]);
+    }
+    *count = local_count;
+
+    sk_GENERAL_NAME_pop_free(san_stack, GENERAL_NAME_free);
+
+    return result;
 }
 
 /*
@@ -916,13 +965,23 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
 
     SSL_set_SSL_CTX(ssl, NULL);
-    for(pc = ctx; pc; pc = pc->next)
+    for(pc = ctx; pc; pc = pc->next) {
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
             /* logmsg(LOG_DEBUG, "Found cert for %s", servername); */
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
-
+        else if(pc->subjectAltNameCount > 0 && pc->subjectAltNames != NULL) {
+            int i;
+            for(i = 0; i < pc->subjectAltNameCount; i++) {
+                if(fnmatch(pc->subjectAltNames[i], server_name, 0) == 0) {
+                    SSL_set_SSL_CTX(ssl, pc->ctx);
+                    return SSL_TLSEXT_ERR_OK;
+                }
+            }
+        }
+    }
+    
     /* logmsg(LOG_DEBUG, "No match for %s, default used", server_name); */
     SSL_set_SSL_CTX(ssl, ctx->ctx);
     return SSL_TLSEXT_ERR_OK;
@@ -1093,6 +1152,9 @@ parse_HTTPS(void)
             fclose(fcert);
             memset(server_name, '\0', MAXBUF);
             X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
+            pc->subjectAltNameCount = 0;
+            pc->subjectAltNames = NULL;
+            pc->subjectAltNames = get_subjectaltnames(x509, &(pc->subjectAltNameCount));
             X509_free(x509);
             if(!regexec(&CNName, server_name, 4, matches, 0)) {
                 server_name[matches[1].rm_eo] = '\0';
