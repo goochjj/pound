@@ -1695,6 +1695,15 @@ thr_http(void *dummy)
 {
     thr_arg *arg;
 
+    if (dummy!=NULL) {
+        arg = (thr_arg *)dummy;
+        if (arg == NULL) {
+            logmsg(LOG_WARNING, "NULL get_thr_arg");
+            return;
+        }
+        do_http(arg);
+        return;
+    }
     for(;;) {
         while((arg = get_thr_arg()) == NULL)
             logmsg(LOG_WARNING, "NULL get_thr_arg");

@@ -273,6 +273,8 @@ extern long ctrl_mode;          /* octal mode of the control socket */
 
 extern int  numthreads,         /* number of worker threads */
             anonymise,          /* anonymise client address */
+            threadpool,         /* 1 to use a threadpool (i.e. 2.6 behavior)
+                                   0 to use new thread per request (2.5 behavior) */
             alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
