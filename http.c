@@ -1635,7 +1635,19 @@ do_http(thr_arg *arg)
 }
 
 void *
-thr_http(void *dummy)
+thr_http_single(void *dummy)
+{
+    thr_arg *arg;
+
+    arg = (thr_arg *)dummy;
+    if (arg == NULL)
+        logmsg(LOG_NOTICE, "NULL get_thr_arg");
+    else
+        do_http(arg);
+}
+
+void *
+thr_http_pool(void *dummy)
 {
     thr_arg *arg;
 

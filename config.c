@@ -83,6 +83,7 @@ static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, 
 static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
+static regex_t  ThreadModel;
 
 static regmatch_t   matches[5];
 
@@ -1376,6 +1377,8 @@ parse_file(void)
             daemonize = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Threads, lin, 4, matches, 0)) {
             numthreads = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&ThreadModel, lin, 4, matches, 0)) {
+            threadpool = ((lin[matches[1].rm_so]|0x20) == 'p'); /* 'pool' */
         } else if(!regexec(&LogFacility, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             if(lin[matches[1].rm_so] == '-')
@@ -1504,6 +1507,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&RootJail, "^[ \t]*RootJail[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Daemon, "^[ \t]*Daemon[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Threads, "^[ \t]*Threads[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ThreadModel, "^[ \t]*ThreadModel[ \t]+(pool|dynamic)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogFacility, "^[ \t]*LogFacility[ \t]+([a-z0-9-]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&LogLevel, "^[ \t]*LogLevel[ \t]+([0-5])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Grace, "^[ \t]*Grace[ \t]+([0-9]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1647,6 +1651,7 @@ config_parse(const int argc, char **const argv)
     DHCustom_params = NULL;
 
     numthreads = 128;
+    threadpool = 1;
     alive_to = 30;
     daemonize = 1;
     grace = 30;
@@ -1678,6 +1683,7 @@ config_parse(const int argc, char **const argv)
     regfree(&RootJail);
     regfree(&Daemon);
     regfree(&Threads);
+    regfree(&ThreadModel);
     regfree(&LogFacility);
     regfree(&LogLevel);
     regfree(&Grace);
