@@ -482,6 +482,8 @@ extern thr_arg  *get_thr_arg(void);
  */
 extern void *thr_http(void *);
 
+extern void thr_init();
+
 /*
  * Log an error to the syslog or to stderr
  */

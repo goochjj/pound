@@ -424,6 +424,8 @@ main(const int argc, char **argv)
         } else if (son == 0) {
 #endif
 
+            thr_init();
+
             /* thread stuff */
             pthread_attr_init(&attr);
             pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);

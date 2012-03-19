@@ -1561,11 +1561,28 @@ do_http(thr_arg *arg)
     return;
 }
 
+static pthread_mutex_t  thr_cnt_mut;
+static int thr_id_cnt;
+
+void thr_init() {
+    pthread_mutex_init(&thr_cnt_mut, NULL);
+    thr_id_cnt = 1;
+}
+int get_new_thr_id() {
+    int thr_id;
+    (void)pthread_mutex_lock(&thr_cnt_mut);
+    thr_id = ++thr_id_cnt;
+    (void)pthread_mutex_unlock(&thr_cnt_mut);
+    return thr_id;
+}
+
 void *
 thr_http(void *dummy)
 {
     thr_arg *arg;
+    int thr_id;
 
+    thr_id = get_new_thr_id();
     if (dummy!=NULL) {
         arg = (thr_arg *)dummy;
         if (arg == NULL) {
@@ -1578,6 +1595,7 @@ thr_http(void *dummy)
     for(;;) {
         while((arg = get_thr_arg()) == NULL)
             logmsg(LOG_WARNING, "NULL get_thr_arg");
+        printf("Thread %d\n",thr_id);
         do_http(arg);
     }
 }
