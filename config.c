@@ -31,13 +31,15 @@
 
 #include    "pound.h"
 
+#include    <openssl/x509v3.h>
+
 #ifdef MISS_FACILITYNAMES
 
 /* This is lifted verbatim from the Linux sys/syslog.h */
 
 typedef struct _code {
-	char	*c_name;
-	int	c_val;
+    char    *c_name;
+    int     c_val;
 } CODE;
 
 static CODE facilitynames[] = {
@@ -76,8 +78,9 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
-static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads, CNName;
+static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
+static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
+static regex_t  Disabled, Threads, CNName, Anonymise;
 
 static regmatch_t   matches[5];
 
@@ -165,6 +168,52 @@ conf_fgets(char *buf, const int max)
         }
         return buf;
     }
+}
+
+unsigned char **
+get_subjectaltnames(X509 *x509, unsigned int *count)
+{
+    unsigned int            local_count;
+    unsigned char           **result;
+    STACK_OF(GENERAL_NAME)  *san_stack = (STACK_OF(GENERAL_NAME)*)X509_get_ext_d2i(x509, NID_subject_alt_name, NULL, NULL);     
+    unsigned char           *temp[sk_GENERAL_NAME_num(san_stack)];
+    GENERAL_NAME            *name;
+    int                     i;
+
+    local_count = 0;
+    result = NULL;
+    name = NULL;
+    *count = 0;
+    while(sk_GENERAL_NAME_num(san_stack) > 0) {
+        name = sk_GENERAL_NAME_pop(san_stack);
+        switch(name->type) {
+            case GEN_DNS:
+                temp[local_count] = strndup(ASN1_STRING_data(name->d.dNSName), ASN1_STRING_length(name->d.dNSName)
+                                    + 1);
+                if(temp[local_count] == NULL)
+                    conf_err("out of memory");
+                local_count++;
+                break;
+            default:
+              logmsg(LOG_INFO, "unsupported subjectAltName type encountered: %i", name->type);
+        }
+        GENERAL_NAME_free(name);
+    }
+
+    result = (unsigned char**)malloc(sizeof(unsigned char*)*local_count);
+    if(result == NULL)
+        conf_err("out of memory");
+    for(i = 0;i < local_count; i++) {
+        result[i] = strndup(temp[i], strlen(temp[i])+1);
+        if(result[i] == NULL)
+            conf_err("out of memory");
+        free(temp[i]);
+    }
+    *count = local_count;
+
+    sk_GENERAL_NAME_pop_free(san_stack, GENERAL_NAME_free);
+
+    return result;
 }
 
 /*
@@ -289,9 +338,12 @@ parse_be(const int is_emergency)
         } else if(!regexec(&HTTPS, lin, 4, matches, 0)) {
             if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
+            SSL_CTX_set_app_data(res->ctx, res);
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
@@ -299,6 +351,7 @@ parse_be(const int is_emergency)
         } else if(!regexec(&HTTPSCert, lin, 4, matches, 0)) {
             if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
+            SSL_CTX_set_app_data(res->ctx, res);
             lin[matches[1].rm_eo] = '\0';
             if(SSL_CTX_use_certificate_chain_file(res->ctx, lin + matches[1].rm_so) != 1)
                 conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
@@ -309,6 +362,8 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
+            SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
@@ -805,13 +860,24 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
 
     SSL_set_SSL_CTX(ssl, NULL);
-    for(pc = ctx; pc; pc = pc->next)
+    for(pc = ctx; pc; pc = pc->next) {
         if(fnmatch(pc->server_name, server_name, 0) == 0) {
             /* logmsg(LOG_DEBUG, "Found cert for %s", servername); */
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
+        else if(pc->subjectAltNameCount > 0 && pc->subjectAltNames != NULL) {
+            int i;
 
+            for(i = 0; i < pc->subjectAltNameCount; i++) {
+                if(fnmatch(pc->subjectAltNames[i], server_name, 0) == 0) {
+                    SSL_set_SSL_CTX(ssl, pc->ctx);
+                    return SSL_TLSEXT_ERR_OK;
+                }
+            }
+        }
+    }
+    
     /* logmsg(LOG_DEBUG, "No match for %s, default used", server_name); */
     SSL_set_SSL_CTX(ssl, ctx->ctx);
     return SSL_TLSEXT_ERR_OK;
@@ -824,15 +890,19 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
 static LISTENER *
 parse_HTTPS(void)
 {
-    char        lin[MAXBUF];
-    LISTENER    *res;
-    SERVICE     *svc;
-    MATCHER     *m;
-    int         has_addr, has_port, has_other;
+    char                lin[MAXBUF];
+    LISTENER            *res;
+    SERVICE             *svc;
+    MATCHER             *m;
+    int                 has_addr, has_port, has_other;
+    long                ssl_op_enable, ssl_op_disable;
     struct hostent      *host;
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
-    POUND_CTX   *pc;
+    POUND_CTX           *pc;
+
+    ssl_op_enable = SSL_OP_ALL;
+    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
         conf_err("ListenHTTPS config: out of memory - aborted");
@@ -844,6 +914,8 @@ parse_HTTPS(void)
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->allow_client_reneg = 0;
+    res->disable_ssl_v2 = 0;
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
@@ -959,6 +1031,9 @@ parse_HTTPS(void)
             fclose(fcert);
             memset(server_name, '\0', MAXBUF);
             X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
+            pc->subjectAltNameCount = 0;
+            pc->subjectAltNames = NULL;
+            pc->subjectAltNames = get_subjectaltnames(x509, &(pc->subjectAltNameCount));
             X509_free(x509);
             if(!regexec(&CNName, server_name, 4, matches, 0)) {
                 server_name[matches[1].rm_eo] = '\0';
@@ -1028,6 +1103,25 @@ parse_HTTPS(void)
                     conf_err("AddHeader config: out of memory - aborted");
                 strcat(res->add_head, "\r\n");
                 strcat(res->add_head, lin + matches[1].rm_so);
+            }
+        } else if(!regexec(&DisableSSLv2, lin, 4, matches, 0)) {
+            res->disable_ssl_v2 = 1;
+        } else if(!regexec(&SSLAllowClientRenegotiation, lin, 4, matches, 0)) {
+            res->allow_client_reneg = atoi(lin + matches[1].rm_so);
+            if (res->allow_client_reneg == 2) {
+                ssl_op_enable |= SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+                ssl_op_disable &= ~SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+            } else {
+                ssl_op_disable |= SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+                ssl_op_enable &= ~SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION;
+            }
+        } else if(!regexec(&SSLHonorCipherOrder, lin, 4, matches, 0)) {
+            if (atoi(lin + matches[1].rm_so)) {
+                ssl_op_enable |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+                ssl_op_disable &= ~SSL_OP_CIPHER_SERVER_PREFERENCE;
+            } else {
+                ssl_op_disable |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+                ssl_op_enable &= ~SSL_OP_CIPHER_SERVER_PREFERENCE;
             }
         } else if(!regexec(&Ciphers, lin, 4, matches, 0)) {
             has_other = 1;
@@ -1105,12 +1199,17 @@ parse_HTTPS(void)
                 conf_err("ListenHTTPS: can't set SNI callback");
 #endif
             for(pc = res->ctx; pc; pc = pc->next) {
+                SSL_CTX_set_app_data(pc->ctx, res);
                 SSL_CTX_set_mode(pc->ctx, SSL_MODE_AUTO_RETRY);
-                SSL_CTX_set_options(pc->ctx, SSL_OP_ALL);
+                SSL_CTX_set_options(pc->ctx, ssl_op_enable);
+                SSL_CTX_clear_options(pc->ctx, ssl_op_disable);
+                if (res->disable_ssl_v2 == 1)
+                    SSL_CTX_set_options(pc->ctx, SSL_OP_NO_SSLv2);
                 sprintf(lin, "%d-Pound-%ld", getpid(), random());
                 SSL_CTX_set_session_id_context(pc->ctx, (unsigned char *)lin, strlen(lin));
                 SSL_CTX_set_tmp_rsa_callback(pc->ctx, RSA_tmp_callback);
                 SSL_CTX_set_tmp_dh_callback(pc->ctx, DH_tmp_callback);
+                SSL_CTX_set_info_callback(pc->ctx, SSLINFO_callback);
             }
             return res;
         } else {
@@ -1238,6 +1337,8 @@ parse_file(void)
                     ;
                 svc->next = parse_service(lin + matches[1].rm_so);
             }
+        } else if(!regexec(&Anonymise, lin, 4, matches, 0)) {
+            anonymise = 1;
         } else {
             conf_err("unknown directive - aborted");
         }
@@ -1305,6 +1406,9 @@ config_parse(const int argc, char **const argv)
     || regcomp(&DynScale, "^[ \t]*DynScale[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableSSLv2, "^[ \t]*DisableSSLv2[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1317,6 +1421,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+[01][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Anonymise, "^[ \t]*Anonymise[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1463,6 +1568,9 @@ config_parse(const int argc, char **const argv)
     regfree(&DynScale);
     regfree(&ClientCert);
     regfree(&AddHeader);
+    regfree(&SSLAllowClientRenegotiation);
+    regfree(&DisableSSLv2);
+    regfree(&SSLHonorCipherOrder);
     regfree(&Ciphers);
     regfree(&CAlist);
     regfree(&VerifyList);
@@ -1475,6 +1583,7 @@ config_parse(const int argc, char **const argv)
     regfree(&HTTPSCert);
     regfree(&Disabled);
     regfree(&CNName);
+    regfree(&Anonymise);
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;

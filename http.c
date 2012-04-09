@@ -246,6 +246,11 @@ copy_chunks(BIO *const cl, BIO *const be, LONG *res_bytes, const int no_write, c
 
 static int  err_to = -1;
 
+typedef struct {
+    int         timeout;
+    RENEG_STATE *reneg_state;
+} BIO_ARG;
+
 /*
  * Time-out for client read/gets
  * the SSL manual says not to do it, but it works well enough anyway...
@@ -253,6 +258,7 @@ static int  err_to = -1;
 static long
 bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long argl, long ret)
 {
+    BIO_ARG *bio_arg;
     struct pollfd   p;
     int             to, p_res, p_err;
 
@@ -260,10 +266,23 @@ bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long arg
         return ret;
 
     /* a time-out already occured */
-    if((to = *((int *)BIO_get_callback_arg(bio)) * 1000) < 0) {
+    if((bio_arg = (BIO_ARG*)BIO_get_callback_arg(bio))==NULL)
+        return ret;
+    if((to = bio_arg->timeout * 1000) < 0) {
         errno = ETIMEDOUT;
         return -1;
     }
+
+    /* Renegotiations */
+    /* logmsg(LOG_NOTICE, "RENEG STATE %d", bio_arg->reneg_state==NULL?-1:*bio_arg->reneg_state); */
+    if (bio_arg->reneg_state != NULL && *bio_arg->reneg_state == RENEG_ABORT) {
+        logmsg(LOG_NOTICE, "REJECTING renegotiated session");
+        errno = ECONNABORTED;
+        return -1;
+    }
+
+    if (to == 0)
+        return ret;
 
     for(;;) {
         memset(&p, 0, sizeof(p));
@@ -299,7 +318,7 @@ bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long arg
             return -1;
         case 0:
             /* timeout - mark the BIO as unusable for the future */
-            BIO_set_callback_arg(bio, (char *)&err_to);
+            bio_arg->timeout = err_to;
 #ifdef  EBUG
             logmsg(LOG_WARNING, "(%lx) CALLBACK timeout poll after %d secs: %s",
                 pthread_self(), to / 1000, strerror(p_err));
@@ -503,7 +522,14 @@ do_http(thr_arg *arg)
     regmatch_t          matches[4];
     struct linger       l;
     double              start_req, end_req;
+    RENEG_STATE         reneg_state;
+    BIO_ARG             ba1, ba2;
 
+    reneg_state = RENEG_INIT;
+    ba1.reneg_state =  &reneg_state;
+    ba2.reneg_state = &reneg_state;
+    ba1.timeout = 0;
+    ba2.timeout = 0;
     from_host = ((thr_arg *)arg)->from_host;
     memcpy(&from_host_addr, from_host.ai_addr, from_host.ai_addrlen);
     from_host.ai_addr = (struct sockaddr *)&from_host_addr;
@@ -511,6 +537,9 @@ do_http(thr_arg *arg)
     sock = ((thr_arg *)arg)->sock;
     free(((thr_arg *)arg)->from_host.ai_addr);
     free(arg);
+
+    if(lstn->allow_client_reneg)
+        reneg_state = RENEG_ALLOW;
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -535,10 +564,9 @@ do_http(thr_arg *arg)
         close(sock);
         return;
     }
-    if(lstn->to > 0) {
-        BIO_set_callback_arg(cl, (char *)&lstn->to);
-        BIO_set_callback(cl, bio_callback);
-    }
+    ba1.timeout = lstn->to;
+    BIO_set_callback_arg(cl, (char *)&ba1);
+    BIO_set_callback(cl, bio_callback);
 
     if(lstn->ctx != NULL) {
         if((ssl = SSL_new(lstn->ctx->ctx)) == NULL) {
@@ -547,6 +575,7 @@ do_http(thr_arg *arg)
             BIO_free_all(cl);
             return;
         }
+        SSL_set_app_data(ssl, &reneg_state);
         SSL_set_bio(ssl, cl, cl);
         if((bb = BIO_new(BIO_f_ssl())) == NULL) {
             logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());
@@ -848,7 +877,8 @@ do_http(thr_arg *arg)
             }
             BIO_set_close(be, BIO_CLOSE);
             if(backend->to > 0) {
-                BIO_set_callback_arg(be, (char *)&backend->to);
+                ba2.timeout = backend->to;
+                BIO_set_callback_arg(be, (char *)&ba2);
                 BIO_set_callback(be, bio_callback);
             }
             if(backend->ctx != NULL) {
@@ -1497,6 +1527,12 @@ do_http(thr_arg *arg)
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);
         log_bytes(s_res_bytes, res_bytes);
         addr2str(caddr, MAXBUF - 1, &from_host, 1);
+        if(anonymise) {
+            char    *last;
+
+            if((last = strrchr(caddr, '.')) != NULL || (last = strrchr(caddr, ':')) != NULL)
+                strcpy(++last, "0");
+        }
         str_be(buf, MAXBUF - 1, cur_backend);
         switch(lstn->log_level) {
         case 0:

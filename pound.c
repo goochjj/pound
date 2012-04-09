@@ -35,6 +35,7 @@ char        *user,              /* user to run as */
             *ctrl_name;         /* control socket name */
 
 int         alive_to,           /* check interval for resurrection */
+            anonymise,          /* anonymise client address */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
             print_log,          /* print log messages to stdout/stderr */
@@ -163,6 +164,21 @@ get_thr_arg(void)
     (void)pthread_mutex_unlock(&arg_mut);
     if(first != NULL)
         pthread_cond_signal(&arg_cond);
+    return res;
+}
+
+/*
+ * get the current queue length
+ */
+get_thr_qlen(void)
+{
+    int     res;
+    thr_arg *tap;
+
+    (void)pthread_mutex_lock(&arg_mut);
+    for(res = 0, tap = first; tap != NULL; tap = tap->next, res++)
+        ;
+    (void)pthread_mutex_unlock(&arg_mut);
     return res;
 }
 

@@ -267,6 +267,7 @@ extern char *user,              /* user to run as */
             *ctrl_name;         /* control socket name */
 
 extern int  numthreads,         /* number of worker threads */
+            anonymise,          /* anonymise client address */
             alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -379,31 +380,35 @@ extern SERVICE          *services;  /* global services (if any) */
 typedef struct _pound_ctx {
     SSL_CTX             *ctx;
     char                *server_name;
+    unsigned char       **subjectAltNames;
+    unsigned int        subjectAltNameCount;
     struct _pound_ctx   *next;
 } POUND_CTX;
 
 /* Listener definition */
 typedef struct _listener {
-    struct addrinfo     addr;           /* IPv4/6 address */
-    int                 sock;           /* listening socket */
-    POUND_CTX           *ctx;           /* CTX for SSL connections */
-    int                 clnt_check;     /* client verification mode */
-    int                 noHTTPS11;      /* HTTP 1.1 mode for SSL */
-    char                *add_head;      /* extra SSL header */
-    regex_t             verb;           /* pattern to match the request verb against */
-    int                 to;             /* client time-out */
-    int                 has_pat;        /* was a URL pattern defined? */
-    regex_t             url_pat;        /* pattern to match the request URL against */
-    char                *err414,        /* error messages */
+    struct addrinfo     addr;               /* IPv4/6 address */
+    int                 sock;               /* listening socket */
+    POUND_CTX           *ctx;               /* CTX for SSL connections */
+    int                 clnt_check;         /* client verification mode */
+    int                 noHTTPS11;          /* HTTP 1.1 mode for SSL */
+    char                *add_head;          /* extra SSL header */
+    regex_t             verb;               /* pattern to match the request verb against */
+    int                 to;                 /* client time-out */
+    int                 has_pat;            /* was a URL pattern defined? */
+    regex_t             url_pat;            /* pattern to match the request URL against */
+    char                *err414,            /* error messages */
                         *err500,
                         *err501,
                         *err503;
-    LONG                max_req;        /* max. request size */
-    MATCHER             *head_off;      /* headers to remove */
-    int                 rewr_loc;       /* rewrite location response */
-    int                 rewr_dest;      /* rewrite destination header */
-    int                 disabled;       /* true if the listener is disabled */
-    int                 log_level;      /* log level for this listener */
+    LONG                max_req;            /* max. request size */
+    MATCHER             *head_off;          /* headers to remove */
+    int                 rewr_loc;           /* rewrite location response */
+    int                 rewr_dest;          /* rewrite destination header */
+    int                 disabled;           /* true if the listener is disabled */
+    int                 log_level;          /* log level for this listener */
+    int                 allow_client_reneg; /* Allow Client SSL Renegotiation */
+    int                 disable_ssl_v2;     /* Disable SSL version 2 */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
@@ -418,6 +423,9 @@ typedef struct _thr_arg {
     struct addrinfo from_host;
     struct _thr_arg *next;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
+
+/* Track SSL handshare/renegotiation so we can reject client-renegotiations. */
+typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STATE;
 
 /* Header types */
 #define HEADER_ILLEGAL              -1
@@ -474,6 +482,11 @@ extern int  put_thr_arg(thr_arg *);
  * get a request from the queue
  */
 extern thr_arg  *get_thr_arg(void);
+
+/*
+ * get the current queue length
+ */
+extern  get_thr_qlen(void);
 
 /*
  * handle an HTTP request
@@ -589,6 +602,11 @@ extern RSA  *RSA_tmp_callback(SSL *, int, int);
  * return a pre-generated RSA key
  */
 extern DH   *DH_tmp_callback(SSL *, int, int);
+
+/*
+ * Renegotiation callback
+ */
+extern void SSLINFO_callback(const SSL *s, int where, int rc);
 
 /*
  * expiration stuff

@@ -1,4 +1,19 @@
 ------------------------------------------------------------------------
+r75 | roseg | 2012-04-09 15:37:26 +0200 (Mon, 09 Apr 2012) | 12 lines
+
+Release 2.7a
+
+Enhancements:
+    - Anonymise configuration option - show last client address byte as 0 (based on an idea by Christian Doering)
+    - SSLAllowClientRenegotiation (based on a patch from Joe Gooch)
+    - SSLHonorCipherOrder (based on a patch from Joe Gooch)
+    - Certificate alternate names support (based on a patch from Jonas Pasche)
+    - poundctl shows the length of the request queue (based on a request from Leo)
+
+Bug fixes:
+    - fixed testing of gcc options
+
+------------------------------------------------------------------------
 r74 | roseg | 2011-12-28 14:57:45 +0100 (Wed, 28 Dec 2011) | 10 lines
 
 Release 2.6

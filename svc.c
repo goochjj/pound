@@ -1638,7 +1638,7 @@ thr_control(void *arg)
 {
     CTRL_CMD        cmd;
     struct sockaddr sa;
-    int             ctl, dummy, ret_val;
+    int             ctl, dummy, n, ret_val;
     LISTENER        *lstn, dummy_lstn;
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
@@ -1676,6 +1676,8 @@ thr_control(void *arg)
         switch(cmd.cmd) {
         case CTRL_LST:
             /* logmsg(LOG_INFO, "thr_control() list"); */
+            n = get_thr_qlen();
+            (void)write(ctl, (void *)&n, sizeof(n));
             for(lstn = listeners; lstn; lstn = lstn->next) {
                 (void)write(ctl, (void *)lstn, sizeof(LISTENER));
                 (void)write(ctl, lstn->addr.ai_addr, lstn->addr.ai_addrlen);
@@ -1777,7 +1779,7 @@ thr_control(void *arg)
                 logmsg(LOG_WARNING, "thr_control() add session lock: %s", strerror(ret_val));
             t_add(svc->sessions, cmd.key, &be, sizeof(be));
             if(ret_val = pthread_mutex_unlock(&svc->mut))
-                logmsg(LOG_WARNING, "thr_control() add session unlock: %s", strerror(ret_val));
+                logmsg(LOG_WARNING, "thoriginalfiler_control() add session unlock: %s", strerror(ret_val));
             break;
         case CTRL_DEL_SESS:
             if((svc = sel_svc(&cmd)) == NULL) {
@@ -1795,5 +1797,29 @@ thr_control(void *arg)
             break;
         }
         close(ctl);
+    }
+}
+
+void
+SSLINFO_callback(const SSL *ssl, int where, int rc)
+{
+    RENEG_STATE *reneg_state;
+
+    /* Get our thr_arg where we're tracking this connection info */
+    if((reneg_state = (RENEG_STATE *)SSL_get_app_data(ssl)) == NULL)
+        return;
+
+    /* If we're rejecting renegotiations, move to ABORT if Client Hello is being read. */
+    if((where & SSL_CB_ACCEPT_LOOP) && *reneg_state == RENEG_REJECT) {
+        int state;
+
+        state = SSL_get_state(ssl);
+        if (state == SSL3_ST_SR_CLNT_HELLO_A || state == SSL23_ST_SR_CLNT_HELLO_A) {
+           *reneg_state = RENEG_ABORT;
+           logmsg(LOG_WARNING,"rejecting client initiated renegotiation");
+        }
+    } else if(where & SSL_CB_HANDSHAKE_DONE && *reneg_state == RENEG_INIT) {
+       // Reject any followup renegotiations
+       *reneg_state = RENEG_REJECT;
     }
 }

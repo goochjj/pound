@@ -342,9 +342,16 @@ main(const int argc, char **argv)
     write(sock, &cmd, sizeof(cmd));
 
     if (!is_set) {
+        int n;
+
         n_lstn = 0;
         if(xml_out)
             printf("<pound>\n");
+        if(read(sock, &n, sizeof(n)) == sizeof(n))
+            if(xml_out)
+                printf("<queue size=\"%d\"/>\n", n);
+            else
+                printf("Requests in queue: %d\n", n);
         while(read(sock, (void *)&lstn, sizeof(LISTENER)) == sizeof(LISTENER)) {
             if(lstn.disabled < 0)
                 break;
