@@ -913,28 +913,33 @@ connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to)
 {
     int             flags, res, error;
     socklen_t       len;
+    char            buf[MAXBUF];
     struct pollfd   p;
 
     if((flags = fcntl(sockfd, F_GETFL, 0)) < 0) {
-        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl GETFL failed: %s", pthread_self(), strerror(errno));
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl GETFL failed(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
     if(fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl SETFL failed: %s", pthread_self(), strerror(errno));
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl SETFL failed(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
 
     error = 0;
     if((res = connect(sockfd, serv_addr->ai_addr, serv_addr->ai_addrlen)) < 0)
         if(errno != EINPROGRESS) {
-            logmsg(LOG_WARNING, "(%lx) connect_nb: connect failed: %s", pthread_self(), strerror(errno));
+            addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+            logmsg(LOG_WARNING, "(%lx) connect_nb: connect failed(%s): %s", pthread_self(), buf, strerror(errno));
             return (-1);
         }
 
     if(res == 0) {
         /* connect completed immediately (usually localhost) */
         if(fcntl(sockfd, F_SETFL, flags) < 0) {
-            logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl reSETFL failed: %s", pthread_self(), strerror(errno));
+            addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+            logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl reSETFL failed(%s): %s", pthread_self(), buf, strerror(errno));
             return -1;
         }
         return 0;
@@ -944,32 +949,36 @@ connect_nb(const int sockfd, const struct addrinfo *serv_addr, const int to)
     p.fd = sockfd;
     p.events = POLLOUT;
     if((res = poll(&p, 1, to * 1000)) != 1) {
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
         if(res == 0) {
             /* timeout */
-            logmsg(LOG_WARNING, "(%lx) connect_nb: poll timed out", pthread_self());
+            logmsg(LOG_WARNING, "(%lx) connect_nb: poll timed out(%s)", pthread_self(), buf);
             errno = ETIMEDOUT;
         } else
-            logmsg(LOG_WARNING, "(%lx) connect_nb: poll failed: %s", pthread_self(), strerror(errno));
+            logmsg(LOG_WARNING, "(%lx) connect_nb: poll failed(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
 
     /* socket is writeable == operation completed */
     len = sizeof(error);
     if(getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
-        logmsg(LOG_WARNING, "(%lx) connect_nb: getsockopt failed: %s", pthread_self(), strerror(errno));
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+        logmsg(LOG_WARNING, "(%lx) connect_nb: getsockopt failed(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
 
     /* restore file status flags */
     if(fcntl(sockfd, F_SETFL, flags) < 0) {
-        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl reSETFL failed: %s", pthread_self(), strerror(errno));
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+        logmsg(LOG_WARNING, "(%lx) connect_nb: fcntl reSETFL failed(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
 
     if(error) {
         /* getsockopt() shows an error */
         errno = error;
-        logmsg(LOG_WARNING, "(%lx) connect_nb: error after getsockopt: %s", pthread_self(), strerror(errno));
+        addr2str(buf, sizeof(buf)-1, serv_addr, 0);
+        logmsg(LOG_WARNING, "(%lx) connect_nb: error after getsockopt(%s): %s", pthread_self(), buf, strerror(errno));
         return -1;
     }
 
