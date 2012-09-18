@@ -345,6 +345,10 @@ typedef struct _tn {
 /* authorization types */
 typedef enum    { UserBasic, UserCFAUTH, UserCFAUTHToken, UserFORM } USER_TYPE;
 
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+DECLARE_LHASH_OF(TABNODE);
+#endif
+
 /* service definition */
 typedef struct _service {
     char                name[KEY_SIZE + 1]; /* symbolic name */
@@ -366,7 +370,11 @@ typedef struct _service {
     regex_t             sess_pat;   /* pattern to match the session data */
     int                 sess_end_hdr; /* 1 if session end header is set */
     regex_t             sess_end;   /* Pattern to explicitly end a session */
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHASH_OF(TABNODE)   *sessions;  /* currently active sessions */
+#else
     LHASH               *sessions;  /* currently active sessions */
+#endif
     struct _session     *del_sessions;  /* Sessions pending deletion */
     regex_t             becookie_match; /* Regexs to find backend cookies */
     char                *becookie,  /* Backend Cookie Name */

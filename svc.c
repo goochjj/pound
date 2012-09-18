@@ -80,7 +80,7 @@ static int try_clear_session(SESSION *sess) {
 /*
  * Delete session from LHASH table, freeing memory
  */
-static void delete_session(SERVICE *const svc, LHASH *const tab, TABNODE *t)
+static void delete_session(SERVICE *const svc, LHASH_OF(TABNODE) *const tab, TABNODE *t)
 {
     TABNODE *res;
     SESSION *sess;
@@ -88,7 +88,11 @@ static void delete_session(SERVICE *const svc, LHASH *const tab, TABNODE *t)
 
     if (!tab || !t) return;
 
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((res = LHM_lh_delete(TABNODE, tab, t)) != NULL) {
+#else
     if((res = (TABNODE *)lh_delete(tab, t)) != NULL) {
+#endif
         memcpy(&sess, res->content, sizeof(sess));
         free(res->content);
         free(res->key);
@@ -121,12 +125,17 @@ static void copy_lastip(SESSION *sess, const struct addrinfo * ai) {
 }
 
 
+#ifndef LHASH_OF
+#define LHASH_OF(x) LHASH
+#define CHECKED_LHASH_OF(type, h) h
+#endif
+
 /*
  * Add a new key/content pair to a hash table
  * the table should be already locked
  */
 static void
-t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_len)
+t_add(LHASH_OF(TABNODE) *const tab, const char *key, const void *content, const size_t cont_len)
 {
     TABNODE *t, *old;
 
@@ -147,7 +156,11 @@ t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_
     }
     memcpy(t->content, content, cont_len);
     t->last_acc = time(NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((old = LHM_lh_insert(TABNODE, tab, t)) != NULL) {
+#else
     if((old = (TABNODE *)lh_insert(tab, t)) != NULL) {
+#endif
         free(old->key);
         free(old->content);
         free(old);
@@ -162,12 +175,16 @@ t_add(LHASH *const tab, const char *key, const void *content, const size_t cont_
  * side-effect: update the time of last access
  */
 static void *
-t_find(LHASH *const tab, char *const key)
+t_find(LHASH_OF(TABNODE) *const tab, char *const key)
 {
     TABNODE t, *res;
 
     t.key = key;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((res = LHM_lh_retrieve(TABNODE, tab, &t)) != NULL) {
+#else
     if((res = (TABNODE *)lh_retrieve(tab, &t)) != NULL) {
+#endif
         res->last_acc = time(NULL);
         return res->content;
     }
@@ -178,7 +195,7 @@ t_find(LHASH *const tab, char *const key)
  * Delete a key
  */
 static void
-t_remove(SERVICE *const svc, LHASH *const tab, char *const key)
+t_remove(SERVICE *const svc, LHASH_OF(TABNODE) *const tab, char *const key)
 {
     TABNODE t, *res;
     SESSION *sess;
@@ -190,7 +207,7 @@ t_remove(SERVICE *const svc, LHASH *const tab, char *const key)
 
 typedef struct  {
     SERVICE *svc;
-    LHASH   *tab;
+    LHASH_OF(TABNODE)   *tab;
     time_t  lim;
     time_t  lim2;
     void    *content;
@@ -198,24 +215,27 @@ typedef struct  {
 }   ALL_ARG;
 
 static void
-t_old(TABNODE *t, void *arg)
+t_old_doall_arg(TABNODE *t, ALL_ARG *a)
 {
     TABNODE *res;
-    ALL_ARG *a;
     SESSION *sess;
 
-    a = (ALL_ARG *)arg;
     if(t->last_acc < ((*((SESSION**)t->content))->delete_pending?a->lim2:a->lim))
         delete_session(a->svc, a->tab, t);
     return;
 }
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE, ALL_ARG)
+#else
+#define t_old t_old_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_old, TABNODE *, ALL_ARG *)
+#endif
 
 /*
  * Expire all old nodes
  */
 static void
-t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim, const time_t del_lim)
+t_expire(SERVICE *const svc, LHASH_OF(TABNODE) *const tab, const time_t lim, const time_t del_lim)
 {
     ALL_ARG a;
     int down_load;
@@ -224,10 +244,14 @@ t_expire(SERVICE *const svc, LHASH *const tab, const time_t lim, const time_t de
     a.tab = tab;
     a.lim = lim;
     a.lim2 = del_lim;
-    down_load = tab->down_load;
-    tab->down_load = 0;
+    down_load = CHECKED_LHASH_OF(TABNODE, tab)->down_load;
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, tab, LHASH_DOALL_ARG_FN(t_old), ALL_ARG, &a);
+#else
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_old), &a);
-    tab->down_load = down_load;
+#endif
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = down_load;
     return;
 }
 
@@ -254,34 +278,38 @@ del_pending(SESSION **list)
 }
 
 static void
-t_cont(TABNODE *t, void *arg)
+t_cont_doall_arg(TABNODE *t, ALL_ARG *a)
 {
-    ALL_ARG *a;
-
-    a = (ALL_ARG *)arg;
     if(memcmp(t->content, a->content, a->cont_len) == 0)
         delete_session(a->svc, a->tab, t);
     return;
 }
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE, ALL_ARG)
+#else
+#define t_cont t_cont_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont, TABNODE *, ALL_ARG *)
+#endif
 
 static void
-t_cont_be(TABNODE *t, void *arg)
+t_cont_be_doall_arg(TABNODE *t, ALL_ARG *a)
 {
-    ALL_ARG *a;
-
-    a = (ALL_ARG *)arg;
     if(memcmp(((SESSION*)t->content)->be, a->content, a->cont_len) == 0)
         delete_session(a->svc, a->tab, t);
     return;
 }
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE, ALL_ARG)
+#else
+#define t_cont_be t_cont_be_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_cont_be, TABNODE *, ALL_ARG *)
+#endif
 
 /*
  * Remove all nodes with the given content
  */
 static void
-t_clean(SERVICE *const svc, LHASH *const tab, void *const content, const size_t cont_len)
+t_clean(SERVICE *const svc, LHASH_OF(TABNODE) *const tab, void *const content, const size_t cont_len)
 {
     ALL_ARG a;
     int down_load;
@@ -290,10 +318,14 @@ t_clean(SERVICE *const svc, LHASH *const tab, void *const content, const size_t 
     a.tab = tab;
     a.content = content;
     a.cont_len = cont_len;
-    down_load = tab->down_load;
-    tab->down_load = 0;
+    down_load = CHECKED_LHASH_OF(TABNODE, tab)->down_load;
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, tab, LHASH_DOALL_ARG_FN(t_cont), ALL_ARG, &a);
+#else
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_cont), &a);
-    tab->down_load = down_load;
+#endif
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = down_load;
     return;
 }
 
@@ -301,7 +333,7 @@ t_clean(SERVICE *const svc, LHASH *const tab, void *const content, const size_t 
  * Remove all nodes with the given content
  */
 static void
-t_clean_be(SERVICE *const svc, LHASH *const tab, void *const content, const size_t cont_len)
+t_clean_be(SERVICE *const svc, LHASH_OF(TABNODE) *const tab, void *const content, const size_t cont_len)
 {
     ALL_ARG a;
     int down_load;
@@ -310,10 +342,14 @@ t_clean_be(SERVICE *const svc, LHASH *const tab, void *const content, const size
     a.tab = tab;
     a.content = content;
     a.cont_len = cont_len;
-    down_load = tab->down_load;
-    tab->down_load = 0;
+    down_load = CHECKED_LHASH_OF(TABNODE, tab)->down_load;
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, tab, LHASH_DOALL_ARG_FN(t_cont_be), ALL_ARG, &a);
+#else
     lh_doall_arg(tab, LHASH_DOALL_ARG_FN(t_cont_be), &a);
-    tab->down_load = down_load;
+#endif
+    CHECKED_LHASH_OF(TABNODE, tab)->down_load = down_load;
     return;
 }
 
@@ -1909,14 +1945,12 @@ typedef struct  {
 }   DUMP_ARG;
 
 static void
-t_dump(TABNODE *t, void *arg)
+t_dump_doall_arg(TABNODE *t, DUMP_ARG *a)
 {
-    DUMP_ARG    *a;
     BACKEND     *be;
     SESSION     *sess;
     int         n_be, sz;
 
-    a = (DUMP_ARG *)arg;
     memcpy(&sess, t->content, sizeof(sess));
     for(n_be = 0, be = a->backends; be; be = be->next, n_be++)
         if(be == sess->be)
@@ -1934,19 +1968,28 @@ t_dump(TABNODE *t, void *arg)
     return;
 }
 
-IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE *, void *)
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE, DUMP_ARG)
+#else
+#define t_dump t_dump_doall_arg
+IMPLEMENT_LHASH_DOALL_ARG_FN(t_dump, TABNODE *, DUMP_ARG *)
+#endif
 
 /*
  * write sessions to the control socket
  */
 static void
-dump_sess(const int control_sock, LHASH *const sess, BACKEND *const backends)
+dump_sess(const int control_sock, LHASH_OF(TABNODE) *const sess, BACKEND *const backends)
 {
     DUMP_ARG a;
 
     a.control_sock = control_sock;
     a.backends = backends;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    LHM_lh_doall_arg(TABNODE, sess, LHASH_DOALL_ARG_FN(t_dump), DUMP_ARG, &a);
+#else
     lh_doall_arg(sess, LHASH_DOALL_ARG_FN(t_dump), &a);
+#endif
     return;
 }
 
