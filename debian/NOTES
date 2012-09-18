@@ -1,0 +1,2 @@
+This branch is for Ubuntu oneiric and newer... has FREEBIND/TRANSPROXY defines in /usr/include/triplet/bits/in.h, and works with openssl 1.0.0
+
