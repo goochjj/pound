@@ -377,7 +377,9 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+#ifdef SSL_OP_NO_COMPRESSION
             SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
+#endif
             SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
             SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
@@ -398,7 +400,9 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+#ifdef SSL_OP_NO_COMPRESSION
             SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
+#endif
             SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
             SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
@@ -986,7 +990,10 @@ parse_HTTPS(void)
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
 
-    ssl_op_enable = SSL_OP_ALL | SSL_OP_NO_COMPRESSION;
+    ssl_op_enable = SSL_OP_ALL;
+#ifdef SSL_OP_NO_COMPRESSION
+    ssl_op_enable |= SSL_OP_NO_COMPRESSION;
+#endif
     ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
