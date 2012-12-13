@@ -76,8 +76,8 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
-static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, Disabled, Threads, CNName;
+static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers, Disabled, Threads, CNName;
 
 static regmatch_t   matches[5];
 
@@ -325,6 +325,11 @@ parse_be(const int is_emergency)
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+        } else if(!regexec(&HTTPSCiphers, lin, 4, matches, 0)) {
+            if(res->ctx == NULL)
+                conf_err("HTTPSCiphers may only be used after HTTPS or HTTPSCert - aborted");
+            lin[matches[1].rm_eo] = '\0';
+            SSL_CTX_set_cipher_list(res->ctx, lin + matches[1].rm_so);
         } else if(!regexec(&Disabled, lin, 4, matches, 0)) {
             res->disabled = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
@@ -1348,6 +1353,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&HTTPSCiphers, "^[ \t]*HTTPSCiphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&VerifyList, "^[ \t]*VerifyList[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CRLlist, "^[ \t]*CRLlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1508,6 +1514,7 @@ config_parse(const int argc, char **const argv)
     regfree(&SSLAllowClientRenegotiation);
     regfree(&SSLHonorCipherOrder);
     regfree(&Ciphers);
+    regfree(&HTTPSCiphers);
     regfree(&CAlist);
     regfree(&VerifyList);
     regfree(&CRLlist);

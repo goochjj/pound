@@ -715,6 +715,13 @@ is specified,
 .B Pound
 will present this certificate to the back-end.
 .TP
+\fBHTTPSCiphers\fR "acceptable:cipher:list"
+This is the list of ciphers that will be attempted by the SSL connection; it is a
+string in the same format as in OpenSSL
+.I ciphers(1)
+and
+.I SSL_CTX_set_cipher_list(3).
+.TP
 \fBPriority\fR val
 The priority of this back-end (between 1 and 9, 5 is default). Higher priority
 back-ends will be used more often than lower priority ones, so you should
