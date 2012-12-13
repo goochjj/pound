@@ -533,12 +533,16 @@ following additional directives are also available:
 Specify the server certificate. The
 .I certificate file
 is the file containing the certificate, possibly a certificate chain and the signature
-for this server. This directive is
+for this server. This directive or the
+.I CertDir
+directive is
 .B mandatory
 for HTTPS listeners.
 .IP
 Please note that multiple
 .I Cert
+or
+.I CertDir
 directives are allowed if your OpenSSL version supports SNI. In such cases,
 the first directive is the default certificate, with additional certificates
 used if the client requests them.
@@ -550,6 +554,43 @@ most-specific-to-least specific order (i.e. wildcard certificates
 host-specific certificates).
 .IP
 .I Cert
+and
+.I CertDir
+directives
+.B must
+precede all other SSL-specific directives.
+.TP
+\fBCertDir\fR "certificate directory"
+Specify the server certificate or certificates. The
+.I certificate directory
+is a directory path containing one or more certificates, possibly a certificate chain and the signature
+for this server. This directive or 
+.I Cert
+is
+.B mandatory
+for HTTPS listeners.
+.IP
+If a wildcard is specified, it will be honored.  Otherwise all files will be loaded from that directory.
+For example, "/etc/certs/*.pem" will load all files from that directory that match the file extension given.
+.IP
+Please note that multiple
+.I Cert
+or
+.I CertDir
+directives are allowed if your OpenSSL version supports SNI. In such cases,
+the first directive is the default certificate, with additional certificates
+used if the client requests them.
+.IP
+The filenames in the directory will be sorted before being loaded. The order of files
+is important: the first certificate where the CN
+matches the client request will be used, so sort your files in the
+most-specific-to-least specific order (i.e. wildcard certificates
+.B after
+host-specific certificates).
+.IP
+.I Cert
+and
+.I CertDir
 directives
 .B must
 precede all other SSL-specific directives.
