@@ -74,7 +74,7 @@ static CODE facilitynames[] = {
 #endif
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
-static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
+static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, CertDir, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
@@ -122,6 +122,9 @@ static FILE *f_in[MAX_FIN];
 static char *f_name[MAX_FIN];
 static int  n_lin[MAX_FIN];
 static int  cur_fin;
+
+static void load_cert(int has_other, LISTENER *res, char *filename);
+static void load_certdir(int has_other, LISTENER *res, const char *dir_path);
 
 static int
 conf_init(const char *name)
@@ -1172,73 +1175,11 @@ parse_HTTPS(void)
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             res->log_level = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Cert, lin, 4, matches, 0)) {
-#ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
-            /* we have support for SNI */
-            FILE        *fcert;
-            char        server_name[MAXBUF], *cp;
-            X509        *x509;
-
-            if(has_other)
-                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
-            if(res->ctx) {
-                for(pc = res->ctx; pc->next; pc = pc->next)
-                    ;
-                if((pc->next = malloc(sizeof(POUND_CTX))) == NULL)
-                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
-                pc = pc->next;
-            } else {
-                if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
-                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
-                pc = res->ctx;
-            }
-            if((pc->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
-                conf_err("SSL_CTX_new failed - aborted");
-            pc->server_name = NULL;
-            pc->next = NULL;
             lin[matches[1].rm_eo] = '\0';
-            if(SSL_CTX_use_certificate_chain_file(pc->ctx, lin + matches[1].rm_so) != 1)
-                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
-            if(SSL_CTX_use_PrivateKey_file(pc->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
-                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
-            if(SSL_CTX_check_private_key(pc->ctx) != 1)
-                conf_err("SSL_CTX_check_private_key failed - aborted");
-            if((fcert = fopen(lin + matches[1].rm_so, "r")) == NULL)
-                conf_err("ListenHTTPS: could not open certificate file");
-            if((x509 = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL)
-                conf_err("ListenHTTPS: could not get certificate subject");
-            fclose(fcert);
-            memset(server_name, '\0', MAXBUF);
-            X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
-            pc->subjectAltNameCount = 0;
-            pc->subjectAltNames = NULL;
-            pc->subjectAltNames = get_subjectaltnames(x509, &(pc->subjectAltNameCount));
-            X509_free(x509);
-            if(!regexec(&CNName, server_name, 4, matches, 0)) {
-                server_name[matches[1].rm_eo] = '\0';
-                if((pc->server_name = strdup(server_name + matches[1].rm_so)) == NULL)
-                    conf_err("ListenHTTPS: could not set certificate subject");
-            } else
-                conf_err("ListenHTTPS: could not get certificate CN");
-#else
-            /* no SNI support */
-            if(has_other)
-                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
-            if(res->ctx)
-                conf_err("ListenHTTPS: multiple certificates not supported - aborted");
-            if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
-                conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
-            res->ctx->server_name = NULL;
-            res->ctx->next = NULL;
-            if((res->ctx->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
-                conf_err("SSL_CTX_new failed - aborted");
+            load_cert(has_other, res, lin+matches[1].rm_so);
+        } else if(!regexec(&CertDir, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
-            if(SSL_CTX_use_certificate_chain_file(res->ctx->ctx, lin + matches[1].rm_so) != 1)
-                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
-            if(SSL_CTX_use_PrivateKey_file(res->ctx->ctx, lin + matches[1].rm_so, SSL_FILETYPE_PEM) != 1)
-                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
-            if(SSL_CTX_check_private_key(res->ctx->ctx) != 1)
-                conf_err("SSL_CTX_check_private_key failed - aborted");
-#endif
+            load_certdir(has_other, res, lin+matches[1].rm_so);
         } else if(!regexec(&ClientCert, lin, 4, matches, 0)) {
             has_other = 1;
             if(res->ctx == NULL)
@@ -1450,6 +1391,130 @@ parse_HTTPS(void)
     return NULL;
 }
 
+static void load_certdir(int has_other, LISTENER *res, const char *dir_path) {
+    DIR * dp;
+    struct dirent *de;
+
+    char buf[512];
+    char *files[200], *cp;
+    char *pattern;
+    int filecnt = 0;
+    int idx,use;
+
+    logmsg(LOG_DEBUG, "Including Certs from Dir %s", dir_path);
+
+    pattern = strrchr(dir_path, '/');
+    if (pattern) {
+        *pattern++ = 0;
+        if (!*pattern) pattern = NULL;
+    }
+
+    if((dp = opendir(dir_path)) == NULL) {
+        conf_err("can't open IncludeDir directory");
+        exit(1);
+    }
+
+    while((de = readdir(dp))!=NULL) {
+        if (de->d_name[0] == '.') continue;
+	if (!pattern || fnmatch(pattern, de->d_name, 0) == 0 ) {
+            snprintf(buf, sizeof(buf), "%s%s%s", dir_path, (dir_path[strlen(dir_path)-1]=='/')?"":"/", de->d_name);
+            buf[sizeof(buf)-1] = 0;
+            if (filecnt == sizeof(files)/sizeof(*files)) {
+                conf_err("Max certificate files per directory reached");
+            }
+            if ((files[filecnt++] = strdup(buf)) == NULL) {
+                conf_err("CertDir out of memory");
+            }
+            continue;
+        }
+    }
+    /* We order the list, and load in ascending order */
+    while(filecnt) {
+        use = 0;
+        for(idx = 1; idx<filecnt; idx++)
+            if (strcmp(files[use], files[idx])>0)
+                use=idx;
+
+        logmsg(LOG_DEBUG, " I Cert ==> %s", files[use]);
+
+        load_cert(has_other, res, files[use]);
+        files[use] = files[--filecnt];
+    }
+
+    closedir(dp);
+}
+
+static void
+load_cert(int has_other, LISTENER *res, char *filename)
+{
+	POUND_CTX *pc;
+#ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
+            /* we have support for SNI */
+            FILE        *fcert;
+            char        server_name[MAXBUF], *cp;
+            X509        *x509;
+
+            if(has_other)
+                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
+            if(res->ctx) {
+                for(pc = res->ctx; pc->next; pc = pc->next)
+                    ;
+                if((pc->next = malloc(sizeof(POUND_CTX))) == NULL)
+                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
+                pc = pc->next;
+            } else {
+                if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
+                    conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
+                pc = res->ctx;
+            }
+            if((pc->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
+                conf_err("SSL_CTX_new failed - aborted");
+            pc->server_name = NULL;
+            pc->next = NULL;
+            if(SSL_CTX_use_certificate_chain_file(pc->ctx, filename) != 1)
+                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
+            if(SSL_CTX_use_PrivateKey_file(pc->ctx, filename, SSL_FILETYPE_PEM) != 1)
+                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
+            if(SSL_CTX_check_private_key(pc->ctx) != 1)
+                conf_err("SSL_CTX_check_private_key failed - aborted");
+            if((fcert = fopen(filename, "r")) == NULL)
+                conf_err("ListenHTTPS: could not open certificate file");
+            if((x509 = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL)
+                conf_err("ListenHTTPS: could not get certificate subject");
+            fclose(fcert);
+            memset(server_name, '\0', MAXBUF);
+            X509_NAME_oneline(X509_get_subject_name(x509), server_name, MAXBUF - 1);
+            pc->subjectAltNameCount = 0;
+            pc->subjectAltNames = NULL;
+            pc->subjectAltNames = get_subjectaltnames(x509, &(pc->subjectAltNameCount));
+            X509_free(x509);
+            if(!regexec(&CNName, server_name, 4, matches, 0)) {
+                server_name[matches[1].rm_eo] = '\0';
+                if((pc->server_name = strdup(server_name + matches[1].rm_so)) == NULL)
+                    conf_err("ListenHTTPS: could not set certificate subject");
+            } else
+                conf_err("ListenHTTPS: could not get certificate CN");
+#else
+            /* no SNI support */
+            if(has_other)
+                conf_err("Cert directives MUST precede other SSL-specific directives - aborted");
+            if(res->ctx)
+                conf_err("ListenHTTPS: multiple certificates not supported - aborted");
+            if((res->ctx = malloc(sizeof(POUND_CTX))) == NULL)
+                conf_err("ListenHTTPS new POUND_CTX: out of memory - aborted");
+            res->ctx->server_name = NULL;
+            res->ctx->next = NULL;
+            if((res->ctx->ctx = SSL_CTX_new(SSLv23_server_method())) == NULL)
+                conf_err("SSL_CTX_new failed - aborted");
+            if(SSL_CTX_use_certificate_chain_file(res->ctx->ctx, filename) != 1)
+                conf_err("SSL_CTX_use_certificate_chain_file failed - aborted");
+            if(SSL_CTX_use_PrivateKey_file(res->ctx->ctx, filename, SSL_FILETYPE_PEM) != 1)
+                conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
+            if(SSL_CTX_check_private_key(res->ctx->ctx) != 1)
+                conf_err("SSL_CTX_check_private_key failed - aborted");
+#endif
+}
+
 /*
  * parse the config file
  */
@@ -1645,6 +1710,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Address, "^[ \t]*Address[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Port, "^[ \t]*Port[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Cert, "^[ \t]*Cert[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&CertDir, "^[ \t]*CertDir[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&xHTTP, "^[ \t]*xHTTP[ \t]+([01234])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Client, "^[ \t]*Client[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CheckURL, "^[ \t]*CheckURL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1825,6 +1891,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Address);
     regfree(&Port);
     regfree(&Cert);
+    regfree(&CertDir);
     regfree(&xHTTP);
     regfree(&Client);
     regfree(&CheckURL);
