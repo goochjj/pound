@@ -561,6 +561,9 @@ is
 .B mandatory
 for HTTPS listeners.
 .IP
+If a wildcard is specified, it will be honored.  Otherwise all files will be loaded from that directory.
+For example, "/etc/certs/*.pem" will load all files from that directory that match the file extension given.
+.IP
 Please note that multiple
 .I Cert
 or

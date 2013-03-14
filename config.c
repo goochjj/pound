@@ -1326,10 +1326,17 @@ static void load_certdir(int has_other, LISTENER *res, const char *dir_path) {
 
     char buf[512];
     char *files[200], *cp;
+    char *pattern;
     int filecnt = 0;
     int idx,use;
 
     logmsg(LOG_DEBUG, "Including Certs from Dir %s", dir_path);
+
+    pattern = strrchr(dir_path, '/');
+    if (pattern) {
+        *pattern++ = 0;
+        if (!*pattern) pattern = NULL;
+    }
 
     if((dp = opendir(dir_path)) == NULL) {
         conf_err("can't open IncludeDir directory");
@@ -1338,9 +1345,7 @@ static void load_certdir(int has_other, LISTENER *res, const char *dir_path) {
 
     while((de = readdir(dp))!=NULL) {
         if (de->d_name[0] == '.') continue;
-        if ( (strlen(de->d_name) >= 5 && !strncmp(de->d_name + strlen(de->d_name) - 4, ".pem", 4)) ||
-             (strlen(de->d_name) >= 5 && !strncmp(de->d_name + strlen(de->d_name) - 4, ".crt", 4))
-           ){
+	if (!pattern || fnmatch(pattern, de->d_name, 0) == 0 ) {
             snprintf(buf, sizeof(buf), "%s%s%s", dir_path, (dir_path[strlen(dir_path)-1]=='/')?"":"/", de->d_name);
             buf[sizeof(buf)-1] = 0;
             if (filecnt == sizeof(files)/sizeof(*files)) {
