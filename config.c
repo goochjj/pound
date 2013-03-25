@@ -1025,7 +1025,7 @@ parse_HTTPS(void)
 #ifdef SSL_OP_NO_COMPRESSION
     ssl_op_enable |= SSL_OP_NO_COMPRESSION;
 #endif
-    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
+    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT | SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
         conf_err("ListenHTTPS config: out of memory - aborted");
