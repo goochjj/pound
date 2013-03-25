@@ -77,7 +77,7 @@ static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequ
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, DeathTTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
-static regex_t  ForceHTTP10, SSLUncleanShutdown;
+static regex_t  ForceHTTP10, SSLUncleanShutdown, IPFreebind, IPTransparent;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 static regex_t  Enabled;
 
@@ -923,6 +923,18 @@ parse_HTTP(void)
             res->rewr_dest = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogLevel, lin, 4, matches, 0)) {
             res->log_level = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&IPFreebind, lin, 4, matches, 0)) {
+#ifdef IP_FREEBIND
+            res->freebind = atoi(lin + matches[1].rm_so);
+#else
+            conf_err("Compiled without IP_FREEBIND support");
+#endif
+        } else if(!regexec(&IPTransparent, lin, 4, matches, 0)) {
+#ifdef IP_TRANSPARENT
+            res->transparent = atoi(lin + matches[1].rm_so);
+#else
+            conf_err("Compiled without IP_TRANSPARENT support");
+#endif
         } else if(!regexec(&ForceHTTP10, lin, 4, matches, 0)) {
             if((m = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
                 conf_err("out of memory");
@@ -1015,6 +1027,8 @@ parse_HTTPS(void)
     res->nossl_redir = 0;
     res->allow_client_reneg = 0;
     res->log_level = log_level;
+    res->freebind = 0;
+    res->transparent = 0;
     had_ctxspec = 0;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
@@ -1261,6 +1275,18 @@ parse_HTTPS(void)
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_ICASE | REG_NEWLINE | REG_EXTENDED))
                 conf_err("bad pattern");
+        } else if(!regexec(&IPFreebind, lin, 4, matches, 0)) {
+#ifdef IP_FREEBIND
+            res->freebind = atoi(lin + matches[1].rm_so);
+#else
+            conf_err("Compiled without IP_FREEBIND support");
+#endif
+        } else if(!regexec(&IPTransparent, lin, 4, matches, 0)) {
+#ifdef IP_TRANSPARENT
+            res->transparent = atoi(lin + matches[1].rm_so);
+#else
+            conf_err("Compiled without IP_TRANSPARENT support");
+#endif
         } else if(!regexec(&Service, lin, 4, matches, 0)) {
             if(res->services == NULL)
                 res->services = parse_service(NULL, 0);
@@ -1560,6 +1586,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&NoHTTPS11, "^[ \t]*NoHTTPS11[ \t]+([0-2])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ForceHTTP10, "^[ \t]*ForceHTTP10[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLUncleanShutdown, "^[ \t]*SSLUncleanShutdown[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&IPFreebind, "^[ \t]*IPFreebind[ \t]+([0-1])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&IPTransparent, "^[ \t]*IPTransparent[ \t]+([0-1])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Include, "^[ \t]*Include[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&IncludeDir, "^[ \t]*IncludeDir[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ConnTO, "^[ \t]*ConnTO[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1741,6 +1769,8 @@ config_parse(const int argc, char **const argv)
     regfree(&NoHTTPS11);
     regfree(&ForceHTTP10);
     regfree(&SSLUncleanShutdown);
+    regfree(&IPFreebind);
+    regfree(&IPTransparent);
     regfree(&Include);
     regfree(&IncludeDir);
     regfree(&ConnTO);

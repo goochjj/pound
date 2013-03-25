@@ -308,6 +308,24 @@ main(const int argc, char **argv)
         }
         opt = 1;
         setsockopt(lstn->sock, SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
+#ifdef IP_FREEBIND
+        if(lstn->freebind) {
+	    opt = 1;
+	    if(setsockopt(lstn->sock, SOL_IP, IP_FREEBIND, (void *)&opt, sizeof(opt))) {
+		logmsg(LOG_ERR, "Freebind socket error: %s - aborted", strerror(errno));
+		exit(1);
+	    }
+	}
+#endif
+#ifdef IP_TRANSPARENT
+        if(lstn->transparent) {
+	    opt = 1;
+	    if(setsockopt(lstn->sock, SOL_IP, IP_TRANSPARENT, (void *)&opt, sizeof(opt))) {
+		logmsg(LOG_ERR, "Transparent socket error: %s - aborted", strerror(errno));
+		exit(1);
+	    }
+	}
+#endif
         if(bind(lstn->sock, lstn->addr.ai_addr, (socklen_t)lstn->addr.ai_addrlen) < 0) {
             addr2str(tmp, MAXBUF - 1, &lstn->addr, 0);
             logmsg(LOG_ERR, "HTTP socket bind %s: %s - aborted", tmp, strerror(errno));

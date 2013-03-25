@@ -422,6 +422,8 @@ typedef struct _listener {
     int                 disabled;   /* true if the listener is disabled */
     int                 log_level;  /* log level for this listener */
     int			allow_client_reneg; /* Allow Client SSL Renegotiation */
+    int			freebind;   /* 1 to set IP_FREEBIND */
+    int			transparent;/* 1 to set IP_TRANSPARENT */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
