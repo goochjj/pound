@@ -389,8 +389,14 @@ addr2str(char *const res, const int res_len, const struct addrinfo *addr, const 
     case AF_INET6:
         src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr;
         port = ntohs(((struct sockaddr_in6 *)addr->ai_addr)->sin6_port);
-        if(inet_ntop(AF_INET6, src, buf, MAXBUF - 1) == NULL)
-            strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        if( IN6_IS_ADDR_V4MAPPED( &(((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr) )) {
+            src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr[12];
+            if(inet_ntop(AF_INET, src, buf, MAXBUF - 1) == NULL)
+                strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        } else {
+            if(inet_ntop(AF_INET6, src, buf, MAXBUF - 1) == NULL)
+                strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        }
         break;
     case AF_UNIX:
         strncpy(buf, (char *)addr->ai_addr, MAXBUF - 1);
