@@ -33,7 +33,9 @@ C_GROUP="@C_GROUP@"
 C_SUPER="@C_SUPER@"
 C_CERT1L="@C_CERT1L@"
 
+# Debian doesn't define freebind and transparent, so we do that here
 CFLAGS=-DF_CONF=\"$(F_CONF)\" -DVERSION=\"${VERSION}\" -DC_SSL=\"${C_SSL}\" -DC_T_RSA=\"${C_T_RSA}\" \
+	-DIP_FREEBIND=15 -DIP_TRANSPARENT=19 \
 	-DC_MAXBUF=\"${C_MAXBUF}\" -DC_OWNER=\"${C_OWNER}\" -DC_GROUP=\"${C_GROUP}\" -DC_SUPER=\"${C_SUPER}\" \
 	-DC_CERT1L=\"${C_CERT1L}\" @CFLAGS@ @PTHREAD_CFLAGS@ @CPPFLAGS@
 LIBS=@LIBS@ @PTHREAD_LIBS@
