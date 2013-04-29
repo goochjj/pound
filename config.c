@@ -76,7 +76,7 @@ static CODE facilitynames[] = {
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, CertDir, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
-static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
+static regex_t  Service, ServiceName, URL, URLMatch, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers;
@@ -655,6 +655,8 @@ parse_service(const char *svc_name)
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case? REG_ICASE: 0)))
                 conf_err("URL bad pattern - aborted");
+        } else if(!regexec(&URLMatch, lin, 4, matches, 0)) {
+            res->urlmatch_or = ((lin[matches[1].rm_so]&~0x20) == 'O')?1:0;
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
             if(res->req_head) {
                 for(m = res->req_head; m->next; m = m->next)
@@ -1641,6 +1643,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&URLMatch, "^[ \t]*URLMatch[ \t]+\"?(Or|And)\"?[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+|Session)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1816,6 +1819,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&URLMatch);
     regfree(&BackendCookie);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
