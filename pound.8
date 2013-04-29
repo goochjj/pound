@@ -671,7 +671,7 @@ will be skipped and next one tried. If all services fail to match
 .B Pound
 returns an error. You may define multiple
 .I URL
-conditions per service. If no
+conditions per service, in which case at least one of them must match. If no
 .I URL
 was defined then all requests match. The matching is by default case-sensitive,
 but this can be overridden by specifying
