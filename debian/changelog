@@ -1,3 +1,11 @@
+sapphire-pound25 (2.5-4) stable; urgency=low
+
+  * Freebind+Transparent
+  * IPv6 ::ffff addresses as ipv4 formatting fix
+  * Empty fragments SSL mitigation
+
+ -- Joseph Gooch <mrwizard@k12system.com>  Tue, 07 May 2013 14:46:26 +0000
+
 sapphire-pound25 (2.5-3) unstable; urgency=high
 
   * Fix session looping issues
