@@ -1,0 +1,2 @@
+This branch is for squeeze and lenny... has FREEBIND/TRANSPROXY defines that don't exist in that version of LibC, plus works with openssl 0.9.8.
+
