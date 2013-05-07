@@ -1,0 +1,2 @@
+This branch is for squeeze... has FREEBIND/TRANSPROXY defines that don't exist in that version of LibC.  Also made to work with OpenSSL 1.0.0 from wheezy/squeeze-supplement.
+
