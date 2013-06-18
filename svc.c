@@ -1760,10 +1760,10 @@ thr_control(void *arg)
                     (void)write(ctl, (void *)svc, sizeof(SERVICE));
                     for(be = svc->backends; be; be = be->next) {
                         (void)write(ctl, (void *)be, sizeof(BACKEND));
-                        (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         sz = be->bekey?strlen(be->bekey):0;
                         (void)write(ctl, (void *)&sz, sizeof(sz));
                         if(sz>0) (void)write(ctl, (void *)be->bekey, sz);
+                        (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         if(be->ha_addr.ai_addrlen > 0)
                             (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
                     }
@@ -1784,10 +1784,10 @@ thr_control(void *arg)
                 (void)write(ctl, (void *)svc, sizeof(SERVICE));
                 for(be = svc->backends; be; be = be->next) {
                     (void)write(ctl, (void *)be, sizeof(BACKEND));
-                    (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     sz = be->bekey?strlen(be->bekey):0;
                     (void)write(ctl, (void *)&sz, sizeof(sz));
                     if(sz>0) (void)write(ctl, (void *)be->bekey, sz);
+                    (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     if(be->ha_addr.ai_addrlen > 0)
                         (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
                 }
