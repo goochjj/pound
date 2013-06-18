@@ -1813,6 +1813,21 @@ thr_control(void *arg)
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
             break;
+        case CTRL_FLUSH_SESS:
+            if((svc = sel_svc(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad service %d/%d", cmd.listener, cmd.service);
+                break;
+            }
+            if((be = sel_be(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
+                break;
+            }
+            if(ret_val = pthread_mutex_lock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session lock: %s", strerror(ret_val));
+            t_clean(svc->sessions, &be, sizeof(be));
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
+            break;
         default:
             logmsg(LOG_WARNING, "thr_control() unknown command");
             break;
