@@ -41,6 +41,7 @@ usage(const char *arg0)
     fprintf(stderr, "\t-s n m - disable service m in service n (use -1 for global services)\n");
     fprintf(stderr, "\t-B n m r - enable back-end r in service m in listener n\n");
     fprintf(stderr, "\t-b n m r - disable back-end r in service m in listener n\n");
+    fprintf(stderr, "\t-f n m r - flush all sessions for back-end r in service m in listener n\n");
     fprintf(stderr, "\t-N n m k r - add a session with key k and back-end r in service m in listener n\n");
     fprintf(stderr, "\t-n n m k - remove a session with key k r in service m in listener n\n");
     fprintf(stderr, "\n");
@@ -216,7 +217,7 @@ main(const int argc, char **argv)
     CTRL_CMD    cmd;
     int         sock, n_lstn, n_svc, n_be, n_sess, i;
     char        *arg0, *sock_name, buf[KEY_SIZE + 1];
-    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, is_set;
+    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, f_sess, is_set;
     LISTENER    lstn;
     SERVICE     svc;
     BACKEND     be;
@@ -225,7 +226,7 @@ main(const int argc, char **argv)
 
     arg0 = *argv;
     sock_name = NULL;
-    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = 0;
+    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = f_sess = 0;
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
     i = 0;
@@ -276,6 +277,11 @@ main(const int argc, char **argv)
             if(is_set)
                 usage(arg0);
             d_sess = is_set = 1;
+            break;
+        case 'f':
+            if(is_set)
+                usage(arg0);
+            f_sess = is_set = 1;
             break;
         case 'H':
             host_names = 1;
@@ -331,6 +337,14 @@ main(const int argc, char **argv)
         cmd.listener = atoi(argv[optind++]);
         cmd.service = atoi(argv[optind++]);
         strncpy(cmd.key, argv[optind++], KEY_SIZE);
+    }
+    if(f_sess) {
+        if(optind != (argc - 3))
+            usage(arg0);
+        cmd.cmd = CTRL_FLUSH_SESS;
+        cmd.listener = atoi(argv[optind++]);
+        cmd.service = atoi(argv[optind++]);
+        cmd.backend = atoi(argv[optind++]);
     }
     if(!is_set) {
         if(optind != argc)
