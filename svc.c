@@ -924,7 +924,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
         if((memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
           || strcasecmp(host, buf) == 0)
         && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
-          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+          /*|| strcasecmp(proto, (lstn->ctx == NULL)? "http": "https")*/ )) {
             free(addr.ai_addr);
             return 1;
         }
@@ -936,7 +936,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
         if((memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
           || strcasecmp(host, buf) == 0)
         && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
-          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+          /*|| strcasecmp(proto, (lstn->ctx == NULL)? "http": "https")*/ )) {
             free(addr.ai_addr);
             return 1;
         }
