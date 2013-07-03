@@ -76,7 +76,7 @@ static CODE facilitynames[] = {
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, CertDir, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
-static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
+static regex_t  Service, ServiceName, URL, OrURLs, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS;
@@ -645,6 +645,56 @@ static IMPLEMENT_LHASH_COMP_FN(t, TABNODE)
 static IMPLEMENT_LHASH_COMP_FN(t_cmp, const TABNODE *)
 #endif
 
+/*
+ * parse an OrURLs block
+ *
+ * Forms a composite pattern of all URLs within
+ * of the form ((url1)|(url2)|(url3)) (and so on)
+ */
+static char *
+parse_orurls()
+{
+    char    lin[MAXBUF];
+    char    *pattern;
+    regex_t comp;
+
+    pattern = NULL;
+    while(conf_fgets(lin, MAXBUF)) {
+        if(strlen(lin) > 0 && lin[strlen(lin) - 1] == '\n')
+            lin[strlen(lin) - 1] = '\0';
+        if(!regexec(&URL, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            /* Verify the pattern is valid */
+            if(regcomp(&comp, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED ))
+                conf_err("URL bad pattern - aborted");
+            regfree(&comp);
+            if (pattern==NULL) {
+                if((pattern = (char *)malloc(strlen(lin + matches[1].rm_so)+5)) == NULL)
+                    conf_err("OrURLs config: out of memory - aborted");
+                *pattern = 0;
+                strcat(pattern, "((");
+                strcat(pattern, lin + matches[1].rm_so);
+                strcat(pattern, "))");
+            } else {
+                if((pattern = (char *)realloc(pattern, strlen(pattern) + strlen(lin + matches[1].rm_so) + 4)) == NULL)
+                    conf_err("OrURLs config: out of memory - aborted");
+                pattern[strlen(pattern)-1]=0;
+                strcat(pattern, "|(");
+                strcat(pattern, lin + matches[1].rm_so);
+                strcat(pattern, "))");
+            }
+        } else if(!regexec(&End, lin, 4, matches, 0)) {
+            if (!pattern)
+                conf_err("No URL directives specified within OrURLs block");
+            return pattern;
+        } else {
+            conf_err("unknown directive");
+        }
+    }
+
+    conf_err("OrURLs premature EOF");
+    return NULL;
+}
 
 /*
  * parse a service
@@ -654,6 +704,7 @@ parse_service(const char *svc_name)
 {
     char        lin[MAXBUF];
     char        pat[MAXBUF];
+    char        *ptr;
     SERVICE     *res;
     BACKEND     *be;
     MATCHER     *m;
@@ -693,6 +744,23 @@ parse_service(const char *svc_name)
             lin[matches[1].rm_eo] = '\0';
             if(regcomp(&m->pat, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED | (ign_case? REG_ICASE: 0)))
                 conf_err("URL bad pattern - aborted");
+        } else if(!regexec(&OrURLs, lin, 4, matches, 0)) {
+            if(res->url) {
+                for(m = res->url; m->next; m = m->next)
+                    ;
+                if((m->next = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                    conf_err("URL config: out of memory - aborted");
+                m = m->next;
+            } else {
+                if((res->url = (MATCHER *)malloc(sizeof(MATCHER))) == NULL)
+                    conf_err("URL config: out of memory - aborted");
+                m = res->url;
+            }
+            memset(m, 0, sizeof(MATCHER));
+            ptr = parse_orurls();
+            if(regcomp(&m->pat, ptr, REG_NEWLINE | REG_EXTENDED | (ign_case? REG_ICASE: 0)))
+                conf_err("OrURLs bad pattern - aborted");
+            free(ptr);
         } else if(!regexec(&HeadRequire, lin, 4, matches, 0)) {
             if(res->req_head) {
                 for(m = res->req_head; m->next; m = m->next)
@@ -1727,6 +1795,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Service, "^[ \t]*Service[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ServiceName, "^[ \t]*Service[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&URL, "^[ \t]*URL[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&OrURLs, "^[ \t]*OrURLS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&BackendCookie, "^[ \t]*BackendCookie[ \t]+\"(.+)\"[ \t]+\"(.*)\"[ \t]+\"(.*)\"[ \t]+([0-9]+|Session)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRequire, "^[ \t]*HeadRequire[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadDeny, "^[ \t]*HeadDeny[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1908,6 +1977,7 @@ config_parse(const int argc, char **const argv)
     regfree(&Service);
     regfree(&ServiceName);
     regfree(&URL);
+    regfree(&OrURLs);
     regfree(&BackendCookie);
     regfree(&HeadRequire);
     regfree(&HeadDeny);
