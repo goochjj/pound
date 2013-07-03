@@ -423,22 +423,10 @@ match_service(const SERVICE *svc, const char *request, char **const headers)
     MATCHER *m;
     int     i, found;
 
-    /* No URL patterns at all implies everything matches */
-    if (svc->url && svc->urlmatch_or) {
-        /* check for request - must match ANY if multiple are specified */
-        for(found = 0, m = svc->url; m && !found; m = m->next)
-            if(!regexec(&m->pat, request, 0, NULL, 0))
-                found = 1;
-        if (!found)
+    /* check for request */
+    for(m = svc->url; m; m = m->next)
+        if(regexec(&m->pat, request, 0, NULL, 0))
             return 0;
-    } else if (svc->url && !svc->urlmatch_or) {
-        /* check for request - must match ALL if multiple are specified */
-        for(found = 1, m = svc->url; m && found; m = m->next)
-            if(regexec(&m->pat, request, 0, NULL, 0))
-                found = 0;
-        if (!found)
-            return 0;
-    }
 
     /* check for required headers */
     for(m = svc->req_head; m; m = m->next) {

@@ -364,7 +364,6 @@ typedef struct _service {
                         *deny_head; /* forbidden headers */
     BACKEND             *backends;
     BACKEND             *emergency;
-    int			urlmatch_or;/* if multiple urls are specified 0=AND, 1=OR */
     int                 abs_pri;    /* abs total priority for all back-ends */
     int                 tot_pri;    /* total priority for current back-ends */
     pthread_mutex_t     mut;        /* mutex for this service */
