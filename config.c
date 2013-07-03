@@ -616,8 +616,9 @@ static IMPLEMENT_LHASH_COMP_FN(t_cmp, const TABNODE *)
 static char *
 parse_orurls()
 {
-    char   lin[MAXBUF];
-    char   *pattern;
+    char    lin[MAXBUF];
+    char    *pattern;
+    regex_t comp;
 
     pattern = NULL;
     while(conf_fgets(lin, MAXBUF)) {
@@ -625,6 +626,10 @@ parse_orurls()
             lin[strlen(lin) - 1] = '\0';
         if(!regexec(&URL, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
+            /* Verify the pattern is valid */
+            if(regcomp(&comp, lin + matches[1].rm_so, REG_NEWLINE | REG_EXTENDED ))
+                conf_err("URL bad pattern - aborted");
+            regfree(&comp);
             if (pattern==NULL) {
                 if((pattern = (char *)malloc(strlen(lin + matches[1].rm_so)+5)) == NULL)
                     conf_err("OrURLs config: out of memory - aborted");
