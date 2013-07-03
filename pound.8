@@ -671,11 +671,23 @@ will be skipped and next one tried. If all services fail to match
 .B Pound
 returns an error. You may define multiple
 .I URL
-conditions per service. If no
+conditions per service, in which case they all must match. If no
 .I URL
 was defined then all requests match. The matching is by default case-sensitive,
 but this can be overridden by specifying
 .B IgnoreCase 1
+.TP
+\fBOrURLs\fR 
+Defines a block of
+.I URL
+directives that should be merged into a single pattern, all OR'd together.
+This creates a pattern like 
+.B ((url1)|(url2)|(url3))
+ for as many 
+.I URL
+directives as are specified within the block.  End the block with an
+.I End
+directive. 
 .TP
 \fBBackendCookie\fR "cookiename" "domain" "path" age|Session
 If defined, Pound will inject a cookie in each response with the appropriate backend's key, so that
