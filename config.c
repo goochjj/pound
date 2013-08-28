@@ -618,9 +618,10 @@ parse_service(const char *svc_name)
         } else if(!regexec(&Disabled, lin, 4, matches, 0)) {
             res->disabled = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
-            for(be = res->backends; be; be = be->next)
-                res->tot_pri += be->priority;
-            res->abs_pri = res->tot_pri;
+            for(be = res->backends; be; be = be->next) {
+                if(!be->disabled) res->tot_pri += be->priority;
+                res->abs_pri += be->priority;
+            }
             return res;
         } else {
             conf_err("unknown directive");
