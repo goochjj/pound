@@ -155,13 +155,12 @@ get_thr_arg(void)
     thr_arg *res;
 
     (void)pthread_mutex_lock(&arg_mut);
-    if(first == NULL)
+    while ((res = first) == NULL)
         (void)pthread_cond_wait(&arg_cond, &arg_mut);
-    if((res = first) != NULL)
-        if((first = first->next) == NULL)
-            last = NULL;
+    if((first = first->next) == NULL)
+        last = NULL;
     (void)pthread_mutex_unlock(&arg_mut);
-    if(first != NULL)
+    if(res->next != NULL)
         pthread_cond_signal(&arg_cond);
     return res;
 }
