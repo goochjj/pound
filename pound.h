@@ -509,7 +509,8 @@ extern  get_thr_qlen(void);
 /*
  * handle an HTTP request
  */
-extern void *thr_http(void *);
+extern void *thr_http_single(void *);
+extern void *thr_http_pool(void *);
 
 /*
  * Log an error to the syslog or to stderr

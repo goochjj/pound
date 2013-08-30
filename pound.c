@@ -169,13 +169,12 @@ get_thr_arg(void)
     thr_arg *res;
 
     (void)pthread_mutex_lock(&arg_mut);
-    if(threadpool && first == NULL)
+    while((res = first) == NULL)
         (void)pthread_cond_wait(&arg_cond, &arg_mut);
-    if((res = first) != NULL)
-        if((first = first->next) == NULL)
-            last = NULL;
+    if((first = first->next) == NULL)
+        last = NULL;
     (void)pthread_mutex_unlock(&arg_mut);
-    if(threadpool && first != NULL)
+    if(res->next != NULL)
         pthread_cond_signal(&arg_cond);
     return res;
 }
@@ -521,7 +520,7 @@ main(const int argc, char **argv)
             if (threadpool) {
                 /* create the worker threads */
                 for(i = 0; i < numthreads; i++)
-                    if(pthread_create(&thr, &attr, thr_http, NULL)) {
+                    if(pthread_create(&thr, &attr, thr_http_pool, NULL)) {
                         logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
                         exit(1);
                     }
@@ -588,7 +587,7 @@ main(const int argc, char **argv)
                                 } else {
                                     if((argp = get_dyn_thr_arg(&arg)) == NULL)
                                         close(clnt);
-                                    else if(pthread_create(&thr, &attr, thr_http, (void*)argp)) {
+                                    else if(pthread_create(&thr, &attr, thr_http_single, (void*)argp)) {
                                         logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
                                         free(argp->from_host.ai_addr);
                                         free(argp);

@@ -1724,19 +1724,22 @@ do_http(thr_arg *arg)
 }
 
 void *
-thr_http(void *dummy)
+thr_http_single(void *dummy)
 {
     thr_arg *arg;
 
-    if (dummy!=NULL) {
-        arg = (thr_arg *)dummy;
-        if (arg == NULL) {
-            logmsg(LOG_WARNING, "NULL get_thr_arg");
-            return;
-        }
+    arg = (thr_arg *)dummy;
+    if (arg == NULL)
+        logmsg(LOG_WARNING, "NULL get_thr_arg");
+    else
         do_http(arg);
-        return;
-    }
+}
+
+void *
+thr_http_pool(void *dummy)
+{
+    thr_arg *arg;
+
     for(;;) {
         while((arg = get_thr_arg()) == NULL)
             logmsg(LOG_WARNING, "NULL get_thr_arg");
