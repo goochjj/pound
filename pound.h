@@ -618,8 +618,10 @@ extern void config_parse(const int, char **const);
 extern RSA  *RSA_tmp_callback(SSL *, int, int);
 
 /*
- * return a pre-generated RSA key
+ * handle DH Parameters
  */
+extern DH   *DH_export_params, *DH_us_params;
+extern DH   *load_dh_params(char *);
 extern DH   *DH_tmp_callback(SSL *, int, int);
 
 /*
