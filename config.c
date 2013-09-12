@@ -80,6 +80,7 @@ static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCiph
 static regex_t  ForceHTTP10, SSLUncleanShutdown, IPFreebind, IPTransparent;
 static regex_t  Grace, Include, IncludeDir, ConnTO, IgnoreCase, HTTPS, HTTPSCert;
 static regex_t  Enabled;
+static regex_t  DHParams, ECDHCurve;
 
 static regex_t  AuthTypeBasic, AuthTypeColdfusion, AuthTypeCFAuthToken;
 static regex_t  LBInfoHeader, EndSessionHeader;
@@ -91,6 +92,12 @@ static regex_t  ControlGroup, ControlUser, ControlMode;
 static regex_t  BackendKey, BackendCookie;
 
 static regmatch_t   matches[5];
+
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+    int      EC_nid;
+#endif
+#endif
 
 static char *xhttp[] = {
     "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$",
@@ -386,6 +393,21 @@ parse_be(const int is_emergency)
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+            /* This generates a EC_KEY structure with no key, but a group defined */
+            EC_KEY *ecdh = EC_KEY_new_by_curve_name(EC_nid);
+            if (NULL == ecdh) {
+                conf_err("Unable to generate temp ECDH key");
+            }
+            /* This dups our group */
+            SSL_CTX_set_tmp_ecdh(res->ctx, ecdh);
+            SSL_CTX_set_options(res->ctx, SSL_OP_SINGLE_ECDH_USE);
+            /* Free the mem */
+            EC_KEY_free(ecdh);
+#endif
+#endif
         } else if(!regexec(&HTTPSCert, lin, 4, matches, 0)) {
             if((res->ctx = SSL_CTX_new(SSLv23_client_method())) == NULL)
                 conf_err("SSL_CTX_new failed - aborted");
@@ -409,6 +431,20 @@ parse_be(const int is_emergency)
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+            /* This generates a EC_KEY structure with no key, but a group defined */
+            EC_KEY *ecdh = EC_KEY_new_by_curve_name(EC_nid);
+            if (NULL == ecdh) {
+                conf_err("Unable to generate temp ECDH key");
+            }
+            /* This dups our group */
+            SSL_CTX_set_tmp_ecdh(res->ctx, ecdh);
+            SSL_CTX_set_options(res->ctx, SSL_OP_SINGLE_ECDH_USE);
+            /* Free the mem */
+            EC_KEY_free(ecdh);
+#endif
+#endif
         } else if(!regexec(&End, lin, 4, matches, 0)) {
             if(!has_addr)
                 conf_err("BackEnd missing Address - aborted");
@@ -1332,6 +1368,20 @@ parse_HTTPS(void)
         	    SSL_CTX_set_tmp_rsa_callback(snim->ctx, RSA_tmp_callback);
 	            SSL_CTX_set_tmp_dh_callback(snim->ctx, DH_tmp_callback);
         	    SSL_CTX_set_info_callback(snim->ctx, SSLINFO_callback);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+                    /* This generates a EC_KEY structure with no key, but a group defined */
+                    EC_KEY *ecdh = EC_KEY_new_by_curve_name(EC_nid);
+                    if (NULL == ecdh) {
+                        conf_err("Unable to generate temp ECDH key");
+                    }
+                    /* This dups our group */
+                    SSL_CTX_set_tmp_ecdh(snim->ctx, ecdh);
+	            SSL_CTX_set_options(snim->ctx, SSL_OP_SINGLE_ECDH_USE);
+                    /* Free the mem */
+                    EC_KEY_free(ecdh);
+#endif
+#endif
 		}
 	    }
 #endif
@@ -1376,6 +1426,25 @@ parse_file(void)
             lin[matches[1].rm_eo] = '\0';
             if((root_jail = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("RootJail config: out of memory - aborted");
+        } else if(!regexec(&DHParams, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            lin[matches[2].rm_eo] = '\0';
+            DH *dh = load_dh_params(lin + matches[2].rm_so);
+            if (!dh)
+	        conf_err("DHParams config: could not load file");
+            if (lin[matches[1].rm_so])
+	        DH_export_params = dh;
+            else
+	        DH_us_params = dh;
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+        } else if(!regexec(&ECDHCurve, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            EC_nid = OBJ_sn2nid(lin + matches[1].rm_so);
+            if (EC_nid==0)
+	        conf_err("ECDHCurve config: invalid curve name");
+#endif
+#endif
         } else if(!regexec(&Daemon, lin, 4, matches, 0)) {
             daemonize = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&LogSNI, lin, 4, matches, 0)) {
@@ -1594,6 +1663,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&IgnoreCase, "^[ \t]*IgnoreCase[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DHParams, "^[ \t]*DHParams(|Export)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ECDHCurve, "^[ \t]*ECDHCurve[ \t]+(.+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1680,6 +1751,11 @@ config_parse(const int argc, char **const argv)
     services = NULL;
     listeners = NULL;
 
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+    EC_nid = NID_X9_62_prime256v1;
+#endif
+#endif
     parse_file();
 
     if(check_only) {
@@ -1777,6 +1853,8 @@ config_parse(const int argc, char **const argv)
     regfree(&IgnoreCase);
     regfree(&HTTPS);
     regfree(&HTTPSCert);
+    regfree(&DHParams);
+    regfree(&ECDHCurve);
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;

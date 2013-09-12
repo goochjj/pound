@@ -50,7 +50,7 @@ F_CONF=@sysconfdir@/pound.cfg
 
 OBJS=pound.o http.o config.o svc.o base64.o version.o
 
-all:	pound poundctl pound.8
+all:	pound poundctl pound.8 dh2048.pem
 
 pound:	$(OBJS)
 		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
@@ -66,6 +66,9 @@ dh1024.h:
 
 $(OBJS):	pound.h config.h
 poundctl.o:	poundctl.c pound.h config.h pound
+
+dh2048.pem:
+		openssl dhparam -5 -out dh2048.pem 2048
 
 svc.o:		svc.c dh512.h dh1024.h
 		gcc ${CFLAGS} -c -o svc.o svc.c

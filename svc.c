@@ -1747,13 +1747,14 @@ do_RSAgen(void)
 #include    "dh512.h"
 #include    "dh1024.h"
 
+DH   *DH_export_params, *DH_us_params;
+
 DH *
 DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength)
 {
-    if(keylength == 512)
-        return get_dh512();
-    else
-        return get_dh1024();
+    if (is_export) return DH_export_params;
+    if (keylength <= 512) return DH_export_params;
+    return DH_us_params;
 }
 
 #ifndef OPENSSL_NO_TLSEXT
@@ -1847,6 +1848,9 @@ init_timer(void)
     }
     /* pthread_mutex_init() always returns 0 */
     pthread_mutex_init(&RSA_mut, NULL);
+
+    DH_export_params = get_dh512();
+    DH_us_params = get_dh1024();
 
     return;
 }
@@ -2186,5 +2190,20 @@ thr_control(void *arg)
         }
         close(ctl);
     }
+}
+
+DH *load_dh_params(char *file)
+{
+        DH *dh = NULL;
+        BIO *bio;
+
+        if ((bio = BIO_new_file(file, "r")) == NULL) {
+            logmsg(LOG_WARNING, "Unable to open DH file - %s" ,file);
+            return NULL;
+        }
+
+        dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+        BIO_free(bio);
+        return dh;
 }
 
