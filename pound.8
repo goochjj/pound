@@ -360,7 +360,7 @@ Defines which HTTP verbs are accepted. The possible values are:
 (default) accept only standard HTTP requests (GET, POST, HEAD).
 .IP
 .I 1
-additionally allow extended HTTP requests (PUT, DELETE).
+additionally allow extended HTTP requests (PUT, PATCH, DELETE).
 .IP
 .I 2
 additionally allow standard WebDAV verbs (LOCK, UNLOCK, PROPFIND,
@@ -566,7 +566,9 @@ will be skipped and next one tried. If all services fail to match
 .B Pound
 returns an error. You may define multiple
 .I URL
-conditions per service. If no
+conditions per service, in which case
+.B all
+patterns must match. If no
 .I URL
 was defined then all requests match. The matching is by default case-sensitive,
 but this can be overridden by specifying

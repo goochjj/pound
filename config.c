@@ -86,10 +86,10 @@ static regmatch_t   matches[5];
 
 static char *xhttp[] = {
     "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT) ([^ ]+) HTTP/1.[01]$",
-    "^(GET|POST|HEAD|PUT|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|PATCH|DELETE) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|PATCH|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|PATCH|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT) ([^ ]+) HTTP/1.[01]$",
+    "^(GET|POST|HEAD|PUT|PATCH|DELETE|LOCK|UNLOCK|PROPFIND|PROPPATCH|SEARCH|MKCOL|MOVE|COPY|OPTIONS|TRACE|MKACTIVITY|CHECKOUT|MERGE|REPORT|SUBSCRIBE|UNSUBSCRIBE|BPROPPATCH|POLL|BMOVE|BCOPY|BDELETE|BPROPFIND|NOTIFY|CONNECT|RPC_IN_DATA|RPC_OUT_DATA) ([^ ]+) HTTP/1.[01]$",
 };
 
 static int  log_level = 1;
@@ -342,6 +342,9 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+#ifdef  SSL_OP_NO_COMPRESSION
+            SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
+#endif
             SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
             SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
@@ -362,6 +365,9 @@ parse_be(const int is_emergency)
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+#ifdef  SSL_OP_NO_COMPRESSION
+            SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
+#endif
             SSL_CTX_clear_options(res->ctx, SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
             SSL_CTX_clear_options(res->ctx, SSL_OP_LEGACY_SERVER_CONNECT);
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
@@ -656,9 +662,11 @@ parse_service(const char *svc_name)
         } else if(!regexec(&Disabled, lin, 4, matches, 0)) {
             res->disabled = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&End, lin, 4, matches, 0)) {
-            for(be = res->backends; be; be = be->next)
-                res->tot_pri += be->priority;
-            res->abs_pri = res->tot_pri;
+            for(be = res->backends; be; be = be->next) {
+                if(!be->disabled)
+                    res->tot_pri += be->priority;
+                res->abs_pri += be->priority;
+            }
             return res;
         } else {
             conf_err("unknown directive");
@@ -902,7 +910,11 @@ parse_HTTPS(void)
     POUND_CTX           *pc;
 
     ssl_op_enable = SSL_OP_ALL;
-    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
+#ifdef  SSL_OP_NO_COMPRESSION
+    ssl_op_enable |= SSL_OP_NO_COMPRESSION;
+#endif
+    ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT
+                    | SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
         conf_err("ListenHTTPS config: out of memory - aborted");
@@ -1194,9 +1206,10 @@ parse_HTTPS(void)
             if(!has_addr || !has_port || res->ctx == NULL)
                 conf_err("ListenHTTPS missing Address, Port or Certificate - aborted");
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
-            if(!SSL_CTX_set_tlsext_servername_callback(res->ctx->ctx, SNI_server_name)
-            || !SSL_CTX_set_tlsext_servername_arg(res->ctx->ctx, res->ctx))
-                conf_err("ListenHTTPS: can't set SNI callback");
+            if(res->ctx->next)
+                if(!SSL_CTX_set_tlsext_servername_callback(res->ctx->ctx, SNI_server_name)
+                || !SSL_CTX_set_tlsext_servername_arg(res->ctx->ctx, res->ctx))
+                    conf_err("ListenHTTPS: can't set SNI callback");
 #endif
             for(pc = res->ctx; pc; pc = pc->next) {
                 SSL_CTX_set_app_data(pc->ctx, res);
@@ -1419,7 +1432,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&IgnoreCase, "^[ \t]*IgnoreCase[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+[01][ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Anonymise, "^[ \t]*Anonymise[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {

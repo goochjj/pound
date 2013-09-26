@@ -52,7 +52,8 @@ err_reply(BIO *const c, const char *head, const char *txt)
 static void
 redirect_reply(BIO *const c, const char *url, const int code)
 {
-    char    rep[MAXBUF], cont[MAXBUF], *code_msg;
+    char    rep[MAXBUF], cont[MAXBUF], safe_url[MAXBUF], *code_msg;
+    int     i, j;
 
     switch(code) {
     case 301:
@@ -65,12 +66,24 @@ redirect_reply(BIO *const c, const char *url, const int code)
         code_msg = "Found";
         break;
     }
+    /*
+     * Make sure to return a safe version of the URL (otherwise CSRF becomes a possibility
+     */
+    memset(safe_url, 0, MAXBUF);
+    for(i = j = 0; i < MAXBUF && j < MAXBUF && url[i]; i++)
+        if(isalnum(url[i]) || url[i] == '_' || url[i] == '.' || url[i] == ':' || url[i] == '/'
+        || url[i] == '?' || url[i] == '&' || url[i] == ';')
+            safe_url[j++] = url[i];
+        else {
+            sprintf(safe_url + j, "%%%02x", url[i]);
+            j += 3;
+        }
     snprintf(cont, sizeof(cont),
         "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"%s\">%s</a></p></body></html>",
-        url, url);
+        safe_url, safe_url);
     snprintf(rep, sizeof(rep),
         "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
-        code, code_msg, url, strlen(cont));
+        code, code_msg, safe_url, strlen(cont));
     BIO_write(c, rep, strlen(rep));
     BIO_write(c, cont, strlen(cont));
     BIO_flush(c);
@@ -1604,7 +1617,7 @@ thr_http(void *dummy)
 
     for(;;) {
         while((arg = get_thr_arg()) == NULL)
-            logmsg(LOG_WARNING, "NULL get_thr_arg");
+            logmsg(LOG_NOTICE, "NULL get_thr_arg");
         do_http(arg);
     }
 }
