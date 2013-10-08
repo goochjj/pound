@@ -82,7 +82,7 @@ redirect_reply(BIO *const c, const char *url, const int code)
             (ch>= 'A' && ch <='Z') ||
             (ch>= 'a' && ch <='z') ||
             (ch>= '0' && ch <='9') ||
-            ch == '-' || ch == '_' || ch == '.' || ch == ':' || ch == '/' || ch == '?' || ch == '&' || ch == ';') {
+            ch == '-' || ch == '_' || ch == '.' || ch == ':' || ch == '/' || ch == '?' || ch == '&' || ch == ';' || ch == '=') {
 
             urlbuf[j++] = ch;
             continue;
