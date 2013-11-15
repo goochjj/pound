@@ -37,8 +37,8 @@ usage(const char *arg0)
     fprintf(stderr, "\twhere cmd is one of:\n");
     fprintf(stderr, "\t-L n - enable listener n\n");
     fprintf(stderr, "\t-l n - disable listener n\n");
-    fprintf(stderr, "\t-S n m - enable service m in service n (use -1 for global services)\n");
-    fprintf(stderr, "\t-s n m - disable service m in service n (use -1 for global services)\n");
+    fprintf(stderr, "\t-S n m - enable service m in listener n (use -1 for global services)\n");
+    fprintf(stderr, "\t-s n m - disable service m in listener n (use -1 for global services)\n");
     fprintf(stderr, "\t-B n m r - enable back-end r in service m in listener n\n");
     fprintf(stderr, "\t-b n m r - disable back-end r in service m in listener n\n");
     fprintf(stderr, "\t-f n m r - flush all sessions for back-end r in service m in listener n\n");
