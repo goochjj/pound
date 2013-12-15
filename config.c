@@ -1354,6 +1354,20 @@ parse_HTTPS(void)
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
             SSL_CTX_set_info_callback(res->ctx, SSLINFO_callback);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+            /* This generates a EC_KEY structure with no key, but a group defined */
+            EC_KEY *ecdh = EC_KEY_new_by_curve_name(EC_nid);
+            if (NULL == ecdh) {
+                conf_err("Unable to generate temp ECDH key");
+            }
+            /* This dups our group */
+            SSL_CTX_set_tmp_ecdh(res->ctx, ecdh);
+            SSL_CTX_set_options(res->ctx, SSL_OP_SINGLE_ECDH_USE);
+            /* Free the mem */
+            EC_KEY_free(ecdh);
+#endif
+#endif
 #ifndef OPENSSL_NO_TLSEXT
             if(res->sni) {
                 if (!SSL_CTX_set_tlsext_servername_callback(res->ctx, SNI_servername_callback) ||
