@@ -1,15 +1,3 @@
-sapphire-pound25 (2.5-147~60squeeze+1) unstable; urgency=high
-
-  * Rolled new package from source control, packaged for squeeze
-
- -- Joseph Gooch <mrwizard@k12system.com>  Mon, 16 Dec 2013 14:55:08 -0500
-
-sapphire-pound25 (2.5-147) unstable; urgency=high
-
-  * Update package version number to source control
-
- -- Joseph Gooch <mrwizard@k12system.com>  Mon, 16 Dec 2013 14:54:33 -0500
-
 sapphire-pound25 (2.5-4) stable; urgency=low
 
   * Freebind+Transparent
