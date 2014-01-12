@@ -36,7 +36,7 @@ endif
 CFLAGS += -fPIE
 #LDFLAGS += -Wl,-z,relro,-z,noexecstack -pie
 
-OURLIBS += -Wl,-Bstatic -lpcreposix -lssl -lcrypto -Wl,-Bdynamic -lresolv -ldl -Wl,-Bstatic -lz -lpcre -Wl,-Bdynamic -lc -lm
+OURLIBS += -Wl,-Bdynamic -lpcreposix -lssl -lcrypto -Wl,-Bdynamic -lresolv -ldl -Wl,-Bdynamic -lz -lpcre -Wl,-Bdynamic -lc -lm
 
 
 config.status: configure
