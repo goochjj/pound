@@ -19,7 +19,7 @@ endif
 	CFLAGS += -O0
 
 #TCMalloc
-OURLIBS += /usr/lib/libtcmalloc_minimal.so.4
+OURLIBS += /usr/lib/libtcmalloc_minimal.so.0
 CFLAGS += -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
 
 	CFLAGS += -fno-omit-frame-pointer
