@@ -761,6 +761,11 @@ Override the global
 .I ConnTO
 value.
 .TP
+\fBTLSFallbackSCSV\fR
+If present, connections to this HTTPS backend will be made with the
+.I TLS_FALLBACK_SCSV
+extension.
+.TP
 \fBHAport\fR [ address ] port
 A port (and optional address) to be used for server function checks. See below
 the "High Availability" section for a more detailed discussion. By default
