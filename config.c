@@ -76,7 +76,7 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
+static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers, CAlist, VerifyList, CRLlist, NoHTTPS11;
 static regex_t  Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers, Disabled, Threads, CNName, DHParams, ECDHCurve;
 
 static regmatch_t   matches[5];
