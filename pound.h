@@ -427,6 +427,10 @@ typedef struct _listener {
     int                 log_level;          /* log level for this listener */
     int                 allow_client_reneg; /* Allow Client SSL Renegotiation */
     int                 disable_ssl_v2;     /* Disable SSL version 2 */
+    int                 disable_ssl_v3;     /* Disable SSL version 3 */
+    int                 disable_tls_v10;    /* Disable TLS version 1.0 */
+    int                 disable_tls_v11;    /* Disable TLS version 1.1 */
+    int                 disable_tls_v12;    /* Disable TLS version 1.2 */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;

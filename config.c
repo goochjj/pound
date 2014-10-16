@@ -78,7 +78,7 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, CertDir, xHTT
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, OrURLs, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, DisableSSLv2, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
+static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers;
 static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
 
@@ -91,6 +91,8 @@ static regex_t  IncludeDir;
 static regex_t  ForceHTTP10, SSLUncleanShutdown;
 
 static regex_t  BackendKey, BackendCookie;
+
+static regex_t  DisableSSLv2, DisableSSLv3, DisableTLSv10, DisableTLSv11, DisableTLSv12;
 
 static regmatch_t   matches[5];
 
@@ -1150,6 +1152,10 @@ parse_HTTPS(void)
     res->err503 = "The service is not available. Please try again later.";
     res->allow_client_reneg = 0;
     res->disable_ssl_v2 = 0;
+    res->disable_ssl_v3 = 0;
+    res->disable_tls_v10 = 0;
+    res->disable_tls_v11 = 0;
+    res->disable_tls_v12 = 0;
     res->errnossl = "Please use HTTPS.";
     res->nossl_url = NULL;
     res->nossl_redir = 0;
@@ -1294,8 +1300,37 @@ parse_HTTPS(void)
                 strcat(res->add_head, "\r\n");
                 strcat(res->add_head, lin + matches[1].rm_so);
             }
+
         } else if(!regexec(&DisableSSLv2, lin, 4, matches, 0)) {
+#ifdef SSL_OP_NO_SSLv2
             res->disable_ssl_v2 = 1;
+#else
+            conf_err("OpenSSL library does not support DisableSSLv2 - aborted");
+#endif
+        } else if(!regexec(&DisableSSLv3, lin, 4, matches, 0)) {
+#ifdef SSL_OP_NO_SSLv3
+            res->disable_ssl_v3 = 1;
+#else
+            conf_err("OpenSSL library does not support DisableSSLv3 - aborted");
+#endif
+        } else if(!regexec(&DisableTLSv10, lin, 4, matches, 0)) {
+#ifdef SSL_OP_NO_TLSv1
+            res->disable_tls_v10 = 1;
+#else
+            conf_err("OpenSSL library does not support DisableTLSv10 - aborted");
+#endif
+        } else if(!regexec(&DisableTLSv11, lin, 4, matches, 0)) {
+#ifdef SSL_OP_NO_TLSv1_1
+            res->disable_tls_v11 = 1;
+#else
+            conf_err("OpenSSL library does not support DisableTLSv11 - aborted");
+#endif
+        } else if(!regexec(&DisableTLSv12, lin, 4, matches, 0)) {
+#ifdef SSL_OP_NO_TLSv1_2
+            res->disable_tls_v12 = 1;
+#else
+            conf_err("OpenSSL library does not support DisableTLSv12 - aborted");
+#endif
         } else if(!regexec(&SSLAllowClientRenegotiation, lin, 4, matches, 0)) {
             res->allow_client_reneg = atoi(lin + matches[1].rm_so);
             if (res->allow_client_reneg == 2) {
@@ -1412,8 +1447,26 @@ parse_HTTPS(void)
                 SSL_CTX_set_mode(pc->ctx, SSL_MODE_AUTO_RETRY);
                 SSL_CTX_set_options(pc->ctx, ssl_op_enable);
                 SSL_CTX_clear_options(pc->ctx, ssl_op_disable);
+#ifdef SSL_OP_NO_SSLv2
                 if (res->disable_ssl_v2 == 1)
                     SSL_CTX_set_options(pc->ctx, SSL_OP_NO_SSLv2);
+#endif
+#ifdef SSL_OP_NO_SSLv3
+                if (res->disable_ssl_v3 == 1)
+                    SSL_CTX_set_options(pc->ctx, SSL_OP_NO_SSLv3);
+#endif
+#ifdef SSL_OP_NO_TLSv1
+                if (res->disable_tls_v10 == 1)
+                    SSL_CTX_set_options(pc->ctx, SSL_OP_NO_TLSv1);
+#endif
+#ifdef SSL_OP_NO_TLSv1_1
+                if (res->disable_tls_v11 == 1)
+                    SSL_CTX_set_options(pc->ctx, SSL_OP_NO_TLSv1_1);
+#endif
+#ifdef SSL_OP_NO_TLSv1_2
+                if (res->disable_tls_v12 == 1)
+                    SSL_CTX_set_options(pc->ctx, SSL_OP_NO_TLSv1_2);
+#endif
                 sprintf(lin, "%d-Pound-%ld", getpid(), random());
                 SSL_CTX_set_session_id_context(pc->ctx, (unsigned char *)lin, strlen(lin));
                 SSL_CTX_set_tmp_rsa_callback(pc->ctx, RSA_tmp_callback);
@@ -1805,6 +1858,10 @@ config_parse(const int argc, char **const argv)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&DisableSSLv2, "^[ \t]*DisableSSLv2[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableSSLv3, "^[ \t]*DisableSSLv3[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableTLSv10, "^[ \t]*DisableTLSv10[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableTLSv11, "^[ \t]*DisableTLSv11[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableTLSv12, "^[ \t]*DisableTLSv12[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCiphers, "^[ \t]*HTTPSCiphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1988,6 +2045,10 @@ config_parse(const int argc, char **const argv)
     regfree(&AddHeader);
     regfree(&SSLAllowClientRenegotiation);
     regfree(&DisableSSLv2);
+    regfree(&DisableSSLv3);
+    regfree(&DisableTLSv10);
+    regfree(&DisableTLSv11);
+    regfree(&DisableTLSv12);
     regfree(&SSLHonorCipherOrder);
     regfree(&Ciphers);
     regfree(&HTTPSCiphers);

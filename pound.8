@@ -603,6 +603,21 @@ is the depth of verification for a client certificate (up to 9). The default
 depth limit is 9, allowing for the peer certificate and additional 9 CA
 certificates that must be verified.
 .TP
+\fBDisableSSLv2\fR
+If present, disable the SSL version 2 protocol.  Default: all SSL protocols are enabled.
+.TP
+\fBDisableSSLv3\fR
+If present, disable the SSL version 3 protocol.  Default: all SSL protocols are enabled.
+.TP
+\fBDisableTLSv10\fR
+If present, disable the TLS version 1.0 protocol.  Default: all SSL protocols are enabled.
+.TP
+\fBDisableTLSv11\fR
+If present, disable the TLS version 1.1 protocol.  Default: all SSL protocols are enabled.
+.TP
+\fBDisableTLSv12\fR
+If present, disable the TLS version 1.2 protocol.  Default: all SSL protocols are enabled.
+.TP
 \fBCiphers\fR "acceptable:cipher:list"
 This is the list of ciphers that will be accepted by the SSL connection; it is a
 string in the same format as in OpenSSL
