@@ -335,6 +335,7 @@ typedef struct _backend {
     int                 n_requests; /* number of requests seen */
     double              t_requests; /* time to answer these requests */
     double              t_average;  /* average time to answer requests */
+    int                 fallback_scsv; /* Set TLS_FALLBACK_SCSV option */
     int                 alive;      /* false if the back-end is dead */
     int                 resurrect;  /* this back-end is to be resurrected */
     int                 disabled;   /* true if the back-end is disabled */

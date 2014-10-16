@@ -78,7 +78,7 @@ static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, CertDir, xHTT
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, OrURLs, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
-static regex_t  ClientCert, AddHeader, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
+static regex_t  ClientCert, AddHeader, TLSFallbackSCSV, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS, HTTPSCert, HTTPSCiphers;
 static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
 
@@ -377,6 +377,14 @@ parse_be(const int is_emergency)
             res->to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&ConnTO, lin, 4, matches, 0)) {
             res->conn_to = atoi(lin + matches[1].rm_so);
+        } else if(!regexec(&TLSFallbackSCSV, lin, 4, matches, 0)) {
+            if(res->ctx == NULL)
+                conf_err("TLSFallbackSCSV may only be used after HTTPS - aborted");
+#ifdef SSL_MODE_SEND_FALLBACK_SCSV
+            res->fallback_scsv = 1;
+#else
+            conf_err("OpenSSL library does not support TLSFallbackSCSV - aborted");
+#endif
         } else if(!regexec(&HAport, lin, 4, matches, 0)) {
             if(is_emergency)
                 conf_err("HAport is not supported for Emergency back-ends");
@@ -1863,6 +1871,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&DisableTLSv11, "^[ \t]*DisableTLSv11[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&DisableTLSv12, "^[ \t]*DisableTLSv12[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&TLSFallbackSCSV, "^[ \t]*TLSFallbackSCSV[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCiphers, "^[ \t]*HTTPSCiphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -2050,6 +2059,7 @@ config_parse(const int argc, char **const argv)
     regfree(&DisableTLSv11);
     regfree(&DisableTLSv12);
     regfree(&SSLHonorCipherOrder);
+    regfree(&TLSFallbackSCSV);
     regfree(&Ciphers);
     regfree(&HTTPSCiphers);
     regfree(&CAlist);
