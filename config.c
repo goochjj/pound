@@ -678,7 +678,7 @@ parse_orurls()
                 strcat(pattern, lin + matches[1].rm_so);
                 strcat(pattern, "))");
             } else {
-                if((pattern = (char *)realloc(pattern, strlen(pattern) + strlen(lin + matches[1].rm_so) + 3)) == NULL)
+                if((pattern = (char *)realloc(pattern, strlen(pattern) + strlen(lin + matches[1].rm_so) + 4)) == NULL)
                     conf_err("OrURLs config: out of memory - aborted");
                 pattern[strlen(pattern)-1]=0;
                 strcat(pattern, "|(");
