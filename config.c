@@ -383,7 +383,7 @@ parse_be(const int is_emergency)
 	    SSL_CTX_set_app_data(res->ctx, res);
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
-            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_set_options(res->ctx, SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
             SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
 #endif
@@ -421,7 +421,7 @@ parse_be(const int is_emergency)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
             SSL_CTX_set_verify(res->ctx, SSL_VERIFY_NONE, NULL);
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
-            SSL_CTX_set_options(res->ctx, SSL_OP_ALL);
+            SSL_CTX_set_options(res->ctx, SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 #ifdef SSL_OP_NO_COMPRESSION
             SSL_CTX_set_options(res->ctx, SSL_OP_NO_COMPRESSION);
 #endif
@@ -1050,7 +1050,7 @@ parse_HTTPS(void)
     struct sockaddr_in  in;
     struct sockaddr_in6 in6;
 
-    ssl_op_enable = SSL_OP_ALL;
+    ssl_op_enable = SSL_OP_ALL|SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3;
 #ifdef SSL_OP_NO_COMPRESSION
     ssl_op_enable |= SSL_OP_NO_COMPRESSION;
 #endif
@@ -1361,6 +1361,9 @@ parse_HTTPS(void)
             SSL_CTX_set_mode(res->ctx, SSL_MODE_AUTO_RETRY);
             SSL_CTX_set_options(res->ctx, ssl_op_enable);
             SSL_CTX_clear_options(res->ctx, ssl_op_disable);
+	    if(!(SSL_OP_NO_SSLv3 & SSL_CTX_set_options(res->ctx, SSL_OP_NO_SSLv3))){
+		conf_err(ERR_get_error());
+	    }
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
