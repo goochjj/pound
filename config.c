@@ -902,6 +902,8 @@ parse_HTTPS(void)
     POUND_CTX           *pc;
 
     ssl_op_enable = SSL_OP_ALL;
+    /* For against the POODLE, add SSL_OP_NO_SSLv3. */
+    ssl_op_enable |=  SSL_OP_NO_SSLv3;
     ssl_op_disable = SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION | SSL_OP_LEGACY_SERVER_CONNECT;
 
     if((res = (LISTENER *)malloc(sizeof(LISTENER))) == NULL)
@@ -1210,6 +1212,9 @@ parse_HTTPS(void)
                 SSL_CTX_set_tmp_rsa_callback(pc->ctx, RSA_tmp_callback);
                 SSL_CTX_set_tmp_dh_callback(pc->ctx, DH_tmp_callback);
                 SSL_CTX_set_info_callback(pc->ctx, SSLINFO_callback);
+
+                /* For against the POODLE, set SSL_OP_NO_SSLv3. */
+                SSL_CTX_set_options(pc->ctx, SSL_OP_NO_SSLv3);
             }
             return res;
         } else {
