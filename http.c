@@ -917,7 +917,7 @@ do_http(thr_arg *arg)
                 }
 #ifdef SSL_MODE_SEND_FALLBACK_SCSV
                 if (backend->fallback_scsv)
-                    SSL_set_mode(con, SSL_MODE_SEND_FALLBACK_SCSV);
+                    SSL_set_mode(be_ssl, SSL_MODE_SEND_FALLBACK_SCSV);
 #endif
                 SSL_set_bio(be_ssl, be, be);
                 if((bb = BIO_new(BIO_f_ssl())) == NULL) {
