@@ -80,7 +80,7 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS;
-static regex_t  Disabled, Threads, CNName, Anonymise, ECDHCurve;
+static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
 
 static regex_t  ControlGroup, ControlUser, ControlMode;
 
@@ -91,6 +91,7 @@ static regmatch_t   matches[5];
     int      EC_nid;
 #endif
 #endif
+static DH *DHCustom_params;
 
 static char *xhttp[] = {
     "^(GET|POST|HEAD) ([^ ]+) HTTP/1.[01]$",
@@ -361,7 +362,10 @@ parse_be(const int is_emergency)
             sprintf(lin, "%d-Pound-%ld", getpid(), random());
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
-            SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+            if (NULL == DHCustom_params)
+                SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+            else
+                SSL_CTX_set_tmp_dh(res->ctx, DHCustom_params);
 
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
 #ifndef OPENSSL_NO_ECDH
@@ -1272,8 +1276,11 @@ parse_HTTPS(void)
                 sprintf(lin, "%d-Pound-%ld", getpid(), random());
                 SSL_CTX_set_session_id_context(pc->ctx, (unsigned char *)lin, strlen(lin));
                 SSL_CTX_set_tmp_rsa_callback(pc->ctx, RSA_tmp_callback);
-                SSL_CTX_set_tmp_dh_callback(pc->ctx, DH_tmp_callback);
                 SSL_CTX_set_info_callback(pc->ctx, SSLINFO_callback);
+                if (NULL == DHCustom_params)
+                    SSL_CTX_set_tmp_dh_callback(pc->ctx, DH_tmp_callback);
+                else
+                    SSL_CTX_set_tmp_dh(pc->ctx, DHCustom_params);
 
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
 #ifndef OPENSSL_NO_ECDH
@@ -1329,6 +1336,12 @@ parse_file(void)
             lin[matches[1].rm_eo] = '\0';
             if((root_jail = strdup(lin + matches[1].rm_so)) == NULL)
                 conf_err("RootJail config: out of memory - aborted");
+        } else if(!regexec(&DHParams, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            DH *dh = load_dh_params(lin + matches[1].rm_so);
+            if (!dh)
+	        conf_err("DHParams config: could not load file");
+            DHCustom_params = dh;
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
 #ifndef OPENSSL_NO_ECDH
         } else if(!regexec(&ECDHCurve, lin, 4, matches, 0)) {
@@ -1529,6 +1542,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&IgnoreCase, "^[ \t]*IgnoreCase[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DHParams, "^[ \t]*DHParams[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ECDHCurve, "^[ \t]*ECDHCurve[ \t]+(.+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Anonymise, "^[ \t]*Anonymise[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1607,6 +1621,7 @@ config_parse(const int argc, char **const argv)
     group = NULL;
     root_jail = NULL;
     ctrl_name = NULL;
+    DHCustom_params = NULL;
 
     numthreads = 128;
     alive_to = 30;
@@ -1701,7 +1716,9 @@ config_parse(const int argc, char **const argv)
     regfree(&Disabled);
     regfree(&CNName);
     regfree(&Anonymise);
+    regfree(&DHParams);
     regfree(&ECDHCurve);
+    if (DHCustom_params) DH_free(DHCustom_params);
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;

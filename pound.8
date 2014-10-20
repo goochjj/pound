@@ -241,6 +241,11 @@ the facility name causes
 .B Pound
 to log to stdout/stderr.
 .TP
+\fBDHParams\fR "path/to/dhparams.pem"
+Use the supplied dhparams pem file for DH key exchange for non-export-controlled
+negotiations.  Generate such a file with \fBopenssl dhparam\fR.
+This can be used to do 2048bit DHE.
+.TP
 \fBECDHCurve\fR prime256v1
 Supply an Elliptic Curve name to use for ECDH key exchange.
 Valid curves can be found with \fBopenssl ecparam -list_curves\fR.

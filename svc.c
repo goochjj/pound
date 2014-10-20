@@ -1844,3 +1844,19 @@ SSLINFO_callback(const SSL *ssl, int where, int rc)
        *reneg_state = RENEG_REJECT;
     }
 }
+
+DH *load_dh_params(char *file)
+{
+        DH *dh = NULL;
+        BIO *bio;
+
+        if ((bio = BIO_new_file(file, "r")) == NULL) {
+            logmsg(LOG_WARNING, "Unable to open DH file - %s" ,file);
+            return NULL;
+        }
+
+        dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+        BIO_free(bio);
+        return dh;
+}
+
