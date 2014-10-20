@@ -241,6 +241,10 @@ the facility name causes
 .B Pound
 to log to stdout/stderr.
 .TP
+\fBECDHCurve\fR prime256v1
+Supply an Elliptic Curve name to use for ECDH key exchange.
+Valid curves can be found with \fBopenssl ecparam -list_curves\fR.
+.TP
 \fBLogLevel\fR value
 Specify the logging level: 0 for no logging, 1 (default) for regular
 logging, 2 for extended logging (show chosen backend server as well),
