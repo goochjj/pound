@@ -424,6 +424,24 @@ Default: "This method may not be used.".
 A file with the text to be displayed if an Error 503 occurs.
 Default: "The service is not available. Please try again later.".
 .TP
+\fBErrNoSsl\fR "filename"
+A file with the text to be displayed if a user connects to a HTTPS listener with HTTP.
+Default: "Please use HTTPS.".
+
+Only valid for HTTPS listeners.
+.TP
+\fBNoSslRedirect\fR [code] "url"
+A url that the user will be redirected to if the user connects to a HTTPS listener with HTTP.
+.br
+The code here is just like the code in Redirect blocks. It defaults to 302, but could be 301 or 307.
+.br
+Only valid for HTTPS listeners.
+.br
+Example:
+.IP
+.br
+NoSslRedirect "https://thishost:port"
+.TP
 \fBMaxRequest\fR nnn
 Request maximal size. All requests will be limited to these many bytes. If
 a request contains more data than allowed an error 414 is returned. Default:

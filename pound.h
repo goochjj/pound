@@ -404,7 +404,10 @@ typedef struct _listener {
     char                *err414,            /* error messages */
                         *err500,
                         *err501,
-                        *err503;
+                        *err503,
+                        *errnossl;
+    char                *nossl_url;         /* If a user goes to a https port with a http: url, redirect them to this url */
+    int                 nossl_redir;        /* Code to use for redirect (301 302 307)*/
     LONG                max_req;            /* max. request size */
     MATCHER             *head_off;          /* headers to remove */
     int                 rewr_loc;           /* rewrite location response */

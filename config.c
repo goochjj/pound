@@ -75,7 +75,7 @@ static CODE facilitynames[] = {
 
 static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogLevel, Alive, SSLEngine, Control;
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
-static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
+static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
@@ -765,6 +765,9 @@ parse_HTTP(void)
     res->err500 = "An internal server error occurred. Please try again later.";
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
+    res->errnossl= "Please use HTTPS.";
+    res->nossl_url = NULL;
+    res->nossl_redir = 0;
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
@@ -969,6 +972,9 @@ parse_HTTPS(void)
     res->err501 = "This method may not be used.";
     res->err503 = "The service is not available. Please try again later.";
     res->allow_client_reneg = 0;
+    res->errnossl = "Please use HTTPS.";
+    res->nossl_url = NULL;
+    res->nossl_redir = 0;
     res->log_level = log_level;
     if(regcomp(&res->verb, xhttp[0], REG_ICASE | REG_NEWLINE | REG_EXTENDED))
         conf_err("xHTTP bad default pattern - aborted");
@@ -1022,6 +1028,21 @@ parse_HTTPS(void)
         } else if(!regexec(&Err503, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
             res->err503 = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&ErrNoSsl, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            res->errnossl = file2str(lin + matches[1].rm_so);
+        } else if(!regexec(&NoSslRedirect, lin, 4, matches, 0)) {
+            res->nossl_redir = 302;
+            if (matches[1].rm_eo != matches[1].rm_so)
+                res->nossl_redir = atoi(lin + matches[1].rm_so);
+            lin[matches[2].rm_eo] = '\0';
+            if((res->nossl_url = strdup(lin + matches[2].rm_so))==NULL)
+                conf_err("NoSslRedirect out of memory");
+            if(regexec(&LOCATION, res->nossl_url, 4, matches, 0))
+                conf_err("Redirect bad URL - aborted");
+            if((matches[3].rm_eo - matches[3].rm_so) == 1)
+                /* the path is a single '/', so remove it */
+                res->nossl_url[matches[3].rm_so] = '\0';
         } else if(!regexec(&MaxRequest, lin, 4, matches, 0)) {
             res->max_req = ATOL(lin + matches[1].rm_so);
         } else if(!regexec(&HeadRemove, lin, 4, matches, 0)) {
@@ -1505,6 +1526,8 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Err500, "^[ \t]*Err500[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err501, "^[ \t]*Err501[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Err503, "^[ \t]*Err503[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&ErrNoSsl, "^[ \t]*ErrNoSsl[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&NoSslRedirect, "^[ \t]*NoSslRedirect[ \t]+(30[127][ \t]+)?\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&MaxRequest, "^[ \t]*MaxRequest[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HeadRemove, "^[ \t]*HeadRemove[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&RewriteLocation, "^[ \t]*RewriteLocation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1677,6 +1700,8 @@ config_parse(const int argc, char **const argv)
     regfree(&Err500);
     regfree(&Err501);
     regfree(&Err503);
+    regfree(&ErrNoSsl);
+    regfree(&NoSslRedirect);
     regfree(&MaxRequest);
     regfree(&HeadRemove);
     regfree(&RewriteLocation);
