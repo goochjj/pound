@@ -711,19 +711,25 @@ multiple back-ends per service, in which case
 .B Pound
 will attempt to load-balance between them.
 .TP
-\fBRedirect\fR [code] "url"
+\fB[Redirect | RedirectAppend | RedirectDynamic]\fR [code] "url"
 This is a special type of back-end. Instead of sending the request to a back-end
 .B Pound
 replies immediately with a redirection to the given URL. You may define multiple
 redirectors in a service, as well as mixing them with regular back-ends.
 .IP
-The address the client is redirected to is determined by the actual
+The address the client is redirected to is determined by the command you specify.
+If you specify \fBRedirect\fR, the url is taken as an absolute host and path
+to redirect to.  If you use \fBRedirectAppend\fR, the original request path
+will be appended to the host and path you specified.  If you use \fBRedirectDynamic\fR,
+then
 .I url
-you specify: if it is a "pure" host (i.e. with no path) then the client will be
-redirected to the host you specified, with the original request path appended. If
-your
-.I url
-does contain a path then the request path is ignored.
+can contain RegEx replacements in the form 
+.I $1
+through
+.I $9
+which indicate expression captured from the original request path. You must have a
+\fBURL\fR directive, and the first \fBURL\fR directive for the service is the one
+used for capturing expressions.
 .IP
 Examples: if you specified
 .br
@@ -736,17 +742,28 @@ Examples: if you specified
 and the client requested
 .I http://xyz/a/b/c
 then it will be redirected to
-.IR "http://abc.example/a/b/c",
+.IR "http://abc.example",
 but if you specified
 .br
 
 .br
-    Redirect "http://abc.example/index.html"
+    RedirectAppend "http://abc.example"
 .br
 
 .br
 it will be sent to
-.IR "http://abc.example/index.html".
+.IR "http://abc.example/a/b/c.
+.IP
+If you specified
+.br
+    URL "^/a(/([^/]*)(/[^/]*)"
+.br
+    RedirectDynamic "http://abc.example$2$1/index.html"
+.br
+
+.br
+it will be sent to
+.IR "http://abc.example/c/b/index.html.
 .IP
 .IR "Technical note":
 in an ideal world

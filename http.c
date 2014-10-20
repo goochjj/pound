@@ -1301,9 +1301,38 @@ do_http(thr_arg *arg)
         if(cur_backend->be_type) {
             memset(buf, 0, sizeof(buf));
             if(!cur_backend->redir_req)
-                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
-            else 
                 strncpy(buf, cur_backend->url, sizeof(buf) - 1);
+            else if (cur_backend->redir_req==1)
+                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
+            else {
+                regmatch_t umtch[10];
+                char *chptr, *enptr, *srcptr;
+
+                // Redirect Dynamic
+                //fprintf(stderr, "redir dynamic url %s replace %s\n", url, cur_backend->url);
+
+                if(regexec(&svc->url->pat, url, 10, umtch, 0))
+                    logmsg(LOG_WARNING, "URL pattern didn't match in redirdynamic... shouldn't happen %s", url);
+                chptr = buf;
+                enptr = buf + sizeof(buf) - 1;
+                *enptr = '\0';
+                srcptr = cur_backend->url;
+                for(; *srcptr && chptr < enptr-1; ) {
+                    if (srcptr[0] == '$' && srcptr[1] == '$') {
+                        *chptr++ = *srcptr++;
+                        srcptr++;
+                    }
+                    if (srcptr[0] == '$' && isdigit(srcptr[1])) {
+                        if (chptr + umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so > enptr-1) break;
+                        memcpy(chptr, url + umtch[srcptr[1]-0x30].rm_so, umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so);
+                        chptr += umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so;
+                        srcptr += 2;
+                        continue;
+                    }
+                    *chptr++ = *srcptr++;
+                }
+                *chptr++='\0';
+            }
             redirect_reply(cl, buf, cur_backend->be_type);
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             switch(lstn->log_level) {
@@ -1325,6 +1354,10 @@ do_http(thr_arg *arg)
             case 5:
                 logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\"", caddr,
                     u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
+                break;
+            case 6:
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\" \"%s\"", caddr,
+                    u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, buf, referer, u_agent);
                 break;
             }
             if(!cl_11 || conn_closed || force_10)

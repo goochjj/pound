@@ -77,7 +77,7 @@ static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogL
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, ErrNoSsl, NoSslRedirect, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
-static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
+static regex_t  Redirect, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS;
 static regex_t  Disabled, Threads, CNName, Anonymise, DHParams, ECDHCurve;
@@ -734,44 +734,30 @@ parse_service(const char *svc_name)
                     conf_err("Redirect config: out of memory - aborted");
                 be = res->backends;
             }
+            // 1 - Dynamic or not, 2 - Request Redirect #, 3 - Destination URL
             memset(be, 0, sizeof(BACKEND));
             be->be_type = 302;
-            be->priority = 1;
-            be->alive = 1;
-            pthread_mutex_init(& be->mut, NULL);
-            lin[matches[1].rm_eo] = '\0';
-            if((be->url = strdup(lin + matches[1].rm_so)) == NULL)
-                conf_err("Redirector config: out of memory - aborted");
-            /* split the URL into its fields */
-            if(regexec(&LOCATION, be->url, 4, matches, 0))
-                conf_err("Redirect bad URL - aborted");
-            if((be->redir_req = matches[3].rm_eo - matches[3].rm_so) == 1)
-                /* the path is a single '/', so remove it */
-                be->url[matches[3].rm_so] = '\0';
-        } else if(!regexec(&RedirectN, lin, 4, matches, 0)) {
-            if(res->backends) {
-                for(be = res->backends; be->next; be = be->next)
-                    ;
-                if((be->next = (BACKEND *)malloc(sizeof(BACKEND))) == NULL)
-                    conf_err("Redirect config: out of memory - aborted");
-                be = be->next;
-            } else {
-                if((res->backends = (BACKEND *)malloc(sizeof(BACKEND))) == NULL)
-                    conf_err("Redirect config: out of memory - aborted");
-                be = res->backends;
+            be->redir_req = 0;
+            if (matches[1].rm_eo != matches[1].rm_so) {
+                if((lin[matches[1].rm_so] & ~0x20)=='D') {
+                    be->redir_req = 2;
+                    if(!res->url || res->url->next)
+                        conf_err("Dynamic Redirect must be preceeded by a URL line");
+                } else if((lin[matches[1].rm_so] & ~0x20)=='A')
+                    be->redir_req = 1;
             }
-            memset(be, 0, sizeof(BACKEND));
-            be->be_type = atoi(lin + matches[1].rm_so);
+            if (matches[2].rm_eo != matches[2].rm_so)
+                be->be_type = atoi(lin + matches[2].rm_so);
             be->priority = 1;
             be->alive = 1;
-            pthread_mutex_init(& be->mut, NULL);
-            lin[matches[2].rm_eo] = '\0';
-            if((be->url = strdup(lin + matches[2].rm_so)) == NULL)
+            pthread_mutex_init(&be->mut, NULL);
+            lin[matches[3].rm_eo] = '\0';
+            if((be->url = strdup(lin + matches[3].rm_so)) == NULL)
                 conf_err("Redirector config: out of memory - aborted");
             /* split the URL into its fields */
             if(regexec(&LOCATION, be->url, 4, matches, 0))
                 conf_err("Redirect bad URL - aborted");
-            if((be->redir_req = matches[3].rm_eo - matches[3].rm_so) == 1)
+            if((matches[3].rm_eo - matches[3].rm_so) == 1)
                 /* the path is a single '/', so remove it */
                 be->url[matches[3].rm_so] = '\0';
         } else if(!regexec(&BackEnd, lin, 4, matches, 0)) {
@@ -1684,8 +1670,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&TimeOut, "^[ \t]*TimeOut[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAport, "^[ \t]*HAport[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HAportAddr, "^[ \t]*HAport[ \t]+([^ \t]+)[ \t]+([1-9][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&Redirect, "^[ \t]*Redirect[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&RedirectN, "^[ \t]*Redirect[ \t]+(30[127])[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&Redirect, "^[ \t]*Redirect(Append|Dynamic|)[ \t]+(30[127][ \t]+|)\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Session, "^[ \t]*Session[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1866,7 +1851,6 @@ config_parse(const int argc, char **const argv)
     regfree(&HAport);
     regfree(&HAportAddr);
     regfree(&Redirect);
-    regfree(&RedirectN);
     regfree(&Session);
     regfree(&Type);
     regfree(&TTL);
