@@ -31,6 +31,7 @@
 static char *h500 = "500 Internal Server Error",
             *h501 = "501 Not Implemented",
             *h503 = "503 Service Unavailable",
+            *h400 = "400 Bad Request",
             *h414 = "414 Request URI too long";
 
 static char *err_response = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nExpires: now\r\nPragma: no-cache\r\nCache-control: no-cache,no-store\r\n\r\n%s";
@@ -525,7 +526,7 @@ do_http(thr_arg *arg)
     BACKEND             *backend, *cur_backend, *old_backend;
     struct addrinfo     from_host, z_addr;
     struct sockaddr_storage from_host_addr;
-    BIO                 *cl, *be, *bb, *b64;
+    BIO                 *oldcl, *cl, *be, *bb, *b64;
     X509                *x509;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
@@ -598,14 +599,21 @@ do_http(thr_arg *arg)
         }
         BIO_set_ssl(bb, ssl, BIO_CLOSE);
         BIO_set_ssl_mode(bb, 0);
+
+        oldcl = cl;
         cl = bb;
         if(BIO_do_handshake(cl) <= 0) {
-            /* no need to log every client without a certificate...
-            addr2str(caddr, MAXBUF - 1, &from_host, 1);
-            logmsg(LOG_NOTICE, "BIO_do_handshake with %s failed: %s", caddr,
-                ERR_error_string(ERR_get_error(), NULL));
-            x509 = NULL;
-            */
+            if ((ERR_GET_REASON(ERR_peek_error()) == SSL_R_HTTP_REQUEST)
+            && (ERR_GET_LIB(ERR_peek_error()) == ERR_LIB_SSL)) {
+                addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                if (lstn->nossl_redir) {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s redirecting to \"%s\"", pthread_self(), caddr, lstn->nossl_url);
+                    redirect_reply(oldcl, lstn->nossl_url, lstn->nossl_redir);
+                } else {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s sending error", pthread_self(), caddr);
+                    err_reply(oldcl, h400, lstn->errnossl);
+                }
+            }
             BIO_reset(cl);
             BIO_free_all(cl);
             return;
