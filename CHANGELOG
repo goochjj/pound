@@ -1,4 +1,16 @@
 ------------------------------------------------------------------------
+r77 | roseg | 2014-04-21 13:16:07 +0200 (Mon, 21 Apr 2014) | 9 lines
+
+Release 2.7c
+
+Enhancements:
+    - added filtering of "Expect: 100-continue" headers
+
+Bug fixes:
+    - re-patched the redirect patch (Frank Schmierler)
+    - fixed RPC handling (Frank Schmierler)
+
+------------------------------------------------------------------------
 r76 | roseg | 2013-09-26 14:33:21 +0200 (Don, 26 Sep 2013) | 12 lines
 
 Release 2.7b

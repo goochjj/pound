@@ -440,6 +440,7 @@ typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STAT
 #define HEADER_USER_AGENT           8
 #define HEADER_URI                  9
 #define HEADER_DESTINATION          10
+#define HEADER_EXPECT               11
 
 /* control request stuff */
 typedef enum    {
@@ -590,7 +591,7 @@ extern void config_parse(const int, char **const);
  */
 #define N_RSA_KEYS  11
 #ifndef T_RSA_KEYS
-#define T_RSA_KEYS  1800
+#define T_RSA_KEYS  7200
 #endif
 
 /*

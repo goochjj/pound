@@ -721,9 +721,21 @@ do_http(thr_arg *arg)
             case HEADER_CONTENT_LENGTH:
                 if(chunked || cont >= 0L)
                     headers_ok[n] = 0;
-                else
-                    if((cont = ATOL(buf)) < 0L)
-                        headers_ok[n] = 0;
+                else {
+                     if((cont = ATOL(buf)) < 0L)
+                         headers_ok[n] = 0;
+                    if(is_rpc == 1 && (cont < 0x20000L || cont > 0x80000000L))
+                        is_rpc = -1;
+                }
+                break;
+            case HEADER_EXPECT:
+                /*
+                 * we do NOT support the "Expect: 100-continue" headers
+                 * support may involve severe performance penalties (non-responding back-end, etc)
+                 * as a stop-gap measure we just skip these headers
+                 */
+                if(!strcasecmp("100-continue", buf))
+                    headers_ok[n] = 0;
                 break;
             case HEADER_ILLEGAL:
                 if(lstn->log_level > 0) {
@@ -1382,8 +1394,12 @@ do_http(thr_arg *arg)
                 case HEADER_CONTENT_LENGTH:
                     cont = ATOL(buf);
                     /* treat RPC_OUT_DATA like reply without content-length */
-                    if(is_rpc == 0 && cont == 0x40000000L)
-                        cont = -1L;
+                    if(is_rpc == 0) {
+                        if(cont >= 0x20000L && cont <= 0x80000000L)
+                            cont = -1L;
+                        else
+                            is_rpc = -1;
+                    }
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, v_host, lstn, cur_backend)) {

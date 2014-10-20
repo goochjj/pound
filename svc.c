@@ -390,6 +390,7 @@ check_header(const char *header, char *const content)
         { "Referer",            7,  HEADER_REFERER },
         { "User-agent",         10, HEADER_USER_AGENT },
         { "Destination",        11, HEADER_DESTINATION },
+        { "Expect",             6,  HEADER_EXPECT },
         { "",                   0,  HEADER_OTHER },
     };
     int i;
@@ -800,7 +801,6 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
     struct sockaddr_in6     in6_addr, be6_addr;
     regmatch_t              matches[4];
     char                    *proto, *host, *port, *cp, buf[MAXBUF];
-    int                     ret_val;
 
     /* check if rewriting is required at all */
     if(rewr_loc == 0)
@@ -837,31 +837,37 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
         free(addr.ai_addr);
         return 0;
     }
-    memset(buf, '\0', MAXBUF);
-    strncpy(buf, v_host, MAXBUF - 1);
-    if((cp = strchr(buf, ':')) != NULL)
-        *cp = '\0';
     if(addr.ai_family == AF_INET) {
+        memcpy(&in_addr, addr.ai_addr, sizeof(in_addr));
+        memcpy(&be_addr, be->addr.ai_addr, sizeof(be_addr));
+        if(port)
+            in_addr.sin_port = (in_port_t)htons(atoi(port));
+        else if(!strcasecmp(proto, "https"))
+            in_addr.sin_port = (in_port_t)htons(443);
+        else
+            in_addr.sin_port = (in_port_t)htons(80);
         /*
-         * check if the Location points to the Listener but with the wrong port or protocol
+         * check if the Location points to the back-end
          */
-        memcpy(&be_addr, lstn->addr.ai_addr, sizeof(be_addr));
-        if((memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
-          || strcasecmp(host, buf) == 0)
-        && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
-          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+        if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
+        && memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) == 0) {
             free(addr.ai_addr);
             return 1;
         }
     } else /* AF_INET6 */ {
+        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
+        memcpy(&be6_addr, be->addr.ai_addr, sizeof(be6_addr));
+        if(port)
+            in6_addr.sin6_port = (in_port_t)htons(atoi(port));
+        else if(!strcasecmp(proto, "https"))
+            in6_addr.sin6_port = (in_port_t)htons(443);
+        else
+            in6_addr.sin6_port = (in_port_t)htons(80);
         /*
-         * check if the Location points to the Listener but with the wrong port or protocol
+         * check if the Location points to the back-end
          */
-        memcpy(&be6_addr, lstn->addr.ai_addr, sizeof(be6_addr));
-        if((memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
-          || strcasecmp(host, buf) == 0)
-        && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
-          || strcasecmp(proto, (lstn->ctx == NULL)? "http": "https"))) {
+        if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
+        && memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) == 0) {
             free(addr.ai_addr);
             return 1;
         }
@@ -874,25 +880,29 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
         free(addr.ai_addr);
         return 0;
     }
+    memset(buf, '\0', MAXBUF);
+    strncpy(buf, v_host, MAXBUF - 1);
+    if((cp = strchr(buf, ':')) != NULL)
+        *cp = '\0';
     if(addr.ai_family == AF_INET) {
-        memcpy(&in_addr, addr.ai_addr, sizeof(in_addr));
         memcpy(&be_addr, lstn->addr.ai_addr, sizeof(be_addr));
         /*
          * check if the Location points to the Listener but with the wrong port or protocol
          */
-        if(memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
+        if((memcmp(&be_addr.sin_addr.s_addr, &in_addr.sin_addr.s_addr, sizeof(in_addr.sin_addr.s_addr)) == 0
+          || strcasecmp(host, buf) == 0)
         && (memcmp(&be_addr.sin_port, &in_addr.sin_port, sizeof(in_addr.sin_port)) != 0
             || strcasecmp(proto, lstn->ctx? "http": "https"))) {
             free(addr.ai_addr);
             return 1;
         }
     } else {
-        memcpy(&in6_addr, addr.ai_addr, sizeof(in6_addr));
         memcpy(&be6_addr, lstn->addr.ai_addr, sizeof(be6_addr));
         /*
          * check if the Location points to the Listener but with the wrong port or protocol
          */
-        if(memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
+        if((memcmp(&be6_addr.sin6_addr.s6_addr, &in6_addr.sin6_addr.s6_addr, sizeof(in6_addr.sin6_addr.s6_addr)) == 0
+          || strcasecmp(host, buf) == 0)
         && (memcmp(&be6_addr.sin6_port, &in6_addr.sin6_port, sizeof(in6_addr.sin6_port)) != 0
             || strcasecmp(proto, lstn->ctx? "http": "https"))) {
             free(addr.ai_addr);
