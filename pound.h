@@ -604,6 +604,11 @@ extern void config_parse(const int, char **const);
 extern RSA  *RSA_tmp_callback(SSL *, int, int);
 
 /*
+ * handle custom DH keys
+ */
+extern DH   *load_dh_params(char *);
+
+/*
  * return a pre-generated RSA key
  */
 extern DH   *DH_tmp_callback(SSL *, int, int);

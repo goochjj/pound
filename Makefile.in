@@ -37,7 +37,7 @@ exec_prefix=@exec_prefix@
 
 OBJS=pound.o http.o config.o svc.o
 
-all:	pound poundctl pound.8
+all:	pound poundctl pound.8 dh2048.pem
 
 pound:	$(OBJS)
 		${CC} @LDFLAGS@ -o pound $(OBJS) $(LIBS)
@@ -53,6 +53,9 @@ dh@C_DH_LEN@.h:
 
 svc.o:		svc.c dh512.h dh@C_DH_LEN@.h
 		${CC} ${CFLAGS} -c -o svc.o svc.c
+
+dh2048.pem:
+		openssl dhparam -5 -out dh2048.pem 2048
 
 $(OBJS) poundctl.o:	pound.h config.h
 
