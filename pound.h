@@ -527,7 +527,7 @@ extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char
 /*
  * Search for a host name, return the addrinfo for it
  */
-extern int  get_host(char *const, struct addrinfo *);
+extern int  get_host(char *const, struct addrinfo *, int);
 
 /*
  * Find if a redirect needs rewriting

@@ -1,4 +1,17 @@
 ------------------------------------------------------------------------
+r78 | roseg | 2014-10-18 12:36:28 +0200 (Sam, 18 Okt 2014) | 10 lines
+
+Release 2.7d
+
+Enhancements:
+    - added "Disable PROTO" directives (fix for Poodle vulnerability)
+    - added Cert, Disable and Cipher directives for HTTPS back-ends. The
+      directive HTTPS "cert" no longer supported.
+
+Bug fixes:
+    - fixed address comparison for RewriteLocation (IPv4/IPv6 problem - Christopher Bartz)
+
+------------------------------------------------------------------------
 r77 | roseg | 2014-04-21 13:16:07 +0200 (Mon, 21 Apr 2014) | 9 lines
 
 Release 2.7c

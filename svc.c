@@ -750,18 +750,20 @@ upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
  * Search for a host name, return the addrinfo for it
  */
 int
-get_host(char *const name, struct addrinfo *res)
+get_host(char *const name, struct addrinfo *res, int ai_family)
 {
     struct addrinfo *chain, *ap;
     struct addrinfo hints;
     int             ret_val;
 
+fprintf(stderr, "get_host(%s, res, %d)\n", name, ai_family);
 #ifdef  HAVE_INET_NTOP
     memset (&hints, 0, sizeof(hints));
-    hints.ai_family = PF_UNSPEC;
+    hints.ai_family = ai_family;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_CANONNAME;
     if((ret_val = getaddrinfo(name, NULL, &hints, &chain)) == 0) {
+fprintf(stderr, "getaddrinfo OK\n");
 #ifdef _AIX
         ap = chain;
 #else
@@ -770,9 +772,11 @@ get_host(char *const name, struct addrinfo *res)
                 break;
 #endif
         if(ap == NULL) {
+fprintf(stderr, "ap NULL\n");
             freeaddrinfo(chain);
             return EAI_NONAME;
         }
+fprintf(stderr, "ret OK\n");
         *res = *ap;
         if((res->ai_addr = (struct sockaddr *)malloc(ap->ai_addrlen)) == NULL) {
             freeaddrinfo(chain);
@@ -784,6 +788,7 @@ get_host(char *const name, struct addrinfo *res)
 #else
 #error  "Pound requires getaddrinfo()"
 #endif
+fprintf(stderr, "done\n");
     return ret_val;
 }
 
@@ -827,7 +832,7 @@ need_rewrite(const int rewr_loc, char *const location, char *const path, const c
      * Check if the location has the same address as the listener or the back-end
      */
     memset(&addr, 0, sizeof(addr));
-    if(get_host(host, &addr))
+    if(get_host(host, &addr, be->addr.ai_family))
         return 0;
 
     /*
