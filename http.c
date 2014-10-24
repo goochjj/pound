@@ -533,7 +533,7 @@ log_bytes(char *res, const LONG cnt)
 void
 do_http(thr_arg *arg)
 {
-    int                 cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, force_10, sock_proto, is_rpc;
+    int                 cl_count,cl_11, be_11, res, chunked, n, sock, no_cont, skip, conn_closed, force_10, sock_proto, is_rpc;
     LISTENER            *lstn;
     SERVICE             *svc;
     BACKEND             *backend, *cur_backend, *old_backend;
@@ -708,7 +708,7 @@ do_http(thr_arg *arg)
         }
 
         /* check other headers */
-        for(chunked = 0, cont = L_1, n = 1; n < MAXHEADERS && headers[n]; n++) {
+        for(cl_count=0,chunked = 0, cont = L_1, n = 1; n < MAXHEADERS && headers[n]; n++) {
             /* no overflow - see check_header for details */
             switch(check_header(headers[n], buf)) {
             case HEADER_HOST:
@@ -734,11 +734,28 @@ do_http(thr_arg *arg)
                         chunked = 1;
                 break;
             case HEADER_CONTENT_LENGTH:
+                cl_count++;
+                if (cl_count>1)
+                {
+                    logmsg(LOG_WARNING, "(%lx) e501 bad multi-content-length request \"%s\" from %s", pthread_self(), request, caddr);
+                    err_reply(cl, h501, lstn->err501);
+                    free_headers(headers);
+                    clean_all();
+                    return;
+                }
+
                 if(chunked || cont >= 0L)
+                {
                     headers_ok[n] = 0;
-                else
+                }
+                else {
                     if((cont = ATOL(buf)) < 0L)
+                     {
                         headers_ok[n] = 0;
+                     }
+                    if(is_rpc == 1 && (cont < 0x20000L || cont > 0x80000000L))
+                        is_rpc = -1;
+                }
                 break;
             case HEADER_ILLEGAL:
                 if(lstn->log_level > 0) {
@@ -1401,8 +1418,12 @@ do_http(thr_arg *arg)
                 case HEADER_CONTENT_LENGTH:
                     cont = ATOL(buf);
                     /* treat RPC_OUT_DATA like reply without content-length */
-                    if(is_rpc == 0 && cont == 0x40000000L)
+                    if(is_rpc == 0) {
+                        if(cont >= 0x20000L && cont <= 0x80000000L)
                         cont = -1L;
+                        else
+                            is_rpc = -1;
+                    }
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, v_host, lstn, cur_backend)) {
