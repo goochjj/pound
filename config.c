@@ -1297,7 +1297,7 @@ parse_file(void)
             DH *dh = load_dh_params(lin + matches[2].rm_so);
             if (!dh)
 	        conf_err("DHParams config: could not load file");
-            if (lin[matches[1].rm_so])
+            if (matches[1].rm_eo-matches[1].rm_so>10)
 	        DH_export_params = dh;
             else
 	        DH_us_params = dh;
@@ -1484,7 +1484,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&HTTPS, "^[ \t]*HTTPS[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&HTTPSCert, "^[ \t]*HTTPS[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&DHParams, "^[ \t]*DHParams(|Export)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DHParams, "^[ \t]*(DHParams|DHParamsExport)[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ECDHCurve, "^[ \t]*ECDHCurve[ \t]+(.+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     ) {
