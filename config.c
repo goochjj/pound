@@ -265,6 +265,9 @@ get_subjectaltnames(X509 *x509, unsigned int *count)
     result = NULL;
     name = NULL;
     *count = 0;
+    if (san_stack==NULL)
+        return result;
+
     while(sk_GENERAL_NAME_num(san_stack) > 0) {
         name = sk_GENERAL_NAME_pop(san_stack);
         switch(name->type) {
