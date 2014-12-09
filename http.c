@@ -67,7 +67,7 @@ redirect_reply(BIO *const c, const char *url, const int code)
         break;
     }
     /*
-     * Make sure to return a safe version of the URL (otherwise CSRF becomes a possibility
+     * Make sure to return a safe version of the URL (otherwise CSRF becomes a possibility)
      */
     memset(safe_url, 0, MAXBUF);
     for(i = j = 0; i < MAXBUF && j < MAXBUF && url[i]; i++)
@@ -614,6 +614,7 @@ do_http(thr_arg *arg)
             && SSL_get_verify_result(ssl) != X509_V_OK) {
                 addr2str(caddr, MAXBUF - 1, &from_host, 1);
                 logmsg(LOG_NOTICE, "Bad certificate from %s", caddr);
+                X509_free(x509);
                 BIO_reset(cl);
                 BIO_free_all(cl);
                 return;
@@ -626,6 +627,8 @@ do_http(thr_arg *arg)
 
     if((bb = BIO_new(BIO_f_buffer())) == NULL) {
         logmsg(LOG_WARNING, "(%lx) BIO_new(buffer) failed", pthread_self());
+        if(x509 != NULL)
+            X509_free(x509);
         BIO_reset(cl);
         BIO_free_all(cl);
         return;
@@ -1007,12 +1010,12 @@ do_http(thr_arg *arg)
 
         /* if SSL put additional headers for client certificate */
         if(cur_backend->be_type == 0 && ssl != NULL) {
-            SSL_CIPHER  *cipher;
+            const SSL_CIPHER  *cipher;
 
             if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
                 SSL_CIPHER_description(cipher, buf, MAXBUF - 1);
                 strip_eol(buf);
-                if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
+                if(BIO_printf(be, "X-SSL-cipher: %s/%s\r\n", SSL_get_version(ssl), buf) <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     end_req = cur_time();
                     logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-cipher to %s: %s (%.3f sec)",

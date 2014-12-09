@@ -1,4 +1,19 @@
 ------------------------------------------------------------------------
+r79 | roseg | 2014-12-08 14:39:00 +0100 (Mon, 08 Dez 2014) | 12 lines
+
+Release 2.7e
+
+Enhancements:
+    - added support for elliptical curve encryption
+    - added support for larger DH keys
+    - added protocol version in X-SSL-cipher (Tom Fitzhenry)
+
+Bug fixes:
+    - fixed potential memory leak on client certificates
+    - fixed alt names problem (Joe Gooch)
+    - removed debugging messages
+
+------------------------------------------------------------------------
 r78 | roseg | 2014-10-18 12:36:28 +0200 (Sam, 18 Okt 2014) | 10 lines
 
 Release 2.7d

@@ -60,9 +60,12 @@ dh512.h:
 dh1024.h:
 		openssl dhparam -5 -C -noout 1024 > dh1024.h
 
+dh2048.h:
+		openssl dhparam -5 -C -noout 2048 > dh2048.h
+
 $(OBJS) poundctl.o:	pound.h config.h
 
-svc.o:		svc.c dh512.h dh1024.h
+svc.o:		svc.c dh512.h dh1024.h dh2048.h
 		${CC} ${CFLAGS} -c -o svc.o svc.c
 
 install:	all
@@ -75,7 +78,7 @@ install:	all
 
 clean:
 		rm -f pound $(OBJS) poundctl poundctl.o
-		rm -f dh512.h dh1024.h
+		rm -f dh512.h dh1024.h dh2048.h
 
 distclean:	clean
 		-rm -f config.h config.log config.status Makefile

@@ -80,7 +80,7 @@ static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emerg
 static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS;
-static regex_t  Disabled, Threads, CNName, Anonymise;
+static regex_t  Disabled, Threads, CNName, Anonymise, ECDHCurve;
 
 static regmatch_t   matches[5];
 
@@ -99,6 +99,11 @@ static int  be_to = 15;
 static int  be_connto = 15;
 static int  dynscale = 0;
 static int  ignore_case = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+static int  EC_nid = NID_X9_62_prime256v1;
+#endif
+#endif
 
 #define MAX_FIN 8
 
@@ -184,6 +189,8 @@ get_subjectaltnames(X509 *x509, unsigned int *count)
     result = NULL;
     name = NULL;
     *count = 0;
+    if(san_stack == NULL)
+        return NULL;
     while(sk_GENERAL_NAME_num(san_stack) > 0) {
         name = sk_GENERAL_NAME_pop(san_stack);
         switch(name->type) {
@@ -354,6 +361,17 @@ parse_be(const int is_emergency)
             SSL_CTX_set_session_id_context(res->ctx, (unsigned char *)lin, strlen(lin));
             SSL_CTX_set_tmp_rsa_callback(res->ctx, RSA_tmp_callback);
             SSL_CTX_set_tmp_dh_callback(res->ctx, DH_tmp_callback);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+            /* This generates a EC_KEY structure with no key, but a group defined */
+            EC_KEY *ecdh;
+            if((ecdh = EC_KEY_new_by_curve_name(EC_nid)) == NULL)
+                conf_err("Unable to generate temp ECDH key");
+            SSL_CTX_set_tmp_ecdh(res->ctx, ecdh);
+            SSL_CTX_set_options(res->ctx, SSL_OP_SINGLE_ECDH_USE);
+            EC_KEY_free(ecdh);
+#endif
+#endif
         } else if(!regexec(&Cert, lin, 4, matches, 0)) {
             if(res->ctx == NULL)
                 conf_err("BackEnd Cert can only be used after HTTPS - aborted");
@@ -1251,6 +1269,17 @@ parse_HTTPS(void)
                 SSL_CTX_set_tmp_rsa_callback(pc->ctx, RSA_tmp_callback);
                 SSL_CTX_set_tmp_dh_callback(pc->ctx, DH_tmp_callback);
                 SSL_CTX_set_info_callback(pc->ctx, SSLINFO_callback);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+                /* This generates a EC_KEY structure with no key, but a group defined */
+                EC_KEY *ecdh;
+                if((ecdh = EC_KEY_new_by_curve_name(EC_nid)) == NULL)
+                    conf_err("Unable to generate temp ECDH key");
+                SSL_CTX_set_tmp_ecdh(pc->ctx, ecdh);
+                SSL_CTX_set_options(pc->ctx, SSL_OP_SINGLE_ECDH_USE);
+                EC_KEY_free(ecdh);
+#endif
+#endif
             }
             return res;
         } else {
@@ -1321,6 +1350,14 @@ parse_file(void)
             be_connto = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
             ignore_case = atoi(lin + matches[1].rm_so);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+        } else if(!regexec(&ECDHCurve, lin, 4, matches, 0)) {
+            lin[matches[1].rm_eo] = '\0';
+            if((EC_nid = OBJ_sn2nid(lin + matches[1].rm_so)) == 0)
+                conf_err("ECDHCurve config: invalid curve name");
+#endif
+#endif
 #if HAVE_OPENSSL_ENGINE_H
         } else if(!regexec(&SSLEngine, lin, 4, matches, 0)) {
             lin[matches[1].rm_eo] = '\0';
@@ -1462,6 +1499,11 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Disabled, "^[ \t]*Disabled[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CNName, ".*[Cc][Nn]=([-*.A-Za-z0-9]+).*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Anonymise, "^[ \t]*Anonymise[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+    || regcomp(&ECDHCurve, "^[ \t]*ECDHCurve[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+#endif
+#endif
     ) {
         logmsg(LOG_ERR, "bad config Regex - aborted");
         exit(1);
@@ -1623,6 +1665,11 @@ config_parse(const int argc, char **const argv)
     regfree(&Disabled);
     regfree(&CNName);
     regfree(&Anonymise);
+#if OPENSSL_VERSION_NUMBER >= 0x0090800fL
+#ifndef OPENSSL_NO_ECDH
+    regfree(&ECDHCurve);
+#endif
+#endif
 
     /* set the facility only here to ensure the syslog gets opened if necessary */
     log_facility = def_facility;
