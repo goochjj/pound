@@ -24,25 +24,16 @@
 # EMail: roseg@apsis.ch
 
 CC=@PTHREAD_CC@
-VERSION="@PACKAGE_VERSION@"
-C_SSL="@C_SSL@"
-C_T_RSA="@C_T_RSA@"
-C_MAXBUF="@C_MAXBUF@"
-C_OWNER="@C_OWNER@"
-C_GROUP="@C_GROUP@"
-C_SUPER="@C_SUPER@"
-C_CERT1L="@C_CERT1L@"
 
-CFLAGS=-DF_CONF=\"$(F_CONF)\" -DVERSION=\"${VERSION}\" -DC_SSL=\"${C_SSL}\" -DC_T_RSA=\"${C_T_RSA}\" \
-	-DC_MAXBUF=\"${C_MAXBUF}\" -DC_OWNER=\"${C_OWNER}\" -DC_GROUP=\"${C_GROUP}\" \
-    -DC_SUPER=\"${C_SUPER}\" -DC_CERT1L=\"${C_CERT1L}\" @CFLAGS@ @PTHREAD_CFLAGS@ @CPPFLAGS@
+CFLAGS=-DF_CONF=\"@sysconfdir@/pound.cfg\" -DVERSION=\"@PACKAGE_VERSION@\" -DC_SSL=\"@C_SSL@\" -DC_T_RSA=\"@C_T_RSA@\" \
+	-DC_DH_LEN=\"@C_DH_LEN@\" -DC_MAXBUF=\"@C_MAXBUF@\" -DC_OWNER=\"@C_OWNER@\" -DC_GROUP=\"@C_GROUP@\" \
+    -DC_SUPER=\"@C_SUPER@\" -DC_CERT1L=\"@C_CERT1L@\" @CFLAGS@ @PTHREAD_CFLAGS@ @CPPFLAGS@
 LIBS=@LIBS@ @PTHREAD_LIBS@
 
 prefix=@prefix@
 exec_prefix=@exec_prefix@
 
 # Configuration file default; if none, look at config.c for default!
-F_CONF=@sysconfdir@/pound.cfg
 
 OBJS=pound.o http.o config.o svc.o
 
@@ -57,16 +48,13 @@ poundctl:	poundctl.o
 dh512.h:
 		openssl dhparam -5 -C -noout 512 > dh512.h
 
-dh1024.h:
-		openssl dhparam -5 -C -noout 1024 > dh1024.h
+dh@C_DH_LEN@.h:
+		openssl dhparam -5 -C -noout @C_DH_LEN@ > dh@C_DH_LEN@.h
 
-dh2048.h:
-		openssl dhparam -5 -C -noout 2048 > dh2048.h
+svc.o:		svc.c dh512.h dh@C_DH_LEN@.h
+		${CC} ${CFLAGS} -c -o svc.o svc.c
 
 $(OBJS) poundctl.o:	pound.h config.h
-
-svc.o:		svc.c dh512.h dh1024.h dh2048.h
-		${CC} ${CFLAGS} -c -o svc.o svc.c
 
 install:	all
 		@INSTALL@ -d ${DESTDIR}@sbindir@
@@ -78,7 +66,7 @@ install:	all
 
 clean:
 		rm -f pound $(OBJS) poundctl poundctl.o
-		rm -f dh512.h dh1024.h dh2048.h
+		rm -f dh512.h dh@C_DH_LEN@.h
 
 distclean:	clean
 		-rm -f config.h config.log config.status Makefile

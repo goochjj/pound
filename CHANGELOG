@@ -1,5 +1,18 @@
 ------------------------------------------------------------------------
-r79 | roseg | 2014-12-08 14:39:00 +0100 (Mon, 08 Dez 2014) | 12 lines
+r80 | roseg | 2014-12-29 11:47:54 +0100 (Mon, 29 Dec 2014) | 10 lines
+
+Release 2.7f
+
+Enhancements:
+    - compile-time parameter for DH bits (workaround for OpenSSL limitation)
+
+Bug fixes:
+    - allow '-' and '=' again in URLs (redirect)
+    - fixed lh_retrieve warning
+    - fixed "Disable" regex typo
+
+------------------------------------------------------------------------
+r79 | roseg | 2014-12-08 14:39:00 +0100 (Mon, 08 Dec 2014) | 12 lines
 
 Release 2.7e
 
@@ -14,7 +27,7 @@ Bug fixes:
     - removed debugging messages
 
 ------------------------------------------------------------------------
-r78 | roseg | 2014-10-18 12:36:28 +0200 (Sam, 18 Okt 2014) | 10 lines
+r78 | roseg | 2014-10-18 12:36:28 +0200 (Sat, 18 Oct 2014) | 10 lines
 
 Release 2.7d
 
@@ -39,7 +52,7 @@ Bug fixes:
     - fixed RPC handling (Frank Schmierler)
 
 ------------------------------------------------------------------------
-r76 | roseg | 2013-09-26 14:33:21 +0200 (Don, 26 Sep 2013) | 12 lines
+r76 | roseg | 2013-09-26 14:33:21 +0200 (Thu, 26 Sep 2013) | 12 lines
 
 Release 2.7b
 
@@ -69,7 +82,7 @@ Bug fixes:
     - fixed testing of gcc options
 
 ------------------------------------------------------------------------
-r74 | roseg | 2011-12-28 14:57:45 +0100 (Mit, 28 Dez 2011) | 10 lines
+r74 | roseg | 2011-12-28 14:57:45 +0100 (Wed, 28 Dec 2011) | 10 lines
 
 Release 2.6
 
@@ -82,7 +95,7 @@ Bug fixes:
     - workaround for AIX getaddrinfo() bug
 
 ------------------------------------------------------------------------
-r73 | roseg | 2011-06-24 17:59:41 +0200 (Fre, 24 Jun 2011) | 7 lines
+r73 | roseg | 2011-06-24 17:59:41 +0200 (Fri, 24 Jun 2011) | 7 lines
 
 Release 2.6f
 
@@ -115,7 +128,7 @@ Bug fixes:
     - fixed small problem in Makefile
 
 ------------------------------------------------------------------------
-r70 | roseg | 2010-12-27 17:54:18 +0100 (Mon, 27 Dez 2010) | 14 lines
+r70 | roseg | 2010-12-27 17:54:18 +0100 (Mon, 27 Dec 2010) | 14 lines
 
 Release 2.6c
 
@@ -132,7 +145,7 @@ Bug fixes:
 Many thanks to Frank Schmirler and Ruben Kerkhof for the contributed patches
 
 ------------------------------------------------------------------------
-r69 | roseg | 2010-09-25 16:49:49 +0200 (Sam, 25 Sep 2010) | 7 lines
+r69 | roseg | 2010-09-25 16:49:49 +0200 (Sat, 25 Sep 2010) | 7 lines
 
 Release 2.6b
 
@@ -142,7 +155,7 @@ Enhancements:
 Bug fixes:
 
 ------------------------------------------------------------------------
-r68 | roseg | 2010-06-23 19:18:39 +0200 (Mit, 23 Jun 2010) | 15 lines
+r68 | roseg | 2010-06-23 19:18:39 +0200 (Wed, 23 Jun 2010) | 15 lines
 
 Release 2.6a
 
@@ -160,7 +173,7 @@ Bug fixes:
     - fixed some issues with OpenSolaris build (thanks to Spradling Cloyce)
 
 ------------------------------------------------------------------------
-r67 | roseg | 2010-02-02 12:49:00 +0100 (Die, 02 Feb 2010) | 9 lines
+r67 | roseg | 2010-02-02 12:49:00 +0100 (Tue, 02 Feb 2010) | 9 lines
 
 Release 2.5
 
@@ -182,7 +195,7 @@ Enhancements:
 Bug fixes:
 
 ------------------------------------------------------------------------
-r65 | roseg | 2009-12-07 17:01:21 +0100 (Mon, 07 Dez 2009) | 9 lines
+r65 | roseg | 2009-12-07 17:01:21 +0100 (Mon, 07 Dec 2009) | 9 lines
 
 Release 2.5d
 
@@ -205,7 +218,7 @@ Bug fixes:
   - fixed problem with sub-patterns in session parameters
 
 ------------------------------------------------------------------------
-r63 | roseg | 2009-08-19 17:44:07 +0200 (Mit, 19 Aug 2009) | 10 lines
+r63 | roseg | 2009-08-19 17:44:07 +0200 (Wed, 19 Aug 2009) | 10 lines
 
 Release 2.5b
 
@@ -218,7 +231,7 @@ Bug fixes:
   - changed RSA ephemeral keys regeneration default time (every 30 minutes)
 
 ------------------------------------------------------------------------
-r62 | roseg | 2009-08-06 17:23:30 +0200 (Don, 06 Aug 2009) | 9 lines
+r62 | roseg | 2009-08-06 17:23:30 +0200 (Thu, 06 Aug 2009) | 9 lines
 
 Release 2.5a
 
@@ -246,7 +259,7 @@ Bug fixes:
     - fixed maximal path length in UNIX domain sockets (thanks to Ricardo Gameiro)
 
 ------------------------------------------------------------------------
-r60 | roseg | 2009-01-14 17:39:52 +0100 (Mit, 14 Jan 2009) | 18 lines
+r60 | roseg | 2009-01-14 17:39:52 +0100 (Wed, 14 Jan 2009) | 18 lines
 
 Release 2.4.4
 
@@ -267,7 +280,7 @@ Bug fixes:
     - fixed a problem with Unix sockets back-ends (thanks to Ricardo Gameiro)
 
 ------------------------------------------------------------------------
-r59 | roseg | 2008-05-31 12:25:41 +0200 (Sam, 31 Mai 2008) | 11 lines
+r59 | roseg | 2008-05-31 12:25:41 +0200 (Sat, 31 May 2008) | 11 lines
 
 Release 2.4.3
 
@@ -281,7 +294,7 @@ Bug fixes:
   - fixed problem in Redirect logging (thanks to Albert)
 
 ------------------------------------------------------------------------
-r58 | roseg | 2008-04-24 16:31:28 +0200 (Don, 24 Apr 2008) | 13 lines
+r58 | roseg | 2008-04-24 16:31:28 +0200 (Thu, 24 Apr 2008) | 13 lines
 
 Release 2.4.2
 
@@ -297,7 +310,7 @@ Bug fixes:
   - fixed redirection problem (missing slash in Location/Content-location)
 
 ------------------------------------------------------------------------
-r57 | roseg | 2008-04-05 11:45:41 +0200 (Sam, 05 Apr 2008) | 12 lines
+r57 | roseg | 2008-04-05 11:45:41 +0200 (Sat, 05 Apr 2008) | 12 lines
 
 Release 2.4.1
 
@@ -319,7 +332,7 @@ Release 2.4
 Stable release 2.4
 
 ------------------------------------------------------------------------
-r55 | roseg | 2007-12-27 12:54:32 +0100 (Don, 27 Dez 2007) | 7 lines
+r55 | roseg | 2007-12-27 12:54:32 +0100 (Thu, 27 Dec 2007) | 7 lines
 
 Release 2.4f
 
@@ -329,7 +342,7 @@ Bug fixes:
   - fixed back-end enable/disable (priority computing)
 
 ------------------------------------------------------------------------
-r54 | roseg | 2007-11-29 18:16:36 +0100 (Don, 29 Nov 2007) | 12 lines
+r54 | roseg | 2007-11-29 18:16:36 +0100 (Thu, 29 Nov 2007) | 12 lines
 
 Enhancements:
   - added PARM session type. Old PARM is now URL
@@ -344,7 +357,7 @@ Bug fixes:
   - if the same cookie is defined more than once use LAST definition
 
 ------------------------------------------------------------------------
-r53 | roseg | 2007-08-15 18:26:58 +0200 (Mit, 15 Aug 2007) | 10 lines
+r53 | roseg | 2007-08-15 18:26:58 +0200 (Wed, 15 Aug 2007) | 10 lines
 
 Release 2.4d
 
@@ -357,7 +370,7 @@ Bug fixes:
   - fixed memory leak in DNS searches
 
 ------------------------------------------------------------------------
-r52 | roseg | 2007-07-04 15:29:27 +0200 (Mit, 04 Jul 2007) | 10 lines
+r52 | roseg | 2007-07-04 15:29:27 +0200 (Wed, 04 Jul 2007) | 10 lines
 
 Release 2.4c
 
@@ -370,7 +383,7 @@ Bug fixes:
   - fixed problems with chunked encoding
 
 ------------------------------------------------------------------------
-r51 | roseg | 2007-05-18 10:35:02 +0200 (Fre, 18 Mai 2007) | 11 lines
+r51 | roseg | 2007-05-18 10:35:02 +0200 (Fri, 18 May 2007) | 11 lines
 
 Release 2.4b
 
@@ -398,7 +411,7 @@ Bug fixes:
   - fixed problem with premature opening of control socket
 
 ------------------------------------------------------------------------
-r46 | roseg | 2007-04-11 15:00:11 +0200 (Mit, 11 Apr 2007) | 8 lines
+r46 | roseg | 2007-04-11 15:00:11 +0200 (Wed, 11 Apr 2007) | 8 lines
 
 Release 2.3
 
@@ -409,7 +422,7 @@ Enhancements:
 Bug fixes:
 
 ------------------------------------------------------------------------
-r45 | roseg | 2007-04-04 18:15:53 +0200 (Mit, 04 Apr 2007) | 8 lines
+r45 | roseg | 2007-04-04 18:15:53 +0200 (Wed, 04 Apr 2007) | 8 lines
 
 Release 2.2.8
 
@@ -420,7 +433,7 @@ Enhancements:
 Bug fixes:
 
 ------------------------------------------------------------------------
-r44 | roseg | 2007-03-12 18:12:14 +0100 (Mon, 12 Mär 2007) | 8 lines
+r44 | roseg | 2007-03-12 18:12:14 +0100 (Mon, 12 Mar 2007) | 8 lines
 
 Release 2.2.7
 
@@ -431,7 +444,7 @@ Enhancements:
 Bug fixes:
 
 ------------------------------------------------------------------------
-r43 | roseg | 2007-03-02 10:30:01 +0100 (Fre, 02 Mär 2007) | 11 lines
+r43 | roseg | 2007-03-02 10:30:01 +0100 (Fri, 02 Mar 2007) | 11 lines
 
 Release 2.2.6
 
@@ -455,7 +468,7 @@ Bug fixes:
   - fixed problem with sessions (BACKEND copying)
 
 ------------------------------------------------------------------------
-r41 | roseg | 2007-02-10 15:26:42 +0100 (Sam, 10 Feb 2007) | 14 lines
+r41 | roseg | 2007-02-10 15:26:42 +0100 (Sat, 10 Feb 2007) | 14 lines
 
 Release 2.2.4
 
@@ -472,7 +485,7 @@ Bug fixes:
   - fixed problem with -1 values in poundctl
 
 ------------------------------------------------------------------------
-r40 | roseg | 2007-01-19 21:29:07 +0100 (Fre, 19 Jan 2007) | 5 lines
+r40 | roseg | 2007-01-19 21:29:07 +0100 (Fri, 19 Jan 2007) | 5 lines
 
 Release 2.2.3
 
@@ -496,7 +509,7 @@ Bug fixes:
   - fixed problem for OpenBSD accept (blocks all threads)
 
 ------------------------------------------------------------------------
-r38 | roseg | 2007-01-03 18:25:30 +0100 (Mit, 03 Jan 2007) | 13 lines
+r38 | roseg | 2007-01-03 18:25:30 +0100 (Wed, 03 Jan 2007) | 13 lines
 
 Release 2.2.1
 
@@ -512,7 +525,7 @@ Bug fixes:
   - added protocol check in need_rewrite
 
 ------------------------------------------------------------------------
-r37 | roseg | 2006-12-16 10:18:38 +0100 (Sam, 16 Dez 2006) | 45 lines
+r37 | roseg | 2006-12-16 10:18:38 +0100 (Sat, 16 Dec 2006) | 45 lines
 
 Release 2.2
 
@@ -560,7 +573,7 @@ Bug fixes:
   - fixed problem with the initialisation of host_mut
 
 ------------------------------------------------------------------------
-r36 | roseg | 2006-12-09 09:39:23 +0100 (Sam, 09 Dez 2006) | 6 lines
+r36 | roseg | 2006-12-09 09:39:23 +0100 (Sat, 09 Dec 2006) | 6 lines
 
 Release 2.1.8
 
@@ -569,7 +582,7 @@ Bug fixes:
   - added support for systems that don't define SOL_TCP
 
 ------------------------------------------------------------------------
-r35 | roseg | 2006-12-06 18:32:16 +0100 (Mit, 06 Dez 2006) | 10 lines
+r35 | roseg | 2006-12-06 18:32:16 +0100 (Wed, 06 Dec 2006) | 10 lines
 
 Release 2.1.7
 
@@ -582,7 +595,7 @@ Bug fixes:
   - fixed error in control function (be instead of svc)
 
 ------------------------------------------------------------------------
-r34 | roseg | 2006-11-04 11:28:53 +0100 (Sam, 04 Nov 2006) | 9 lines
+r34 | roseg | 2006-11-04 11:28:53 +0100 (Sat, 04 Nov 2006) | 9 lines
 
 Release 2.1.6
 
@@ -594,7 +607,7 @@ Bug fixes:
   - fixed problem with Emergency back-ends
 
 ------------------------------------------------------------------------
-r33 | roseg | 2006-10-23 09:24:28 +0200 (Mon, 23 Okt 2006) | 12 lines
+r33 | roseg | 2006-10-23 09:24:28 +0200 (Mon, 23 Oct 2006) | 12 lines
 
 Release 2.1.5
 
@@ -609,7 +622,7 @@ Bug fixes:
   - improved owner/group detection for install
 
 ------------------------------------------------------------------------
-r32 | roseg | 2006-10-14 16:39:29 +0200 (Sam, 14 Okt 2006) | 6 lines
+r32 | roseg | 2006-10-14 16:39:29 +0200 (Sat, 14 Oct 2006) | 6 lines
 
 Release 2.1.4
 
@@ -618,7 +631,7 @@ Bug fixes:
   - added CRLlist directive, split CRL from CA
 
 ------------------------------------------------------------------------
-r31 | roseg | 2006-09-21 18:41:15 +0200 (Don, 21 Sep 2006) | 6 lines
+r31 | roseg | 2006-09-21 18:41:15 +0200 (Thu, 21 Sep 2006) | 6 lines
 
 Release 2.1.3
 
@@ -662,7 +675,7 @@ Bug fixes:
   - check for errors in mutex handling
 
 ------------------------------------------------------------------------
-r27 | roseg | 2006-08-05 11:35:52 +0200 (Sam, 05 Aug 2006) | 24 lines
+r27 | roseg | 2006-08-05 11:35:52 +0200 (Sat, 05 Aug 2006) | 24 lines
 
 Release 2.1
 
@@ -689,7 +702,7 @@ Bug fixes:
   - removed all static buffers
 
 ------------------------------------------------------------------------
-r25 | roseg | 2006-02-01 10:00:42 +0100 (Mit, 01 Feb 2006) | 14 lines
+r25 | roseg | 2006-02-01 10:00:42 +0100 (Wed, 01 Feb 2006) | 14 lines
 
 Release 2.0
 
@@ -706,7 +719,7 @@ Enhancements:
     - session keeping on a specific Header
 
 ------------------------------------------------------------------------
-r21 | roseg | 2006-02-01 14:27:19 +0100 (Mit, 01 Feb 2006) | 15 lines
+r21 | roseg | 2006-02-01 14:27:19 +0100 (Wed, 01 Feb 2006) | 15 lines
 
 Release 1.10
 
@@ -724,7 +737,7 @@ Bug fixes:
 Last release in the 1.x series.
 
 ------------------------------------------------------------------------
-r19 | roseg | 2005-06-01 15:27:19 +0200 (Mit, 01 Jun 2005) | 18 lines
+r19 | roseg | 2005-06-01 15:27:19 +0200 (Wed, 01 Jun 2005) | 18 lines
 
 Release 1.9
 
@@ -745,7 +758,7 @@ Bug fixes:
 - fixed the locking for session checking (mutex_lock/unlock)
 
 ------------------------------------------------------------------------
-r17 | roseg | 2004-11-04 14:27:19 +0100 (Don, 04 Nov 2004) | 23 lines
+r17 | roseg | 2004-11-04 14:27:19 +0100 (Thu, 04 Nov 2004) | 23 lines
 
 Release 1.8
 
@@ -771,7 +784,7 @@ Enhancements:
 - improved print-out for client certificate information
 
 ------------------------------------------------------------------------
-r15 | roseg | 2004-03-24 14:27:19 +0100 (Mit, 24 Mär 2004) | 12 lines
+r15 | roseg | 2004-03-24 14:27:19 +0100 (Wed, 24 Mar 2004) | 12 lines
 
 Release 1.7
 
@@ -786,7 +799,7 @@ Fixed HeadRemove code so all headers are checked without exception
 Improved autoconf detection
 
 ------------------------------------------------------------------------
-r13 | roseg | 2003-11-30 14:27:19 +0100 (Son, 30 Nov 2003) | 15 lines
+r13 | roseg | 2003-11-30 14:27:19 +0100 (Sun, 30 Nov 2003) | 15 lines
 
 Release 1.6
 
@@ -804,7 +817,7 @@ Verify client certificates up to given depth
 Fixed vulnerability in syslog handling
 
 ------------------------------------------------------------------------
-r11 | roseg | 2003-10-14 15:27:19 +0200 (Die, 14 Okt 2003) | 19 lines
+r11 | roseg | 2003-10-14 15:27:19 +0200 (Tue, 14 Oct 2003) | 19 lines
 
 Release 1.5
 
@@ -826,7 +839,7 @@ Location rewriting on redirect:
         to the Pound protocol/port itself
 
 ------------------------------------------------------------------------
-r9 | roseg | 2003-04-24 15:27:19 +0200 (Don, 24 Apr 2003) | 12 lines
+r9 | roseg | 2003-04-24 15:27:19 +0200 (Thu, 24 Apr 2003) | 12 lines
 
 Release 1.4
 
@@ -841,7 +854,7 @@ Improved autoconf.
 Some SSL speed optimisations.
 
 ------------------------------------------------------------------------
-r7 | roseg | 2003-02-19 14:27:19 +0100 (Mit, 19 Feb 2003) | 10 lines
+r7 | roseg | 2003-02-19 14:27:19 +0100 (Wed, 19 Feb 2003) | 10 lines
 
 Release 1.3
 
@@ -862,7 +875,7 @@ Better handling of "100 Continue" responses
 Fixed problem with allowed character set for requests
 
 ------------------------------------------------------------------------
-r3 | roseg | 2003-01-09 14:27:19 +0100 (Don, 09 Jan 2003) | 9 lines
+r3 | roseg | 2003-01-09 14:27:19 +0100 (Thu, 09 Jan 2003) | 9 lines
 
 Better auto-conf detection
 LogLevel 3 for Apache-like log (Combined Log Format)
@@ -874,7 +887,7 @@ Fixed HeadDeny code
 Fixed problem with threads on *BSD
 
 ------------------------------------------------------------------------
-r1 | roseg | 2002-10-31 14:27:19 +0100 (Don, 31 Okt 2002) | 1 line
+r1 | roseg | 2002-10-31 14:27:19 +0100 (Thu, 31 Oct 2002) | 1 line
 
 Initial import
 ------------------------------------------------------------------------

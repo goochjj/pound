@@ -1485,7 +1485,7 @@ config_parse(const int argc, char **const argv)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&DisableProto, "^[ \t]*Disable[ \t](SSLv2|SSLv3|TLSv1|TLSv1_1|TLSv1_2)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
+    || regcomp(&DisableProto, "^[ \t]*Disable[ \t]+(SSLv2|SSLv3|TLSv1|TLSv1_1|TLSv1_2)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLHonorCipherOrder, "^[ \t]*SSLHonorCipherOrder[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&Ciphers, "^[ \t]*Ciphers[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&CAlist, "^[ \t]*CAlist[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1559,6 +1559,10 @@ config_parse(const int argc, char **const argv)
 #ifdef  C_GROUP
             if(strcmp(C_GROUP, ""))
                 logmsg(LOG_DEBUG, "    --with-group=%s", C_GROUP);
+#endif
+#ifdef  C_DH_LEN
+            if(strcmp(C_DH_LEN, "0"))
+                logmsg(LOG_DEBUG, "    --with-dh=%s", C_DH_LEN);
 #endif
             logmsg(LOG_DEBUG, "Exiting...");
             exit(0);

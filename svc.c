@@ -82,7 +82,11 @@ t_find(LHASH_OF(TABNODE) *const tab, char *const key)
     TABNODE t, *res;
 
     t.key = key;
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+    if((res = (TABNODE *)LHM_lh_retrieve(TABNODE, tab, &t)) != NULL) {
+#else
     if((res = (TABNODE *)lh_retrieve(tab, &t)) != NULL) {
+#endif
         res->last_acc = time(NULL);
         return res->content;
     }
@@ -1445,16 +1449,26 @@ do_RSAgen(void)
 }
 
 #include    "dh512.h"
-#include    "dh1024.h"
-#include    "dh2048.h"
 
-static DH   *DH512_params, *DH1024_params, *DH2048_params;
+#if DH_LEN == 1024
+#include    "dh1024.h"
+static DH   *DH512_params, *DH1024_params;
 
 DH *
 DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength)
 {
-    return keylength == 2048? DH2048_params: (keylength == 512? DH512_params: DH1024_params);
+    return keylength == 512? DH512_params: DH1024_params;
 }
+#else
+#include    "dh2048.h"
+static DH   *DH512_params, *DH2048_params;
+
+DH *
+DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength)
+{
+    return keylength == 512? DH512_params: DH2048_params;
+}
+#endif
 
 static time_t   last_RSA, last_rescale, last_alive, last_expire;
 
@@ -1486,8 +1500,11 @@ init_timer(void)
     pthread_mutex_init(&RSA_mut, NULL);
 
     DH512_params = get_dh512();
+#if DH_LEN == 1024
     DH1024_params = get_dh1024();
+#else
     DH2048_params = get_dh2048();
+#endif
 
     return;
 }

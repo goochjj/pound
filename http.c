@@ -72,7 +72,7 @@ redirect_reply(BIO *const c, const char *url, const int code)
     memset(safe_url, 0, MAXBUF);
     for(i = j = 0; i < MAXBUF && j < MAXBUF && url[i]; i++)
         if(isalnum(url[i]) || url[i] == '_' || url[i] == '.' || url[i] == ':' || url[i] == '/'
-        || url[i] == '?' || url[i] == '&' || url[i] == ';')
+        || url[i] == '?' || url[i] == '&' || url[i] == ';' || url[i] == '-' || url[i] == '=')
             safe_url[j++] = url[i];
         else {
             sprintf(safe_url + j, "%%%02x", url[i]);
