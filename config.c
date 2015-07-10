@@ -1852,6 +1852,9 @@ config_parse(const int argc, char **const argv)
         case 'V':
             print_log = 1;
             logmsg(LOG_DEBUG, "Version %s", VERSION);
+#ifdef SSLEAY_VERSION
+            logmsg(LOG_DEBUG, "OpenSSL version %s", SSLeay_version(SSLEAY_VERSION));
+#endif
             logmsg(LOG_DEBUG, "  Configuration switches:");
 #ifdef  C_SUPER
             if(strcmp(C_SUPER, "0"))
