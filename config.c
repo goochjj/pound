@@ -1080,9 +1080,19 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
 {
     const char  *server_name;
     POUND_CTX   *pc;
+    SSL_REQUEST *ssl_request;
 
+    /* Get our thr_arg where we're tracking this connection info */
+    ssl_request = (SSL_REQUEST *)SSL_get_app_data(ssl);
+    if (ssl_request != NULL)
+        ssl_request->servername[0] = 0;
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
+
+    if (ssl_request != NULL) {
+	strncpy(ssl_request->servername, server_name, MAXBUF);
+        ssl_request->servername[MAXBUF-1] = 0;
+    }
 
     /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
 

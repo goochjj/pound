@@ -538,12 +538,13 @@ do_http(thr_arg *arg)
     struct tm           expires;
     time_t              exptime;
     double              start_req, end_req;
-    RENEG_STATE         reneg_state;
+    SSL_REQUEST		ssl_request;
     BIO_ARG             ba1, ba2;
 
-    reneg_state = RENEG_INIT;
-    ba1.reneg_state =  &reneg_state;
-    ba2.reneg_state = &reneg_state;
+    *ssl_request.servername=0;
+    ssl_request.reneg_state = RENEG_INIT;
+    ba1.reneg_state =  &ssl_request.reneg_state;
+    ba2.reneg_state = &ssl_request.reneg_state;
     ba1.timeout = 0;
     ba2.timeout = 0;
     from_host = ((thr_arg *)arg)->from_host;
@@ -555,7 +556,7 @@ do_http(thr_arg *arg)
     free(arg);
 
     if(lstn->allow_client_reneg)
-        reneg_state = RENEG_ALLOW;
+        ssl_request.reneg_state = RENEG_ALLOW;
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -591,7 +592,7 @@ do_http(thr_arg *arg)
             BIO_free_all(cl);
             return;
         }
-        SSL_set_app_data(ssl, &reneg_state);
+        SSL_set_app_data(ssl, &ssl_request);
         SSL_set_bio(ssl, cl, cl);
         if((bb = BIO_new(BIO_f_ssl())) == NULL) {
             logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());
@@ -927,6 +928,17 @@ do_http(thr_arg *arg)
                     clean_all();
                     return;
                 }
+		if (ssl_request.servername[0]) {
+		    if (!SSL_set_tlsext_host_name(be_ssl, ssl_request.servername)) {
+			logmsg(LOG_WARNING, "(%lx) could not set SNI header for backend to %s", pthread_self(), ssl_request.servername);
+                        err_reply(cl, h503, lstn->err503);
+                        free_headers(headers);
+                        clean_all();
+                        return;
+		    } else {
+			logmsg(LOG_DEBUG, "(%lx) Set SNI header for backend to %s", pthread_self(), ssl_request.servername);
+		    }
+		}
                 SSL_set_bio(be_ssl, be, be);
                 if((bb = BIO_new(BIO_f_ssl())) == NULL) {
                     logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());

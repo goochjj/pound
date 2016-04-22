@@ -1916,24 +1916,24 @@ thr_control(void *arg)
 void
 SSLINFO_callback(const SSL *ssl, int where, int rc)
 {
-    RENEG_STATE *reneg_state;
+    SSL_REQUEST *ssl_request;
 
     /* Get our thr_arg where we're tracking this connection info */
-    if((reneg_state = (RENEG_STATE *)SSL_get_app_data(ssl)) == NULL)
+    if((ssl_request = (SSL_REQUEST *)SSL_get_app_data(ssl)) == NULL)
         return;
 
     /* If we're rejecting renegotiations, move to ABORT if Client Hello is being read. */
-    if((where & SSL_CB_ACCEPT_LOOP) && *reneg_state == RENEG_REJECT) {
+    if((where & SSL_CB_ACCEPT_LOOP) && ssl_request->reneg_state == RENEG_REJECT) {
         int state;
 
         state = SSL_get_state(ssl);
         if (state == SSL3_ST_SR_CLNT_HELLO_A || state == SSL23_ST_SR_CLNT_HELLO_A) {
-           *reneg_state = RENEG_ABORT;
+           ssl_request->reneg_state = RENEG_ABORT;
            logmsg(LOG_WARNING,"rejecting client initiated renegotiation");
         }
-    } else if(where & SSL_CB_HANDSHAKE_DONE && *reneg_state == RENEG_INIT) {
+    } else if(where & SSL_CB_HANDSHAKE_DONE && ssl_request->reneg_state == RENEG_INIT) {
        // Reject any followup renegotiations
-       *reneg_state = RENEG_REJECT;
+       ssl_request->reneg_state = RENEG_REJECT;
     }
 }
 

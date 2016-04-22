@@ -445,6 +445,12 @@ typedef struct _thr_arg {
 /* Track SSL handshare/renegotiation so we can reject client-renegotiations. */
 typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STATE;
 
+typedef struct _ssl_request {
+    RENEG_STATE		reneg_state;
+    char		servername[MAXBUF];
+} SSL_REQUEST;
+
+
 /* Header types */
 #define HEADER_ILLEGAL              -1
 #define HEADER_OTHER                0
