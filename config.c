@@ -1075,6 +1075,22 @@ verify_OK(int pre_ok, X509_STORE_CTX *ctx)
 }
 
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
+/*
+ * Basic (insufficient) wildcard matching. Checks left-most DNS label only
+ * Only used if OpenSSL is older than 1.0.2
+ */
+static int
+SNI_match_name(const char *pattern, const char *name)
+{
+    const char *cp;
+
+    /* easy wildcard checking - check left-most DNS label only */
+    if (pattern[0] == '*' && pattern[1] && pattern[1] == '.')
+        return ((cp = strchr(name, '.')) != NULL && strcasecmp(pattern+1, cp) == 0);
+    else
+        return (strcasecmp(pattern, name) == 0);
+}
+
 static int
 SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
 {
@@ -1084,12 +1100,23 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
     if((server_name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name)) == NULL)
         return SSL_TLSEXT_ERR_NOACK;
 
-    /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", servername); */
+    /* logmsg(LOG_DEBUG, "Received SSL SNI Header for servername %s", server_name); */
 
     SSL_set_SSL_CTX(ssl, NULL);
+#if OPENSSL_VERSION_NUMBER >= 0x10002001L
+    X509   *x509;
     for(pc = ctx; pc; pc = pc->next) {
-        if(fnmatch(pc->server_name, server_name, 0) == 0) {
-            /* logmsg(LOG_DEBUG, "Found cert for %s", servername); */
+        if((x509 = SSL_CTX_get0_certificate(pc->ctx)) != NULL
+        && X509_check_host(x509, server_name, strlen(server_name), 0, NULL) == 1) {
+            /* logmsg(LOG_DEBUG, "Found cert for %s", server_name); */
+            SSL_set_SSL_CTX(ssl, pc->ctx);
+            return SSL_TLSEXT_ERR_OK;
+        }
+    }
+#else
+    for(pc = ctx; pc; pc = pc->next) {
+        if(SNI_match_name(pc->server_name, server_name)) {
+            /* logmsg(LOG_DEBUG, "Found cert for %s", server_name); */
             SSL_set_SSL_CTX(ssl, pc->ctx);
             return SSL_TLSEXT_ERR_OK;
         }
@@ -1097,13 +1124,14 @@ SNI_server_name(SSL *ssl, int *dummy, POUND_CTX *ctx)
             int i;
 
             for(i = 0; i < pc->subjectAltNameCount; i++) {
-                if(fnmatch(pc->subjectAltNames[i], server_name, 0) == 0) {
+                if(SNI_match_name(pc->subjectAltNames[i], server_name)) {
                     SSL_set_SSL_CTX(ssl, pc->ctx);
                     return SSL_TLSEXT_ERR_OK;
                 }
             }
         }
     }
+#endif
     
     /* logmsg(LOG_DEBUG, "No match for %s, default used", server_name); */
     SSL_set_SSL_CTX(ssl, ctx->ctx);
@@ -1541,6 +1569,7 @@ load_cert(int has_other, LISTENER *res, char *filename)
                 conf_err("SSL_CTX_use_PrivateKey_file failed - aborted");
             if(SSL_CTX_check_private_key(pc->ctx) != 1)
                 conf_err("SSL_CTX_check_private_key failed - aborted");
+#if OPENSSL_VERSION_NUMBER < 0x10002001L
             if((fcert = fopen(filename, "r")) == NULL)
                 conf_err("ListenHTTPS: could not open certificate file");
             if((x509 = PEM_read_X509(fcert, NULL, NULL, NULL)) == NULL)
@@ -1558,6 +1587,7 @@ load_cert(int has_other, LISTENER *res, char *filename)
                     conf_err("ListenHTTPS: could not set certificate subject");
             } else
                 conf_err("ListenHTTPS: could not get certificate CN");
+#endif
 #else
             /* no SNI support */
             if(has_other)
