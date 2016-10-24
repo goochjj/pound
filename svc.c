@@ -727,30 +727,6 @@ kill_be(SERVICE *const svc, const BACKEND *be, const int disable_mode)
 }
 
 /*
- * Update the number of requests and time to answer for a given back-end
- */
-void
-upd_be(SERVICE *const svc, BACKEND *const be, const double elapsed)
-{
-    int     ret_val;
-
-    if(svc->dynscale) {
-        if(ret_val = pthread_mutex_lock(&be->mut))
-            logmsg(LOG_WARNING, "upd_be() lock: %s", strerror(ret_val));
-        be->t_requests += elapsed;
-        if(++be->n_requests > RESCALE_MAX) {
-            /* scale it down */
-            be->n_requests /= 2;
-            be->t_requests /= 2;
-        }
-        be->t_average = be->t_requests / be->n_requests;
-        if(ret_val = pthread_mutex_unlock(&be->mut))
-            logmsg(LOG_WARNING, "upd_be() unlock: %s", strerror(ret_val));
-    }
-    return;
-}
-
-/*
  * Search for a host name, return the addrinfo for it
  */
 int
@@ -1265,140 +1241,6 @@ do_expire(void)
     return;
 }
 
-/*
- * Rescale back-end priorities if needed
- * runs every 5 minutes
- */
-static void
-do_rescale(void)
-{
-    LISTENER    *lstn;
-    SERVICE     *svc;
-    BACKEND     *be;
-    int         n, ret_val;
-    double      average, sq_average;
-
-    /* scale the back-end priorities */
-    for(lstn = listeners; lstn; lstn = lstn->next)
-    for(svc = lstn->services; svc; svc = svc->next) {
-        if(!svc->dynscale)
-            continue;
-        average = sq_average = 0.0;
-        n = 0;
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type || !be->alive || be->disabled)
-                continue;
-            if(ret_val = pthread_mutex_lock(&be->mut))
-                logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-            average += be->t_average;
-            sq_average += be->t_average * be->t_average;
-            if(ret_val = pthread_mutex_unlock(&be->mut))
-                logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-            n++;
-        }
-        if(n <= 1)
-            continue;
-        sq_average /= n;
-        average /= n;
-        sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
-        sq_average *= 3;    /* we only want things outside of 3 standard deviations */
-        if(ret_val = pthread_mutex_lock(&svc->mut)) {
-            logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
-            continue;
-        }
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type || !be->alive || be->disabled || be->n_requests < RESCALE_MIN)
-                continue;
-            if(be->t_average < (average - sq_average)) {
-                be->priority++;
-                if(ret_val = pthread_mutex_lock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-                while(be->n_requests > RESCALE_BOT) {
-                    be->n_requests /= 2;
-                    be->t_requests /= 2;
-                }
-                if(ret_val = pthread_mutex_unlock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-                svc->tot_pri++;
-            }
-            if(be->t_average > (average + sq_average) && be->priority > 1) {
-                be->priority--;
-                if(ret_val = pthread_mutex_lock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-                while(be->n_requests > RESCALE_BOT) {
-                    be->n_requests /= 2;
-                    be->t_requests /= 2;
-                }
-                if(ret_val = pthread_mutex_unlock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-                svc->tot_pri--;
-            }
-        }
-        if(ret_val = pthread_mutex_unlock(&svc->mut))
-            logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
-    }
-
-    for(svc = services; svc; svc = svc->next) {
-        if(!svc->dynscale)
-            continue;
-        average = sq_average = 0.0;
-        n = 0;
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type || !be->alive || be->disabled)
-                continue;
-            if(ret_val = pthread_mutex_lock(&be->mut))
-                logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-            average += be->t_average;
-            sq_average += be->t_average * be->t_average;
-            if(ret_val = pthread_mutex_unlock(&be->mut))
-                logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-            n++;
-        }
-        if(n <= 1)
-            continue;
-        sq_average /= n;
-        average /= n;
-        sq_average = sqrt(sq_average - average * average);  /* this is now the standard deviation */
-        sq_average *= 3;    /* we only want things outside of 3 standard deviations */
-        if(ret_val = pthread_mutex_lock(&svc->mut)) {
-            logmsg(LOG_WARNING, "thr_rescale() lock: %s", strerror(ret_val));
-            continue;
-        }
-        for(be = svc->backends; be; be = be->next) {
-            if(be->be_type || !be->alive || be->disabled || be->n_requests < RESCALE_MIN)
-                continue;
-            if(be->t_average < (average - sq_average)) {
-                be->priority++;
-                if(ret_val = pthread_mutex_lock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-                while(be->n_requests > RESCALE_BOT) {
-                    be->n_requests /= 2;
-                    be->t_requests /= 2;
-                }
-                if(ret_val = pthread_mutex_unlock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-                svc->tot_pri++;
-            }
-            if(be->t_average > (average + sq_average) && be->priority > 1) {
-                be->priority--;
-                if(ret_val = pthread_mutex_lock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() lock: %s", strerror(ret_val));
-                while(be->n_requests > RESCALE_BOT) {
-                    be->n_requests /= 2;
-                    be->t_requests /= 2;
-                }
-                if(ret_val = pthread_mutex_unlock(&be->mut))
-                    logmsg(LOG_WARNING, "do_rescale() unlock: %s", strerror(ret_val));
-                svc->tot_pri--;
-            }
-        }
-        if(ret_val = pthread_mutex_unlock(&svc->mut))
-            logmsg(LOG_WARNING, "thr_rescale() unlock: %s", strerror(ret_val));
-    }
-
-    return;
-}
-
 static pthread_mutex_t  RSA_mut;                    /* mutex for RSA keygen */
 static RSA              *RSA512_keys[N_RSA_KEYS];   /* ephemeral RSA keys */
 static RSA              *RSA1024_keys[N_RSA_KEYS];  /* ephemeral RSA keys */
@@ -1470,7 +1312,7 @@ DH_tmp_callback(/* not used */SSL *s, /* not used */int is_export, int keylength
 }
 #endif
 
-static time_t   last_RSA, last_rescale, last_alive, last_expire;
+static time_t   last_RSA, last_alive, last_expire;
 
 /*
  * initialise the timer functions:
@@ -1481,7 +1323,7 @@ init_timer(void)
 {
     int n;
 
-    last_RSA = last_rescale = last_alive = last_expire = time(NULL);
+    last_RSA = last_alive = last_expire = time(NULL);
 
     /*
      * Pre-generate ephemeral RSA keys
@@ -1512,7 +1354,6 @@ init_timer(void)
 /*
  * run timed functions:
  *  - RSAgen every T_RSA_KEYS seconds
- *  - rescale every RESCALE_TO seconds
  *  - resurect every alive_to seconds
  *  - expire every EXPIRE_TO seconds
  */
@@ -1525,8 +1366,6 @@ thr_timer(void *arg)
     n_wait = EXPIRE_TO;
     if(n_wait > alive_to)
         n_wait = alive_to;
-    if(n_wait > RESCALE_TO)
-        n_wait = RESCALE_TO;
     if(n_wait > T_RSA_KEYS)
         n_wait = T_RSA_KEYS;
     for(last_time = time(NULL) - n_wait;;) {
@@ -1537,10 +1376,6 @@ thr_timer(void *arg)
         if((last_time - last_RSA) >= T_RSA_KEYS) {
             last_RSA = time(NULL);
             do_RSAgen();
-        }
-        if((last_time - last_rescale) >= RESCALE_TO) {
-            last_rescale = time(NULL);
-            do_rescale();
         }
         if((last_time - last_alive) >= alive_to) {
             last_alive = time(NULL);

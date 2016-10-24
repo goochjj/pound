@@ -77,7 +77,7 @@ static regex_t  Empty, Comment, User, Group, RootJail, Daemon, LogFacility, LogL
 static regex_t  ListenHTTP, ListenHTTPS, End, Address, Port, Cert, xHTTP, Client, CheckURL;
 static regex_t  Err414, Err500, Err501, Err503, MaxRequest, HeadRemove, RewriteLocation, RewriteDestination;
 static regex_t  Service, ServiceName, URL, HeadRequire, HeadDeny, BackEnd, Emergency, Priority, HAport, HAportAddr;
-static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID, DynScale;
+static regex_t  Redirect, RedirectN, TimeOut, Session, Type, TTL, ID;
 static regex_t  ClientCert, AddHeader, DisableProto, SSLAllowClientRenegotiation, SSLHonorCipherOrder, Ciphers;
 static regex_t  CAlist, VerifyList, CRLlist, NoHTTPS11, Grace, Include, ConnTO, IgnoreCase, HTTPS;
 static regex_t  Disabled, Threads, CNName, Anonymise, ECDHCurve;
@@ -97,7 +97,6 @@ static int  def_facility = LOG_DAEMON;
 static int  clnt_to = 10;
 static int  be_to = 15;
 static int  be_connto = 15;
-static int  dynscale = 0;
 static int  ignore_case = 0;
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
 #ifndef OPENSSL_NO_ECDH
@@ -563,7 +562,6 @@ parse_service(const char *svc_name)
         conf_err("Service config: out of memory - aborted");
     memset(res, 0, sizeof(SERVICE));
     res->sess_type = SESS_NONE;
-    res->dynscale = dynscale;
     pthread_mutex_init(&res->mut, NULL);
     if(svc_name)
         strncpy(res->name, svc_name, KEY_SIZE);
@@ -688,8 +686,6 @@ parse_service(const char *svc_name)
             res->emergency = parse_be(1);
         } else if(!regexec(&Session, lin, 4, matches, 0)) {
             parse_sess(res);
-        } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
-            res->dynscale = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&IgnoreCase, lin, 4, matches, 0)) {
             ign_case = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Disabled, lin, 4, matches, 0)) {
@@ -1342,8 +1338,6 @@ parse_file(void)
             clnt_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&Alive, lin, 4, matches, 0)) {
             alive_to = atoi(lin + matches[1].rm_so);
-        } else if(!regexec(&DynScale, lin, 4, matches, 0)) {
-            dynscale = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&TimeOut, lin, 4, matches, 0)) {
             be_to = atoi(lin + matches[1].rm_so);
         } else if(!regexec(&ConnTO, lin, 4, matches, 0)) {
@@ -1481,7 +1475,6 @@ config_parse(const int argc, char **const argv)
     || regcomp(&Type, "^[ \t]*Type[ \t]+([^ \t]+)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&TTL, "^[ \t]*TTL[ \t]+([1-9-][0-9]*)[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ID, "^[ \t]*ID[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
-    || regcomp(&DynScale, "^[ \t]*DynScale[ \t]+([01])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&ClientCert, "^[ \t]*ClientCert[ \t]+([0-3])[ \t]+([1-9])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&AddHeader, "^[ \t]*AddHeader[ \t]+\"(.+)\"[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
     || regcomp(&SSLAllowClientRenegotiation, "^[ \t]*SSLAllowClientRenegotiation[ \t]+([012])[ \t]*$", REG_ICASE | REG_NEWLINE | REG_EXTENDED)
@@ -1651,7 +1644,6 @@ config_parse(const int argc, char **const argv)
     regfree(&Type);
     regfree(&TTL);
     regfree(&ID);
-    regfree(&DynScale);
     regfree(&ClientCert);
     regfree(&AddHeader);
     regfree(&SSLAllowClientRenegotiation);

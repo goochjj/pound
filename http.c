@@ -31,7 +31,8 @@
 static char *h500 = "500 Internal Server Error",
             *h501 = "501 Not Implemented",
             *h503 = "503 Service Unavailable",
-            *h414 = "414 Request URI too long";
+            *h414 = "414 Request URI too long",
+            *h400 = "Bad Request";
 
 static char *err_response = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nExpires: now\r\nPragma: no-cache\r\nCache-control: no-cache,no-store\r\n\r\n%s";
 
@@ -83,7 +84,7 @@ redirect_reply(BIO *const c, const char *url, const int code)
         safe_url, safe_url);
     snprintf(rep, sizeof(rep),
         "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
-        code, code_msg, safe_url, strlen(cont));
+        code, code_msg, safe_url, (int)strlen(cont));
     BIO_write(c, rep, strlen(rep));
     BIO_write(c, cont, strlen(cont));
     BIO_flush(c);
@@ -126,11 +127,11 @@ static int
 get_line(BIO *const in, char *const buf, const int bufsize)
 {
     char    tmp;
-    int     i, n_read;
+    int     i, n_read, seen_cr;
 
     memset(buf, 0, bufsize);
-    for(n_read = 0;;)
-        switch(BIO_gets(in, buf + n_read, bufsize - n_read - 1)) {
+    for(i = 0, seen_cr = 0; i < bufsize - 1; i++)
+        switch(BIO_read(in, &tmp, 1)) {
         case -2:
             /* BIO_gets not implemented */
             return -1;
@@ -138,24 +139,49 @@ get_line(BIO *const in, char *const buf, const int bufsize)
         case -1:
             return 1;
         default:
-            for(i = n_read; i < bufsize && buf[i]; i++)
-                if(buf[i] == '\n' || buf[i] == '\r') {
-                    buf[i] = '\0';
+            if(seen_cr)
+                if(tmp != '\n') {
+                    /* we have CR not followed by NL */
+                    do {
+                        if(BIO_read(in, &tmp, 1) < 0)
+                            return 1;
+                    } while(tmp != '\n');
+                    return 1;
+                } else {
+                    buf[i - 1] = '\0';
                     return 0;
                 }
-            if(i < bufsize) {
-                n_read = i;
+
+            if(!iscntrl(tmp) || tmp == '\t') {
+                buf[i] = tmp;
                 continue;
             }
-            logmsg(LOG_NOTICE, "(%lx) line too long: %s", pthread_self(), buf);
-            /* skip rest of "line" */
-            tmp = '\0';
-            while(tmp != '\n')
-                if(BIO_read(in, &tmp, 1) != 1)
+
+            if(tmp == '\r') {
+                seen_cr = 1;
+                continue;
+            }
+
+            if(tmp == '\n') {
+                /* line ends in NL only (no CR) */
+                buf[i] = 0;
+                return 0;
+            }
+
+            /* all other control characters cause an error */
+            do {
+                if(BIO_read(in, &tmp, 1) < 0)
                     return 1;
-            break;
+            } while(tmp != '\n');
+            return 1;
         }
-    return 0;
+
+    /* line too long */
+    do {
+        if(BIO_read(in, &tmp, 1) < 0)
+            return 1;
+    } while(tmp != '\n');
+    return 1;
 }
 
 /*
@@ -393,22 +419,16 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
 
     /* HTTP/1.1 allows leading CRLF */
     memset(buf, 0, MAXBUF);
-    while((res = BIO_gets(in, buf, MAXBUF - 1)) > 0) {
-        has_eol = strip_eol(buf);
+    while((res = get_line(in, buf, MAXBUF)) == 0)
         if(buf[0])
             break;
-    }
 
-    if(res <= 0) {
+    if(res < 0) {
         /* this is expected to occur only on client reads */
         /* logmsg(LOG_NOTICE, "headers: bad starting read"); */
         return NULL;
-    } else if(!has_eol) {
-        /* check for request length limit */
-        logmsg(LOG_WARNING, "(%lx) e414 headers: request URI too long", pthread_self());
-        err_reply(cl, h414, lstn->err414);
-        return NULL;
     }
+
     if((headers = (char **)calloc(MAXHEADERS, sizeof(char *))) == NULL) {
         logmsg(LOG_WARNING, "(%lx) e500 headers: out of memory", pthread_self());
         err_reply(cl, h500, lstn->err500);
@@ -426,8 +446,10 @@ get_headers(BIO *const in, BIO *const cl, const LISTENER *lstn)
     for(n = 1; n < MAXHEADERS; n++) {
         if(get_line(in, buf, MAXBUF)) {
             free_headers(headers);
+            /* this is not necessarily an error, EOF/timeout are possible
             logmsg(LOG_WARNING, "(%lx) e500 can't read header", pthread_self());
             err_reply(cl, h500, lstn->err500);
+            */
             return NULL;
         }
         if(!buf[0])
@@ -713,23 +735,39 @@ do_http(thr_arg *arg)
                     conn_closed = 1;
                 break;
             case HEADER_TRANSFER_ENCODING:
-                if(cont >= L0)
-                    headers_ok[n] = 0;
-                else if(!strcasecmp("chunked", buf))
-                    if(chunked)
-                        headers_ok[n] = 0;
-                    else
-                        chunked = 1;
+                if(!strcasecmp("chunked", buf))
+                    chunked = 1;
+                else {
+                    addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                    logmsg(LOG_NOTICE, "(%lx) e400 multiple Transfer-encoding \"%s\" from %s", pthread_self(), url, caddr);
+                    err_reply(cl, h400, "Bad request: multiple Transfer-encoding values");
+                    free_headers(headers);
+                    clean_all();
+                    return;
+                }
                 break;
             case HEADER_CONTENT_LENGTH:
-                if(chunked || cont >= 0L)
-                    headers_ok[n] = 0;
-                else {
-                     if((cont = ATOL(buf)) < 0L)
-                         headers_ok[n] = 0;
-                    if(is_rpc == 1 && (cont < 0x20000L || cont > 0x80000000L))
-                        is_rpc = -1;
+                if(cont != L_1 || strchr(buf, ',')) {
+                    addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                    logmsg(LOG_NOTICE, "(%lx) e400 multiple Content-length \"%s\" from %s", pthread_self(), url, caddr);
+                    err_reply(cl, h400, "Bad request: multiple Content-length values");
+                    free_headers(headers);
+                    clean_all();
+                    return;
                 }
+                for(mh = buf; *mh; mh++)
+                    if(!isdigit(*mh)) {
+                        addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                        logmsg(LOG_NOTICE, "(%lx) e400 Content-length bad value \"%s\" from %s", pthread_self(), url, caddr);
+                        err_reply(cl, h400, "Bad request: Content-length bad value");
+                        free_headers(headers);
+                        clean_all();
+                    return;
+                    }
+                if((cont = ATOL(buf)) < 0L)
+                    headers_ok[n] = 0;
+                if(is_rpc == 1 && (cont < 0x20000L || cont > 0x80000000L))
+                    is_rpc = -1;
                 break;
             case HEADER_EXPECT:
                 /*
@@ -785,6 +823,16 @@ do_http(thr_arg *arg)
                 *mh = '\0';
                 strcpy(u_name, buf);
             }
+        }
+
+        /* check for possible request smuggling attempt */
+        if(chunked != 0 && cont != L_1) {
+            addr2str(caddr, MAXBUF - 1, &from_host, 1);
+            logmsg(LOG_NOTICE, "(%lx) e501 Transfer-encoding and Content-length \"%s\" from %s", pthread_self(), url, caddr);
+            err_reply(cl, h400, "Bad request: Transfer-encoding and Content-length headers present");
+            free_headers(headers);
+            clean_all();
+            return;
         }
 
         /* possibly limited request size */
@@ -1553,7 +1601,6 @@ do_http(thr_arg *arg)
             }
         }
         end_req = cur_time();
-        upd_be(svc, cur_backend, end_req - start_req);
 
         /* log what happened */
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);

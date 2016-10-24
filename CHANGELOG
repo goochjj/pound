@@ -1,4 +1,15 @@
 ------------------------------------------------------------------------
+r82 | roseg | 2016-10-23 16:59:47 +0200 (Sun, 23 Oct 2016) | 8 lines
+
+Release 2.8a
+
+Enhancements:
+    - removed DynScale flag and support
+
+Bug fixes:
+    - fixed potential request smuggling via fudged headers
+
+------------------------------------------------------------------------
 r81 | roseg | 2015-01-26 17:47:53 +0100 (Mon, 26 Jan 2015) | 30 lines
 
 Release 2.7

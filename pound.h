@@ -368,7 +368,6 @@ typedef struct _service {
 #else
     LHASH               *sessions;  /* currently active sessions */
 #endif
-    int                 dynscale;   /* true if the back-ends should be dynamically rescaled */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
 }   SERVICE;
@@ -556,21 +555,6 @@ extern int  check_header(const char *, char *);
 extern void kill_be(SERVICE *const, const BACKEND *, const int);
 
 /*
- * Rescale back-end priorities if needed
- * runs every 5 minutes
- */
-#ifndef RESCALE_TO
-#define RESCALE_TO  300
-#endif
-
-/*
- * Dynamic rescaling constants
- */
-#define RESCALE_MAX 32000
-#define RESCALE_MIN 8000
-#define RESCALE_BOT 4000
-
-/*
  * Update the number of requests and time to answer for a given back-end
  */
 extern void upd_be(SERVICE *const svc, BACKEND *const be, const double);
@@ -630,7 +614,6 @@ extern void init_timer(void);
 /*
  * run timed functions:
  *  - RSAgen every T_RSA_KEYS seconds
- *  - rescale every RESCALE_TO seconds
  *  - resurrect every alive_to seconds
  *  - expire every EXPIRE_TO seconds
  */

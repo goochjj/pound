@@ -257,13 +257,6 @@ This value can be overridden for specific listeners.
 Ignore case when matching URLs (default: 0). This value can be
 overridden for specific services.
 .TP
-\fBDynScale\fR 0|1
-Enable or disable the dynamic rescaling code (default: 0). If enabled
-.B Pound
-will periodically try to modify the back-end priorities in order to
-equalise the response times from the various back-ends.
-This value can be overridden for specific services.
-.TP
 \fBAlive\fR value
 Specify how often
 .B Pound
@@ -609,10 +602,6 @@ if the listener defined a
 directive, the matching headers are removed
 .B before
 the service matching is attempted.
-.TP
-\fBDynScale\fR 0|1
-Enable or disable dynamic rescaling for the current service. This value will
-override the value globally defined.
 .TP
 \fBDisabled\fR 0|1
 Start
