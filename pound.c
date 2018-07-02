@@ -170,6 +170,7 @@ get_thr_arg(void)
 /*
  * get the current queue length
  */
+int
 get_thr_qlen(void)
 {
     int     res;

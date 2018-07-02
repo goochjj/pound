@@ -1529,10 +1529,6 @@ config_parse(const int argc, char **const argv)
             if(strcmp(C_SUPER, "0"))
                 logmsg(LOG_DEBUG, "    --disable-super");
 #endif
-#ifdef  C_CERT1L
-            if(strcmp(C_CERT1L, "1"))
-                logmsg(LOG_DEBUG, "    --enable-cert1l");
-#endif
 #ifdef  C_SSL
             if(strcmp(C_SSL, ""))
                 logmsg(LOG_DEBUG, "    --with-ssl=%s", C_SSL);
