@@ -32,7 +32,7 @@ static char *h500 = "500 Internal Server Error",
             *h501 = "501 Not Implemented",
             *h503 = "503 Service Unavailable",
             *h414 = "414 Request URI too long",
-            *h400 = "Bad Request";
+            *h400 = "400 Bad Request";
 
 static char *err_response = "HTTP/1.0 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nExpires: now\r\nPragma: no-cache\r\nCache-control: no-cache,no-store\r\n\r\n%s";
 
@@ -547,7 +547,7 @@ do_http(thr_arg *arg)
     BACKEND             *backend, *cur_backend, *old_backend;
     struct addrinfo     from_host, z_addr;
     struct sockaddr_storage from_host_addr;
-    BIO                 *cl, *be, *bb, *b64;
+    BIO                 *oldcl, *cl, *be, *bb, *b64;
     X509                *x509;
     char                request[MAXBUF], response[MAXBUF], buf[MAXBUF], url[MAXBUF], loc_path[MAXBUF], **headers,
                         headers_ok[MAXHEADERS], v_host[MAXBUF], referer[MAXBUF], u_agent[MAXBUF], u_name[MAXBUF],
@@ -556,6 +556,8 @@ do_http(thr_arg *arg)
     LONG                cont, res_bytes;
     regmatch_t          matches[4];
     struct linger       l;
+    struct tm           expires;
+    time_t              exptime;
     double              start_req, end_req;
     RENEG_STATE         reneg_state;
     BIO_ARG             ba1, ba2;
@@ -620,14 +622,21 @@ do_http(thr_arg *arg)
         }
         BIO_set_ssl(bb, ssl, BIO_CLOSE);
         BIO_set_ssl_mode(bb, 0);
+
+        oldcl = cl;
         cl = bb;
         if(BIO_do_handshake(cl) <= 0) {
-            /* no need to log every client without a certificate...
-            addr2str(caddr, MAXBUF - 1, &from_host, 1);
-            logmsg(LOG_NOTICE, "BIO_do_handshake with %s failed: %s", caddr,
-                ERR_error_string(ERR_get_error(), NULL));
-            x509 = NULL;
-            */
+            if ((ERR_GET_REASON(ERR_peek_error()) == SSL_R_HTTP_REQUEST)
+            && (ERR_GET_LIB(ERR_peek_error()) == ERR_LIB_SSL)) {
+                addr2str(caddr, MAXBUF - 1, &from_host, 1);
+                if (lstn->nossl_redir) {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s redirecting to \"%s\"", pthread_self(), caddr, lstn->nossl_url);
+                    redirect_reply(oldcl, lstn->nossl_url, lstn->nossl_redir);
+                } else {
+                    logmsg(LOG_NOTICE, "(%lx) errNoSsl from %s sending error", pthread_self(), caddr);
+                    err_reply(oldcl, h400, lstn->errnossl);
+                }
+            }
             BIO_reset(cl);
             BIO_free_all(cl);
             return;
@@ -1136,7 +1145,6 @@ do_http(thr_arg *arg)
                     clean_all();
                     return;
                 }
-#ifdef  CERT1L
                 PEM_write_bio_X509(bb, x509);
                 get_line(bb, buf, MAXBUF);
                 if(BIO_printf(be, "X-SSL-certificate: %s", buf) <= 0) {
@@ -1161,7 +1169,7 @@ do_http(thr_arg *arg)
                         return;
                     }
                 }
-                if(BIO_printf(be, "\r\n", buf) <= 0) {
+                if(BIO_printf(be, "\r\n") <= 0) {
                     str_be(buf, MAXBUF - 1, cur_backend);
                     end_req = cur_time();
                     logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-certificate to %s: %s (%.3f sec)",
@@ -1171,32 +1179,6 @@ do_http(thr_arg *arg)
                     clean_all();
                     return;
                 }
-#else
-                PEM_write_bio_X509(bb, x509);
-                get_line(bb, buf, MAXBUF);
-                if(BIO_printf(be, "X-SSL-certificate: %s\r\n", buf) <= 0) {
-                    str_be(buf, MAXBUF - 1, cur_backend);
-                    end_req = cur_time();
-                    logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-certificate to %s: %s (%.3f sec)",
-                        pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
-                    err_reply(cl, h500, lstn->err500);
-                    BIO_free_all(bb);
-                    clean_all();
-                    return;
-                }
-                while(get_line(bb, buf, MAXBUF) == 0) {
-                    if(BIO_printf(be, "\t%s\r\n", buf) <= 0) {
-                        str_be(buf, MAXBUF - 1, cur_backend);
-                        end_req = cur_time();
-                        logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-certificate to %s: %s (%.3f sec)",
-                            pthread_self(), buf, strerror(errno), (end_req - start_req) / 1000000.0);
-                        err_reply(cl, h500, lstn->err500);
-                        BIO_free_all(bb);
-                        clean_all();
-                        return;
-                    }
-                }
-#endif
                 BIO_free_all(bb);
             }
         }
@@ -1326,6 +1308,15 @@ do_http(thr_arg *arg)
             break;
         default:
             force_10 = 0;
+            if (lstn->forcehttp10) {
+                MATCHER *m;
+
+                for(m = lstn->forcehttp10; m; m = m->next)
+                    if(!regexec(&m->pat, u_agent, 0, NULL, 0)) {
+                        force_10 = 1;
+                        break;
+                    }
+            }
             break;
         }
 
@@ -1333,9 +1324,38 @@ do_http(thr_arg *arg)
         if(cur_backend->be_type) {
             memset(buf, 0, sizeof(buf));
             if(!cur_backend->redir_req)
-                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
-            else 
                 strncpy(buf, cur_backend->url, sizeof(buf) - 1);
+            else if (cur_backend->redir_req==1)
+                snprintf(buf, sizeof(buf) - 1, "%s%s", cur_backend->url, url);
+            else {
+                regmatch_t umtch[10];
+                char *chptr, *enptr, *srcptr;
+
+                // Redirect Dynamic
+                //fprintf(stderr, "redir dynamic url %s replace %s\n", url, cur_backend->url);
+
+                if(regexec(&svc->url->pat, url, 10, umtch, 0))
+                    logmsg(LOG_WARNING, "URL pattern didn't match in redirdynamic... shouldn't happen %s", url);
+                chptr = buf;
+                enptr = buf + sizeof(buf) - 1;
+                *enptr = '\0';
+                srcptr = cur_backend->url;
+                for(; *srcptr && chptr < enptr-1; ) {
+                    if (srcptr[0] == '$' && srcptr[1] == '$') {
+                        *chptr++ = *srcptr++;
+                        srcptr++;
+                    }
+                    if (srcptr[0] == '$' && isdigit(srcptr[1])) {
+                        if (chptr + umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so > enptr-1) break;
+                        memcpy(chptr, url + umtch[srcptr[1]-0x30].rm_so, umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so);
+                        chptr += umtch[srcptr[1]-0x30].rm_eo - umtch[srcptr[1]-0x30].rm_so;
+                        srcptr += 2;
+                        continue;
+                    }
+                    *chptr++ = *srcptr++;
+                }
+                *chptr++='\0';
+            }
             redirect_reply(cl, buf, cur_backend->be_type);
             addr2str(caddr, MAXBUF - 1, &from_host, 1);
             switch(lstn->log_level) {
@@ -1357,6 +1377,10 @@ do_http(thr_arg *arg)
             case 5:
                 logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\"", caddr,
                     u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, referer, u_agent);
+                break;
+            case 6:
+                logmsg(LOG_INFO, "%s - %s [%s] \"%s\" %d 0 \"%s\" \"%s\" \"%s\"", caddr,
+                    u_name[0]? u_name: "-", req_time, request, cur_backend->be_type, buf, referer, u_agent);
                 break;
             }
             if(!cl_11 || conn_closed || force_10)
@@ -1500,6 +1524,39 @@ do_http(thr_arg *arg)
                     }
                 }
             free_headers(headers);
+            if(!skip && cur_backend->be_type == 0 && svc->becookie && cur_backend->bekey) {
+                char *cp = buf;
+                char *ep = buf + sizeof(buf) - 1;
+                buf[0] = '\0';
+                snprintf(cp, (ep-cp-1), "Set-Cookie: %s=%s", svc->becookie, cur_backend->bekey);
+                cp += strlen(cp);
+                if(svc->becage!=0) {
+                    strncat(cp, "; expires=", ep-cp-1);
+                    cp += strlen(cp);
+                    exptime = time(NULL);
+                    /* Explicit age?  Or match session timer? (-1) */
+                    if (svc->becage>0)
+                        exptime += svc->becage;
+                    else
+                        exptime += svc->sess_ttl;
+                    strftime(cp, ep-cp-1, "%a, %e-%b-%Y %H:%M:%S GMT", gmtime(&exptime));
+                    cp += strlen(cp);
+                }
+                if(svc->becpath) {
+                    strncat(cp, "; path=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becpath, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                if(svc->becdomain) {
+                    strncat(cp, "; domain=", ep-cp-1);
+                    cp += strlen(cp);
+                    strncat(cp, svc->becdomain, ep-cp-1);
+                    cp += strlen(cp);
+                }
+                /*logmsg(LOG_DEBUG, "%s", buf);*/
+                BIO_printf(cl, "%s\r\n", buf);
+            }
 
             /* final CRLF */
             if(!skip)
@@ -1669,7 +1726,21 @@ do_http(thr_arg *arg)
     /*
      * This may help with some versions of IE with a broken channel shutdown
      */
-    if(ssl != NULL)
+    if(lstn && lstn->ssl_uncln_shutdn && ssl != NULL) {
+        MATCHER *m;
+        int found = 0;
+
+        for(m = lstn->ssl_uncln_shutdn; m; m = m->next)
+            if(!regexec(&m->pat, u_agent, 0, NULL, 0)) {
+                found = 1;
+                break;
+            }
+
+        if(found)
+            SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
+        else
+            SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN);
+    } else if(ssl != NULL)
         SSL_set_shutdown(ssl, SSL_SENT_SHUTDOWN | SSL_RECEIVED_SHUTDOWN);
 
     clean_all();
@@ -1677,7 +1748,19 @@ do_http(thr_arg *arg)
 }
 
 void *
-thr_http(void *dummy)
+thr_http_single(void *dummy)
+{
+    thr_arg *arg;
+
+    arg = (thr_arg *)dummy;
+    if (arg == NULL)
+        logmsg(LOG_NOTICE, "NULL get_thr_arg");
+    else
+        do_http(arg);
+}
+
+void *
+thr_http_pool(void *dummy)
 {
     thr_arg *arg;
 

@@ -32,7 +32,11 @@ char        *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
-            *ctrl_name;         /* control socket name */
+            *ctrl_name,         /* control socket name */
+            *ctrl_user,         /* control socket username */
+            *ctrl_group;        /* control socket group name */
+
+long        ctrl_mode;          /* octal mode of the control socket */
 
 int         alive_to,           /* check interval for resurrection */
             anonymise,          /* anonymise client address */
@@ -111,7 +115,7 @@ l_id(void)
 static thr_arg          *first = NULL, *last = NULL;
 static pthread_cond_t   arg_cond;
 static pthread_mutex_t  arg_mut;
-int                     numthreads;
+int                     numthreads, threadpool;
 
 static void
 init_thr_arg(void)
@@ -121,6 +125,20 @@ init_thr_arg(void)
     return;
 }
 
+thr_arg *
+get_dyn_thr_arg(thr_arg *arg)
+{
+    thr_arg *res;
+
+    if((res = malloc(sizeof(thr_arg))) == NULL) {
+        logmsg(LOG_WARNING, "thr_arg malloc");
+        return NULL;
+    }
+    memcpy(res, arg, sizeof(thr_arg));
+    res->next = NULL;
+    return res;
+}
+
 /*
  * add a request to the queue
  */
@@ -128,13 +146,8 @@ int
 put_thr_arg(thr_arg *arg)
 {
     thr_arg *res;
-
-    if((res = malloc(sizeof(thr_arg))) == NULL) {
-        logmsg(LOG_WARNING, "thr_arg malloc");
+    if ((res = get_dyn_thr_arg(arg))==NULL)
         return -1;
-    }
-    memcpy(res, arg, sizeof(thr_arg));
-    res->next = NULL;
     (void)pthread_mutex_lock(&arg_mut);
     if(last == NULL)
         first = last = res;
@@ -143,7 +156,7 @@ put_thr_arg(thr_arg *arg)
         last = last->next;
     }
     (void)pthread_mutex_unlock(&arg_mut);
-    pthread_cond_signal(&arg_cond);
+    if (threadpool) pthread_cond_signal(&arg_cond);
     return 0;
 }
 
@@ -156,13 +169,12 @@ get_thr_arg(void)
     thr_arg *res;
 
     (void)pthread_mutex_lock(&arg_mut);
-    if(first == NULL)
+    while((res = first) == NULL)
         (void)pthread_cond_wait(&arg_cond, &arg_mut);
-    if((res = first) != NULL)
-        if((first = first->next) == NULL)
-            last = NULL;
+    if((first = first->next) == NULL)
+        last = NULL;
     (void)pthread_mutex_unlock(&arg_mut);
-    if(first != NULL)
+    if(res->next != NULL)
         pthread_cond_signal(&arg_cond);
     return res;
 }
@@ -170,6 +182,7 @@ get_thr_arg(void)
 /*
  * get the current queue length
  */
+int
 get_thr_qlen(void)
 {
     int     res;
@@ -246,6 +259,8 @@ main(const int argc, char **argv)
     print_log = 0;
     (void)umask(077);
     control_sock = -1;
+    ctrl_user=ctrl_group=NULL;
+    ctrl_mode = -1;
     log_facility = -1;
     logmsg(LOG_NOTICE, "starting...");
 
@@ -324,6 +339,35 @@ main(const int argc, char **argv)
         if(bind(control_sock, (struct sockaddr *)&ctrl, (socklen_t)sizeof(ctrl)) < 0) {
             logmsg(LOG_ERR, "Control \"%s\" bind: %s", ctrl.sun_path, strerror(errno));
             exit(1);
+        }
+        if (ctrl_user) {
+            struct passwd   *pw;
+
+            if((pw = getpwnam(ctrl_user)) == NULL) {
+                logmsg(LOG_ERR, "no such user %s - aborted", ctrl_user);
+                exit(1);
+            }
+            if (chown(ctrl_name, pw->pw_uid, -1)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (ctrl_group) {
+            struct group    *gr;
+            if((gr = getgrnam(ctrl_group)) == NULL) {
+                logmsg(LOG_ERR, "no such group %s - aborted", ctrl_group);
+                exit(1);
+            }
+            if (chown(ctrl_name, -1, gr->gr_gid)) {
+                logmsg(LOG_ERR, "chown error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
+        }
+        if (ctrl_mode>0) {
+            if (chmod(ctrl_name, ctrl_mode)) {
+                logmsg(LOG_ERR, "chmod error on control socket - aborted (%s)", strerror(errno));
+                exit(1);
+            }
         }
         listen(control_sock, 512);
     }
@@ -474,12 +518,14 @@ main(const int argc, char **argv)
             /* pause to make sure the service threads were started */
             sleep(1);
 
-            /* create the worker threads */
-            for(i = 0; i < numthreads; i++)
-                if(pthread_create(&thr, &attr, thr_http, NULL)) {
-                    logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
-                    exit(1);
-                }
+            if (threadpool) {
+                /* create the worker threads */
+                for(i = 0; i < numthreads; i++)
+                    if(pthread_create(&thr, &attr, thr_http_pool, NULL)) {
+                        logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
+                        exit(1);
+                    }
+            }
 
             /* pause to make sure at least some of the worker threads were started */
             sleep(1);
@@ -514,7 +560,7 @@ main(const int argc, char **argv)
                                 logmsg(LOG_WARNING, "HTTP accept: %s", strerror(errno));
                             } else if(((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET
                                    || ((struct sockaddr_in *)&clnt_addr)->sin_family == AF_INET6) {
-                                thr_arg arg;
+                                thr_arg arg, *argp;
 
                                 if(lstn->disabled) {
                                     /*
@@ -536,8 +582,19 @@ main(const int argc, char **argv)
                                     arg.from_host.ai_family = AF_INET;
                                 else
                                     arg.from_host.ai_family = AF_INET6;
-                                if(put_thr_arg(&arg))
-                                    close(clnt);
+                                if(threadpool) {
+                                    if(put_thr_arg(&arg))
+                                        close(clnt);
+                                } else {
+                                    if((argp = get_dyn_thr_arg(&arg)) == NULL)
+                                        close(clnt);
+                                    else if(pthread_create(&thr, &attr, thr_http_single, (void*)argp)) {
+                                        logmsg(LOG_ERR, "create thr_http: %s - aborted", strerror(errno));
+                                        free(argp->from_host.ai_addr);
+                                        free(argp);
+                                        close(clnt);
+                                    }
+                                }
                             } else {
                                 /* may happen on FreeBSD, I am told */
                                 logmsg(LOG_WARNING, "HTTP connection prematurely closed by peer");

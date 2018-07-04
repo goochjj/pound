@@ -286,8 +286,14 @@ addr2str(char *const res, const int res_len, const struct addrinfo *addr, const 
     case AF_INET6:
         src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr;
         port = ntohs(((struct sockaddr_in6 *)addr->ai_addr)->sin6_port);
-        if(inet_ntop(AF_INET6, src, buf, MAXBUF - 1) == NULL)
-            strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        if( IN6_IS_ADDR_V4MAPPED( &(((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr) )) {
+            src = (void *)&((struct sockaddr_in6 *)addr->ai_addr)->sin6_addr.s6_addr[12];
+            if(inet_ntop(AF_INET, src, buf, MAXBUF - 1) == NULL)
+                strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        } else {
+            if(inet_ntop(AF_INET6, src, buf, MAXBUF - 1) == NULL)
+                strncpy(buf, "(UNKNOWN)", MAXBUF - 1);
+        }
         break;
     case AF_UNIX:
         strncpy(buf, (char *)addr->ai_addr, MAXBUF - 1);
@@ -409,9 +415,6 @@ check_header(const char *header, char *const content)
                 return hd_types[i].val;
             }
         return HEADER_OTHER;
-    } else if(header[0] == ' ' || header[0] == '\t') {
-        *content = '\0';
-        return HEADER_OTHER;
     } else
         return HEADER_ILLEGAL;
 }
@@ -524,6 +527,27 @@ get_HEADERS(char *res, const SERVICE *svc, char **const headers)
     return res[0] != '\0';
 }
 
+static int
+get_bekey_from_HEADERS(char *res, const SERVICE *svc, char **const headers)
+{
+    int         i, n, s;
+    regmatch_t  matches[4];
+
+    res[0] = '\0';
+    if (!svc->becookie) return res[0] != '\0';
+    for(i = 0; i < (MAXHEADERS - 1); i++) {
+        if(headers[i] == NULL)
+            continue;
+        if(regexec(&svc->becookie_re, headers[i], 4, matches, 0))
+            continue;
+        if((n = matches[1].rm_eo - matches[1].rm_so) > KEY_SIZE)
+            n = KEY_SIZE;
+        strncpy(res, headers[i] + matches[1].rm_so, n);
+        res[n] = '\0';
+    }
+    return res[0] != '\0';
+}
+
 /*
  * Pick a random back-end from a candidate list
  */
@@ -541,6 +565,17 @@ rand_backend(BACKEND *be, int pri)
     }
     return be;
 }
+
+static BACKEND *
+get_backend_by_key(BACKEND *be, const char *bekey) {
+    if (!bekey || !*bekey) return NULL;
+    while(be) {
+        if(be->bekey && strcmp(be->bekey, bekey)==0) return be;
+        be = be->next;
+    }
+    return NULL;
+}
+
 
 /*
  * return a back-end based on a fixed hash value
@@ -585,6 +620,7 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
 {
     BACKEND     *res;
     char        key[KEY_SIZE + 1];
+    char        bekey[KEY_SIZE + 1];
     int         ret_val, no_be;
     void        *vp;
 
@@ -593,21 +629,32 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
 
     no_be = (svc->tot_pri <= 0);
 
+    key[0]='\0';
+    bekey[0]='\0';
     switch(svc->sess_type) {
     case SESS_NONE:
         /* choose one back-end randomly */
-        res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
+        if (no_be) res = svc->emergency;
+        else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+            logmsg(LOG_DEBUG, "Found BEKEY %s in headers",bekey);
+            res = get_backend_by_key(svc->backends, bekey);
+            if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey");
+        } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         break;
     case SESS_IP:
         addr2str(key, KEY_SIZE, from_host, 1);
-        if(svc->sess_ttl < 0)
+        if(svc->sess_ttl < 0) {
             res = no_be? svc->emergency: hash_backend(svc->backends, svc->abs_pri, key);
-        else if((vp = t_find(svc->sessions, key)) == NULL) {
+        } else if((vp = t_find(svc->sessions, key)) == NULL) {
             if(no_be)
                 res = svc->emergency;
             else {
                 /* no session yet - create one */
-                res = rand_backend(svc->backends, random() % svc->tot_pri);
+                if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                    logmsg(LOG_DEBUG, "Found BEKEY %s in headers",bekey);
+                    res = get_backend_by_key(svc->backends, bekey);
+                    if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey");
+                } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                 t_add(svc->sessions, key, &res, sizeof(res));
             }
         } else
@@ -623,7 +670,11 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     /* no session yet - create one */
-                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                        logmsg(LOG_DEBUG,"Found BEKEY %s in headers",bekey);
+                        res = get_backend_by_key(svc->backends, bekey);
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey");
+                    } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     t_add(svc->sessions, key, &res, sizeof(res));
                 }
             } else
@@ -642,13 +693,22 @@ get_backend(SERVICE *const svc, const struct addrinfo *from_host, const char *re
                     res = svc->emergency;
                 else {
                     /* no session yet - create one */
-                    res = rand_backend(svc->backends, random() % svc->tot_pri);
+                    if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                        logmsg(LOG_DEBUG, "Found BEKEY %s in headers",bekey);
+                        res = get_backend_by_key(svc->backends, bekey);
+                        if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else printf("found matching backend by bekey");
+                    } else res = rand_backend(svc->backends, random() % svc->tot_pri);
                     t_add(svc->sessions, key, &res, sizeof(res));
                 }
             } else
                 memcpy(&res, vp, sizeof(res));
         } else {
-            res = no_be? svc->emergency: rand_backend(svc->backends, random() % svc->tot_pri);
+            if (no_be) res = svc->emergency;
+            else if (get_bekey_from_HEADERS(bekey, svc, headers)) {
+                logmsg(LOG_DEBUG, "Found BEKEY %s in headers",bekey);
+                res = get_backend_by_key(svc->backends, bekey);
+                if (res==NULL || !res->alive ) res = rand_backend(svc->backends, random() % svc->tot_pri); else logmsg(LOG_DEBUG, "found matching backend by bekey");
+            } else res = rand_backend(svc->backends, random() % svc->tot_pri);
         }
         break;
     }
@@ -1502,7 +1562,7 @@ thr_control(void *arg)
 {
     CTRL_CMD        cmd;
     struct sockaddr sa;
-    int             ctl, dummy, n, ret_val;
+    int             ctl, dummy, n, ret_val, sz;
     LISTENER        *lstn, dummy_lstn;
     SERVICE         *svc, dummy_svc;
     BACKEND         *be, dummy_be;
@@ -1549,6 +1609,9 @@ thr_control(void *arg)
                     (void)write(ctl, (void *)svc, sizeof(SERVICE));
                     for(be = svc->backends; be; be = be->next) {
                         (void)write(ctl, (void *)be, sizeof(BACKEND));
+                        sz = be->bekey?strlen(be->bekey):0;
+                        (void)write(ctl, (void *)&sz, sizeof(sz));
+                        if(sz>0) (void)write(ctl, (void *)be->bekey, sz);
                         (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                         if(be->ha_addr.ai_addrlen > 0)
                             (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
@@ -1570,6 +1633,9 @@ thr_control(void *arg)
                 (void)write(ctl, (void *)svc, sizeof(SERVICE));
                 for(be = svc->backends; be; be = be->next) {
                     (void)write(ctl, (void *)be, sizeof(BACKEND));
+                    sz = be->bekey?strlen(be->bekey):0;
+                    (void)write(ctl, (void *)&sz, sizeof(sz));
+                    if(sz>0) (void)write(ctl, (void *)be->bekey, sz);
                     (void)write(ctl, be->addr.ai_addr, be->addr.ai_addrlen);
                     if(be->ha_addr.ai_addrlen > 0)
                         (void)write(ctl, be->ha_addr.ai_addr, be->ha_addr.ai_addrlen);
@@ -1656,6 +1722,21 @@ thr_control(void *arg)
             if(ret_val = pthread_mutex_unlock(&svc->mut))
                 logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
             break;
+        case CTRL_FLUSH_SESS:
+            if((svc = sel_svc(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad service %d/%d", cmd.listener, cmd.service);
+                break;
+            }
+            if((be = sel_be(&cmd)) == NULL) {
+                logmsg(LOG_INFO, "thr_control() bad backend %d/%d/%d", cmd.listener, cmd.service, cmd.backend);
+                break;
+            }
+            if(ret_val = pthread_mutex_lock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session lock: %s", strerror(ret_val));
+            t_clean(svc->sessions, &be, sizeof(be));
+            if(ret_val = pthread_mutex_unlock(&svc->mut))
+                logmsg(LOG_WARNING, "thr_control() del session unlock: %s", strerror(ret_val));
+            break;
         default:
             logmsg(LOG_WARNING, "thr_control() unknown command");
             break;
@@ -1687,3 +1768,19 @@ SSLINFO_callback(const SSL *ssl, int where, int rc)
        *reneg_state = RENEG_REJECT;
     }
 }
+
+DH *load_dh_params(char *file)
+{
+        DH *dh = NULL;
+        BIO *bio;
+
+        if ((bio = BIO_new_file(file, "r")) == NULL) {
+            logmsg(LOG_WARNING, "Unable to open DH file - %s" ,file);
+            return NULL;
+        }
+
+        dh = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+        BIO_free(bio);
+        return dh;
+}
+

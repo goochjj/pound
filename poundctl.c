@@ -37,10 +37,11 @@ usage(const char *arg0)
     fprintf(stderr, "\twhere cmd is one of:\n");
     fprintf(stderr, "\t-L n - enable listener n\n");
     fprintf(stderr, "\t-l n - disable listener n\n");
-    fprintf(stderr, "\t-S n m - enable service m in service n (use -1 for global services)\n");
-    fprintf(stderr, "\t-s n m - disable service m in service n (use -1 for global services)\n");
+    fprintf(stderr, "\t-S n m - enable service m in listener n (use -1 for global services)\n");
+    fprintf(stderr, "\t-s n m - disable service m in listener n (use -1 for global services)\n");
     fprintf(stderr, "\t-B n m r - enable back-end r in service m in listener n\n");
     fprintf(stderr, "\t-b n m r - disable back-end r in service m in listener n\n");
+    fprintf(stderr, "\t-f n m r - flush all sessions for back-end r in service m in listener n\n");
     fprintf(stderr, "\t-N n m k r - add a session with key k and back-end r in service m in listener n\n");
     fprintf(stderr, "\t-n n m k - remove a session with key k r in service m in listener n\n");
     fprintf(stderr, "\n");
@@ -101,12 +102,19 @@ be_prt(const int sock)
 {
     BACKEND be;
     struct  sockaddr_storage    a, h;
-    int     n_be;
+    char    bekey[MAXBUF+1];
+    int     n_be,sz;
 
     n_be = 0;
     while(read(sock, (void *)&be, sizeof(BACKEND)) == sizeof(BACKEND)) {
         if(be.disabled < 0)
             break;
+
+        read(sock, &sz, sizeof(sz));
+        if(sz) read(sock, bekey, sz);
+        bekey[sz]='\0';
+        be.bekey=bekey;
+
         read(sock, &a, be.addr.ai_addrlen);
         be.addr.ai_addr = (struct sockaddr *)&a;
         if(be.ha_addr.ai_addrlen > 0) {
@@ -114,8 +122,8 @@ be_prt(const int sock)
             be.ha_addr.ai_addr = (struct sockaddr *)&h;
         }
         if(xml_out)
-            printf("<backend index=\"%d\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
-                n_be++,
+            printf("<backend index=\"%d\" key=\"%s\" address=\"%s\" avg=\"%.3f\" priority=\"%d\" alive=\"%s\" status=\"%s\" />\n",
+                n_be++, be.bekey,
                 prt_addr(&be.addr), be.t_average / 1000000, be.priority, be.alive? "yes": "DEAD",
                 be.disabled? "DISABLED": "active");
         else
@@ -216,7 +224,7 @@ main(const int argc, char **argv)
     CTRL_CMD    cmd;
     int         sock, n_lstn, n_svc, n_be, n_sess, i;
     char        *arg0, *sock_name, buf[KEY_SIZE + 1];
-    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, is_set;
+    int         c_opt, en_lst, de_lst, en_svc, de_svc, en_be, de_be, a_sess, d_sess, f_sess, is_set;
     LISTENER    lstn;
     SERVICE     svc;
     BACKEND     be;
@@ -225,7 +233,7 @@ main(const int argc, char **argv)
 
     arg0 = *argv;
     sock_name = NULL;
-    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = 0;
+    en_lst = de_lst = en_svc = de_svc = en_be = de_be = is_set = a_sess = d_sess = f_sess = 0;
     memset(&cmd, 0, sizeof(cmd));
     opterr = 0;
     i = 0;
@@ -276,6 +284,11 @@ main(const int argc, char **argv)
             if(is_set)
                 usage(arg0);
             d_sess = is_set = 1;
+            break;
+        case 'f':
+            if(is_set)
+                usage(arg0);
+            f_sess = is_set = 1;
             break;
         case 'H':
             host_names = 1;
@@ -331,6 +344,14 @@ main(const int argc, char **argv)
         cmd.listener = atoi(argv[optind++]);
         cmd.service = atoi(argv[optind++]);
         strncpy(cmd.key, argv[optind++], KEY_SIZE);
+    }
+    if(f_sess) {
+        if(optind != (argc - 3))
+            usage(arg0);
+        cmd.cmd = CTRL_FLUSH_SESS;
+        cmd.listener = atoi(argv[optind++]);
+        cmd.service = atoi(argv[optind++]);
+        cmd.backend = atoi(argv[optind++]);
     }
     if(!is_set) {
         if(optind != argc)

@@ -29,6 +29,7 @@
 #include    <stdio.h>
 #include    <math.h>
 
+#include    <dirent.h>
 #if HAVE_STDLIB_H
 #include    <stdlib.h>
 #else
@@ -264,10 +265,16 @@ extern char *user,              /* user to run as */
             *group,             /* group to run as */
             *root_jail,         /* directory to chroot to */
             *pid_name,          /* file to record pid in */
-            *ctrl_name;         /* control socket name */
+            *ctrl_name,         /* control socket name */
+            *ctrl_user,         /* control socket username */
+            *ctrl_group;        /* control socket group name */
+
+extern long ctrl_mode;          /* octal mode of the control socket */
 
 extern int  numthreads,         /* number of worker threads */
             anonymise,          /* anonymise client address */
+            threadpool,         /* 1 to use a threadpool (i.e. 2.6 behavior)
+                                   0 to use new thread per request (2.5 behavior) */
             alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -321,7 +328,8 @@ typedef struct _backend {
     int                 conn_to;    /* connection time-out */
     struct addrinfo     ha_addr;    /* HA address/port */
     char                *url;       /* for redirectors */
-    int                 redir_req;  /* the redirect should include the request path */
+    int                 redir_req;  /* 0 - redirect is absolute, 1 - the redirect should include the request path, or 2 if it should use perl dynamic replacement */
+    char                *bekey;     /* Backend Key for Cookie */
     SSL_CTX             *ctx;       /* CTX for SSL connections */
     pthread_mutex_t     mut;        /* mutex for this back-end */
     int                 n_requests; /* number of requests seen */
@@ -368,6 +376,11 @@ typedef struct _service {
 #else
     LHASH               *sessions;  /* currently active sessions */
 #endif
+    regex_t             becookie_re;/* Regexs to find backend cookies */
+    char                *becookie,  /* Backend Cookie Name */
+                        *becdomain, /* Backend Cookie domain */
+                        *becpath;   /* Backend cookie path */
+    int                 becage;     /* Backend cookie age */
     int                 disabled;   /* true if the service is disabled */
     struct _service     *next;
 }   SERVICE;
@@ -391,6 +404,8 @@ typedef struct _listener {
     POUND_CTX           *ctx;               /* CTX for SSL connections */
     int                 clnt_check;         /* client verification mode */
     int                 noHTTPS11;          /* HTTP 1.1 mode for SSL */
+    MATCHER             *forcehttp10;       /* User Agent Patterns to force HTTP 1.0 mode */
+    MATCHER             *ssl_uncln_shutdn;  /* User Agent Patterns to enable ssl unclean shutdown */
     char                *add_head;          /* extra SSL header */
     regex_t             verb;               /* pattern to match the request verb against */
     int                 to;                 /* client time-out */
@@ -399,7 +414,10 @@ typedef struct _listener {
     char                *err414,            /* error messages */
                         *err500,
                         *err501,
-                        *err503;
+                        *err503,
+                        *errnossl;
+    char                *nossl_url;         /* If a user goes to a https port with a http: url, redirect them to this url */
+    int                 nossl_redir;        /* Code to use for redirect (301 302 307)*/
     LONG                max_req;            /* max. request size */
     MATCHER             *head_off;          /* headers to remove */
     int                 rewr_loc;           /* rewrite location response */
@@ -447,7 +465,7 @@ typedef enum    {
     CTRL_EN_LSTN, CTRL_DE_LSTN,
     CTRL_EN_SVC, CTRL_DE_SVC,
     CTRL_EN_BE, CTRL_DE_BE,
-    CTRL_ADD_SESS, CTRL_DEL_SESS
+    CTRL_ADD_SESS, CTRL_DEL_SESS, CTRL_FLUSH_SESS
 }   CTRL_CODE;
 
 typedef struct  {
@@ -486,12 +504,13 @@ extern thr_arg  *get_thr_arg(void);
 /*
  * get the current queue length
  */
-extern  get_thr_qlen(void);
+extern int get_thr_qlen(void);
 
 /*
  * handle an HTTP request
  */
-extern void *thr_http(void *);
+extern void *thr_http_single(void *);
+extern void *thr_http_pool(void *);
 
 /*
  * Log an error to the syslog or to stderr
@@ -582,6 +601,11 @@ extern void config_parse(const int, char **const);
  * return a pre-generated RSA key
  */
 extern RSA  *RSA_tmp_callback(SSL *, int, int);
+
+/*
+ * handle custom DH keys
+ */
+extern DH   *load_dh_params(char *);
 
 /*
  * return a pre-generated RSA key
